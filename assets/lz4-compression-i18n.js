@@ -186,6 +186,7 @@
     'status.compressed': 'compressed',
     'status.unavailable': 'unavailable',
     'status.notMounted': 'not mounted',
+    'status.onDemand': 'mounts when played',
     'status.aprOriginal': 'APR original',
     'status.aprCustom': 'APR custom',
     'status.aprVersion': 'APR v{version}',

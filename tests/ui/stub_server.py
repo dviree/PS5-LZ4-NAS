@@ -30,7 +30,7 @@ GAMES = [
     game(titleId='PPSA02222', name='Gran Turismo 7', sourceKind='compressed', sourcePath='/data/homebrew/PPSA02222.ffpfsc',
          outputPath='/data/homebrew/PPSA02222.ffpfsc', storage='internal', canMoveToInternal=False, compressedSize=60 * G),
     game(titleId='PPSA03333', name='Returnal', sourceKind='image', sourcePath='/mnt/ext1/homebrew/PPSA03333.exfat',
-         outputPath='/mnt/ext1/homebrew/PPSA03333.ffpfsc', storage='ext1'),
+         outputPath='/mnt/ext1/homebrew/PPSA03333.ffpfsc', storage='ext1', isMounted=False, mountStatus='on-demand'),
 ] + [game(titleId='PPSA9%04d' % i, name='Test Game %d' % i, sourceKind='folder', sourcePath='/data/homebrew/PPSA9%04d' % i,
           outputPath='/data/homebrew/PPSA9%04d.ffpfsc' % i, storage='internal', canMoveToInternal=False) for i in range(1, 9)]
 COLORS = [(214, 64, 52), (40, 110, 220), (240, 170, 30), (30, 160, 110), (140, 70, 200), (220, 80, 150), (60, 180, 200), (120, 120, 130)]

@@ -1077,6 +1077,67 @@ done:
   return rc;
 }
 
+/* Drops manual.lst lines naming source_path, so a deleted game isn't kept
+ * as a ShadowMountPlus source. A missing manual.lst is fine. */
+int
+lzc_shadowmount_manual_remove_source(const char *source_path, char *err,
+                                     size_t err_size) {
+  FILE *in = NULL;
+  FILE *out = NULL;
+  char line[PATH_MAX + 8];
+  int removed = 0;
+  int rc = -1;
+
+  if(err && err_size) err[0] = 0;
+  if(!source_path || source_path[0] != '/') return 0;
+  in = fopen(SHADOWMOUNT_MANUAL_LIST, "r");
+  if(!in) {
+    if(errno == ENOENT) return 0;
+    set_errno_err(err, err_size, "open ShadowMount manual.lst");
+    return -1;
+  }
+  out = fopen(SHADOWMOUNT_MANUAL_LIST_TMP, "w");
+  if(!out) {
+    set_errno_err(err, err_size, "open ShadowMount manual temp");
+    goto done;
+  }
+  while(fgets(line, sizeof(line), in)) {
+    if(manual_list_line_matches_path(line, source_path)) {
+      removed++;
+      continue;
+    }
+    if(line[0] == 0) continue;
+    if(fprintf(out, "%s\n", line) < 0) {
+      set_errno_err(err, err_size, "write ShadowMount manual source");
+      goto done;
+    }
+  }
+  if(ferror(in)) {
+    set_errno_err(err, err_size, "read ShadowMount manual.lst");
+    goto done;
+  }
+  if(!removed) {
+    rc = 0;
+    goto done;
+  }
+  if(replace_shadowmount_temp(&out, SHADOWMOUNT_MANUAL_LIST_TMP,
+                              SHADOWMOUNT_MANUAL_LIST,
+                              "flush ShadowMount manual.lst",
+                              "close ShadowMount manual.lst",
+                              "replace ShadowMount manual.lst",
+                              err, err_size) != 0) {
+    goto done;
+  }
+  chmod(SHADOWMOUNT_MANUAL_LIST, 0666);
+  rc = 0;
+
+done:
+  if(in) fclose(in);
+  if(out) fclose(out);
+  unlink(SHADOWMOUNT_MANUAL_LIST_TMP);
+  return rc;
+}
+
 static int
 request_source_scan_locked(const char *title_id, const char *source_path,
                            char *err, size_t err_size) {
@@ -1269,8 +1330,8 @@ local_send_all(int fd, const char *data, size_t size) {
    the /user/app links after we cleared them, so a mount request
    is the reliable way to restore a live mount. Non-fatal when the API is
    disabled: callers treat a failure as a hint, not an error. */
-int
-lzc_shadowmount_request_mount(const char *title_id) {
+static int
+shadowmount_api_title_post(const char *route, const char *title_id) {
   int fd;
   struct timeval timeout;
   struct sockaddr_in addr;
@@ -1299,14 +1360,14 @@ lzc_shadowmount_request_mount(const char *title_id) {
     return -1;
   }
   n = snprintf(request, sizeof(request),
-               "POST /api/v1/games/mount HTTP/1.1\r\n"
+               "POST %s HTTP/1.1\r\n"
                "Host: 127.0.0.1:%d\r\n"
                "Content-Type: application/json\r\n"
                "Content-Length: %d\r\n"
                "Connection: close\r\n"
                "\r\n"
                "%s",
-               SHADOWMOUNT_API_PORT, (int)strlen(body), body);
+               route, SHADOWMOUNT_API_PORT, (int)strlen(body), body);
   if(n < 0 || (size_t)n >= sizeof(request)) {
     close(fd);
     return -1;
@@ -1326,6 +1387,16 @@ lzc_shadowmount_request_mount(const char *title_id) {
   if(sscanf(response, "HTTP/%*s %d", &status) != 1) return -1;
   if(status >= 400) return -1;
   return 0;
+}
+
+int
+lzc_shadowmount_request_mount(const char *title_id) {
+  return shadowmount_api_title_post("/api/v1/games/mount", title_id);
+}
+
+int
+lzc_shadowmount_request_unmount(const char *title_id) {
+  return shadowmount_api_title_post("/api/v1/games/unmount", title_id);
 }
 
 static int

@@ -209,6 +209,7 @@ shutdown_request(const http_request_t *req) {
                            sizeof(remove_tile)) &&
       (!strcmp(remove_tile, "1") || !strcasecmp(remove_tile, "true"));
   int remove_tile_rc = remove_tile_requested ? lzc_launcher_remove() : 0;
+  lzc_api_release_on_demand_mounts();
 
   char body[128];
   int n = snprintf(body, sizeof(body),

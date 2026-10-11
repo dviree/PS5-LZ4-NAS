@@ -3119,6 +3119,11 @@ image_link_matches_expected(const char *image_link,
   return paths_equal_ignoring_trailing_slash(outer_mount, expected_parent);
 }
 
+static void on_demand_remember(const char *title_id, const char *image_path,
+                               int temporary);
+static void release_shadowmount_mount_for_source(const char *title_id,
+                                                const char *source_path);
+
 static int
 wait_for_shadowmount_links(const char *title_id,
                            const char *expected_mount_link,
@@ -3208,6 +3213,9 @@ wait_for_shadowmount_links(const char *title_id,
 
     if(now >= next_mount_nudge_at) {
       if(lzc_shadowmount_request_mount(title_id) == 0) {
+        if(title_id && expected_image_link && expected_image_link[0]) {
+          on_demand_remember(title_id, expected_image_link, 1);
+        }
         lzc_log("shadowmount mount nudge sent title=%s",
                title_id ? title_id : "");
       } else {
@@ -3856,6 +3864,10 @@ artifact_cache_get(const lzc_game_t *mounted_games, size_t mounted_count,
   free(local);
 }
 
+static int mount_dir_live(const char *path);
+static int ensure_on_demand_mount(lzc_game_t *game, int temporary, char *err,
+                                  size_t err_size);
+
 static int
 discover_games_ex(lzc_game_t *games, size_t max_games, size_t *count_out,
                   int exact_folder_sizes, int honor_cancel) {
@@ -3894,8 +3906,12 @@ discover_games_ex(lzc_game_t *games, size_t max_games, size_t *count_out,
         (void)read_link_file(link_path, g->image_path, sizeof(g->image_path));
       }
       if(game_uses_system_app_path(g)) continue;
-      set_game_mount_status(g, has_mount_link,
-                            has_mount_link ? "mounted" : "not-mounted");
+      if(has_mount_link && g->image_path[0] && !mount_dir_live(g->mount_path)) {
+        set_game_mount_status(g, 0, "on-demand");
+      } else {
+        set_game_mount_status(g, has_mount_link,
+                              has_mount_link ? "mounted" : "not-mounted");
+      }
       load_game_name(g);
       load_game_icon(g);
       detect_game_source_ex(g, exact_folder_sizes, honor_cancel);
@@ -4891,6 +4907,13 @@ cleanup_shadowmount_hints_for_deleted_source(const lzc_operation_t *op,
              op->title_id, game->source_path,
              hint_err[0] ? hint_err : "unknown");
     }
+  }
+  hint_err[0] = 0;
+  if(lzc_shadowmount_manual_remove_source(game->source_path, hint_err,
+                                          sizeof(hint_err)) != 0) {
+    lzc_log("delete manual.lst cleanup failed title=%s path=%s err=%s",
+           op->title_id, game->source_path,
+           hint_err[0] ? hint_err : "unknown");
   }
   if(game->source_kind == LZC_SOURCE_COMPRESSED ||
      game->source_kind == LZC_SOURCE_IMAGE) {
@@ -7968,6 +7991,11 @@ run_extract_image_op(lzc_operation_t *op) {
   }
   snprintf(op->source_path, sizeof(op->source_path), "%s", game.source_path);
   snprintf(op->source_kind, sizeof(op->source_kind), "%s", "image");
+  if(ensure_on_demand_mount(&game, 0, err, sizeof(err)) != 0) {
+    snprintf(op->error, sizeof(op->error), "%s", err);
+    lzc_log("extract mount failed title=%s err=%s", op->title_id, op->error);
+    return -1;
+  }
   if(!game.is_mounted || !game.mount_path[0] ||
      stat(game.mount_path, &st) != 0 || !S_ISDIR(st.st_mode)) {
     snprintf(op->error, sizeof(op->error), "%s",
@@ -8784,6 +8812,186 @@ refresh_mount_request_restore_scan(lzc_operation_t *op,
   }
 }
 
+/* ShadowMountPlus 1.7 mounts images only while a game runs by default
+ * (persistent_image_mounts=0): mount.lnk stays, but the mount folder is
+ * removed right after registration. Features that read the image's files
+ * ask its API to mount the title, and mounts made for a single operation are
+ * released afterwards. "Mount now" mounts stay until the app closes. */
+#define LZC_ON_DEMAND_MAX 16
+#define LZC_ON_DEMAND_WAIT_SECONDS 30
+
+typedef struct lzc_on_demand_mount {
+  char title_id[16];
+  char image_path[1024];
+  int temporary;
+} lzc_on_demand_mount_t;
+
+static pthread_mutex_t g_on_demand_lock = PTHREAD_MUTEX_INITIALIZER;
+static lzc_on_demand_mount_t g_on_demand[LZC_ON_DEMAND_MAX];
+static size_t g_on_demand_count;
+
+static int
+mount_dir_live(const char *path) {
+  struct stat st;
+  return path && path[0] && stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+/* mount_img.lnk holds the outer image first and, for layered .ffpfsc
+ * images, the nested image on a second line. */
+static int
+link_first_line_equals(const char *content, const char *path) {
+  size_t n;
+  if(!content || !path) return 0;
+  n = strcspn(content, "\r\n");
+  return strlen(path) == n && strncmp(content, path, n) == 0;
+}
+
+/* 1 when ShadowMountPlus tracks this title's image (optionally this exact
+ * image) but its mount folder is currently gone. */
+static int
+title_mount_on_demand(const char *title_id, const char *expect_image) {
+  char target[1024];
+  char image[1024];
+  if(read_title_link(title_id, "mount.lnk", target, sizeof(target)) != 0) {
+    return 0;
+  }
+  if(read_title_link(title_id, "mount_img.lnk", image, sizeof(image)) != 0 ||
+     !image[0]) {
+    return 0;
+  }
+  if(expect_image && expect_image[0] &&
+     !link_first_line_equals(image, expect_image)) {
+    return 0;
+  }
+  return !mount_dir_live(target);
+}
+
+static void
+on_demand_remember(const char *title_id, const char *image_path,
+                   int temporary) {
+  pthread_mutex_lock(&g_on_demand_lock);
+  for(size_t i = 0; i < g_on_demand_count; i++) {
+    if(!strcmp(g_on_demand[i].title_id, title_id)) {
+      if(!temporary) g_on_demand[i].temporary = 0;
+      pthread_mutex_unlock(&g_on_demand_lock);
+      return;
+    }
+  }
+  if(g_on_demand_count < LZC_ON_DEMAND_MAX) {
+    lzc_on_demand_mount_t *m = &g_on_demand[g_on_demand_count++];
+    snprintf(m->title_id, sizeof(m->title_id), "%s", title_id);
+    snprintf(m->image_path, sizeof(m->image_path), "%s",
+             image_path ? image_path : "");
+    m->temporary = temporary;
+  }
+  pthread_mutex_unlock(&g_on_demand_lock);
+}
+
+/* Releases the mounts made for the last operation, or all of them. A title
+ * whose ShadowMountPlus link now points somewhere else is left alone. */
+static void
+on_demand_release(int temporary_only) {
+  lzc_on_demand_mount_t release[LZC_ON_DEMAND_MAX];
+  size_t n = 0;
+  pthread_mutex_lock(&g_on_demand_lock);
+  for(size_t i = 0; i < g_on_demand_count;) {
+    if(temporary_only && !g_on_demand[i].temporary) {
+      i++;
+      continue;
+    }
+    release[n++] = g_on_demand[i];
+    g_on_demand[i] = g_on_demand[--g_on_demand_count];
+  }
+  pthread_mutex_unlock(&g_on_demand_lock);
+  for(size_t i = 0; i < n; i++) {
+    char image[1024];
+    if(read_title_link(release[i].title_id, "mount_img.lnk", image,
+                       sizeof(image)) != 0 ||
+       !link_first_line_equals(image, release[i].image_path)) {
+      lzc_log("on-demand mount kept title=%s (link changed)",
+              release[i].title_id);
+      continue;
+    }
+    int rc = lzc_shadowmount_request_unmount(release[i].title_id);
+    lzc_log("on-demand mount released title=%s rc=%d", release[i].title_id,
+            rc);
+  }
+}
+
+void
+lzc_api_release_on_demand_mounts(void) {
+  on_demand_release(0);
+}
+
+/* Asks ShadowMountPlus to unmount a title while its link still points at
+ * source_path, and waits for the mount folder to go away. Used before a
+ * source image is deleted, so no mount is left on a removed file. */
+static void
+release_shadowmount_mount_for_source(const char *title_id,
+                                     const char *source_path) {
+  char image[1024];
+  char target[1024];
+  if(!valid_title_id(title_id) || !source_path || !source_path[0]) return;
+  if(read_title_link(title_id, "mount_img.lnk", image, sizeof(image)) != 0 ||
+     !link_first_line_equals(image, source_path)) {
+    return;
+  }
+  if(read_title_link(title_id, "mount.lnk", target, sizeof(target)) != 0 ||
+     !mount_dir_live(target)) {
+    return;
+  }
+  int rc = lzc_shadowmount_request_unmount(title_id);
+  lzc_log("shadowmount unmount before release title=%s path=%s rc=%d",
+          title_id, source_path, rc);
+  for(int i = 0; i < LZC_ON_DEMAND_WAIT_SECONDS * 4 && mount_dir_live(target);
+      i++) {
+    usleep(250000);
+  }
+  lzc_log("shadowmount unmount %s title=%s",
+          mount_dir_live(target) ? "still mounted" : "done", title_id);
+}
+
+/* Makes sure an on-demand image is mounted for an operation. Returns 0 when
+ * there was nothing to do or the mount is ready. */
+static int
+ensure_on_demand_mount(lzc_game_t *game, int temporary, char *err,
+                       size_t err_size) {
+  char target[1024];
+  const char *image;
+  if(!game || !valid_title_id(game->title_id)) return 0;
+  if(game->source_kind != LZC_SOURCE_IMAGE &&
+     game->source_kind != LZC_SOURCE_COMPRESSED) {
+    return 0;
+  }
+  image = game->image_path[0] ? game->image_path : game->source_path;
+  if(!title_mount_on_demand(game->title_id, image)) return 0;
+  lzc_log("on-demand mount request title=%s image=%s", game->title_id, image);
+  job_set_phase("mounting", 0, 0, "Asking ShadowMountPlus to mount the image");
+  if(lzc_shadowmount_request_mount(game->title_id) != 0) {
+    lzc_log("on-demand mount api request failed title=%s", game->title_id);
+  }
+  for(int i = 0; i < LZC_ON_DEMAND_WAIT_SECONDS * 4; i++) {
+    if(job_cancelled()) {
+      snprintf(err, err_size, "%s", "cancelled");
+      return -1;
+    }
+    if(read_title_link(game->title_id, "mount.lnk", target,
+                       sizeof(target)) == 0 &&
+       mount_dir_live(target)) {
+      snprintf(game->mount_path, sizeof(game->mount_path), "%s", target);
+      set_game_mount_status(game, 1, "mounted");
+      on_demand_remember(game->title_id, image, temporary);
+      lzc_log("on-demand mount ready title=%s path=%s", game->title_id,
+              target);
+      return 0;
+    }
+    usleep(250000);
+  }
+  snprintf(err, err_size, "%s",
+           "ShadowMountPlus did not mount the image (is its API enabled?)");
+  return -1;
+}
+
 static int
 run_refresh_mount_op(lzc_operation_t *op) {
   lzc_game_t game = {0};
@@ -8820,11 +9028,44 @@ run_refresh_mount_op(lzc_operation_t *op) {
   was_validated = game.validation == LZC_VALIDATION_VALIDATED;
   job_set_target(game.source_path);
 
+  if((game.source_kind == LZC_SOURCE_IMAGE ||
+      game.source_kind == LZC_SOURCE_COMPRESSED) &&
+     title_mount_on_demand(game.title_id, game.image_path[0]
+                                              ? game.image_path
+                                              : game.source_path)) {
+    append_operation_phase(op, "mounting");
+    if(ensure_on_demand_mount(&game, 0, err, sizeof(err)) != 0) {
+      snprintf(op->error, sizeof(op->error), "%s", err);
+      lzc_log("refresh-mount on-demand failed title=%s err=%s", op->title_id,
+             op->error);
+      return -1;
+    }
+    snprintf(op->result, sizeof(op->result), "%s", "success");
+    artifact_cache_invalidate();
+    return 0;
+  }
   if(game.is_mounted) {
     snprintf(op->result, sizeof(op->result), "%s", "success");
     lzc_log("refresh-mount already mounted title=%s path=%s", op->title_id,
            game.source_path);
     return 0;
+  }
+  {
+    /* ShadowMountPlus may still have this title mounted from an image that
+     * no longer exists (deleted while mounted). Release that first. */
+    char image[1024];
+    char stale[1024];
+    struct stat stale_st;
+    if(read_title_link(game.title_id, "mount_img.lnk", image,
+                       sizeof(image)) == 0) {
+      size_t n = strcspn(image, "\r\n");
+      snprintf(stale, sizeof(stale), "%.*s", (int)n, image);
+      if(stale[0] && stat(stale, &stale_st) != 0) {
+        lzc_log("refresh-mount releasing mount of missing image title=%s image=%s",
+               game.title_id, stale);
+        release_shadowmount_mount_for_source(game.title_id, stale);
+      }
+    }
   }
   if(lzc_cancel_requested(op->error, sizeof(op->error))) return -1;
 
@@ -9111,6 +9352,12 @@ run_read_speed_test_op(lzc_operation_t *op) {
     snprintf(op->error, sizeof(op->error), "%s", err);
     return -1;
   }
+  if(ensure_on_demand_mount(&game, 1, err, sizeof(err)) != 0) {
+    snprintf(op->error, sizeof(op->error), "%s", err);
+    lzc_log("read-speed mount failed title=%s err=%s", op->title_id,
+           op->error);
+    return -1;
+  }
   if(read_speed_mount_root(&game, read_root, sizeof(read_root),
                            err, sizeof(err)) != 0) {
     snprintf(op->error, sizeof(op->error), "%s",
@@ -9249,6 +9496,12 @@ run_delete_game_data_op(lzc_operation_t *op) {
   if(lzc_cancel_requested(err, sizeof(err))) {
     snprintf(op->error, sizeof(op->error), "%s", err);
     return -1;
+  }
+
+  if(game.source_kind == LZC_SOURCE_IMAGE ||
+     game.source_kind == LZC_SOURCE_COMPRESSED) {
+    job_set_phase("unmounting", 0, 0, "Asking ShadowMountPlus to unmount");
+    release_shadowmount_mount_for_source(op->title_id, game.source_path);
   }
 
   lzc_checkpoint("delete source");
@@ -10272,6 +10525,15 @@ lzc_lz4_resolve(lzc_operation_t *op, lzc_game_t *game, char *root,
   snprintf(op->source_path, sizeof(op->source_path), "%s", game->source_path);
   snprintf(op->source_kind, sizeof(op->source_kind), "%s",
            source_kind_name(game->source_kind));
+  {
+    char mount_err[256] = {0};
+    if(ensure_on_demand_mount(game, 1, mount_err, sizeof(mount_err)) != 0) {
+      snprintf(op->error, sizeof(op->error), "%s", mount_err);
+      lzc_log("%s mount failed title=%s err=%s", log_name, op->title_id,
+             op->error);
+      return -1;
+    }
+  }
   if(lzc_lz4_game_root(game, root, root_size) != 0) {
     snprintf(op->error, sizeof(op->error), "%s",
              "mount this image with ShadowMountPlus first so its files can be read");
@@ -10683,6 +10945,7 @@ operation_thread(void *arg) {
 	  } else if(op->action == LZC_ACTION_LZ4_VERIFY) {
 	    rc = run_lz4_verify_op(op);
 	  }
+  on_demand_release(1);
 
   int cancelled = job_cancelled();
   lzc_checkpoint("operation job end");

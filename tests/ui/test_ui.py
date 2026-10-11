@@ -125,6 +125,18 @@ with sync_playwright() as p:
     page.click('#format-close'); page.wait_for_timeout(300)
     page.click('#crumb-library'); page.wait_for_timeout(500)
     check('library crumb goes home', page.is_visible('#home-view'))
+    # image that ShadowMount+ only mounts while playing
+    tile_cls = page.get_attribute('.game-tile[data-id^="PPSA03333:"]', 'class') or ''
+    check('on-demand image tile not dimmed', 'is-unmounted' not in tile_cls, tile_cls)
+    page.click('.game-tile[data-id^="PPSA03333:"]'); page.wait_for_timeout(500)
+    check('on-demand chip', 'mounts when played' in page.inner_text('#detail .facts'), page.inner_text('#detail .facts'))
+    check('on-demand: mount now offered', page.is_visible('#remount-path'))
+    check('on-demand: read speed offered', page.is_visible('#read-speed-test'))
+    cards = page.eval_on_selector_all('[data-option-action]', 'els => els.map(e => e.getAttribute("data-option-action"))')
+    check('on-demand: extract offered', 'extract-image' in cards, cards)
+    page.click('#remount-path'); page.wait_for_timeout(600)
+    check('mount now posts refresh-mount', any(r['path'] == '/api/lzc/refresh-mount' for r in state()['requests']))
+    page.click('#crumb-library'); page.wait_for_timeout(500)
     # about + history pages
     page.click('#info-top'); page.wait_for_selector('#info-modal:not(.hidden)'); page.wait_for_timeout(300)
     about = page.inner_text('#info-modal')

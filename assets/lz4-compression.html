@@ -6608,8 +6608,13 @@
       return '<span class="chip bad">' + escapeHtml(t('status.unavailable')) + '</span>';
     }
 
+    function mountIsOnDemand(g) {
+      return !!g && g.isMounted === false && String(g.mountStatus || '').toLowerCase() === 'on-demand';
+    }
+
     function mountStateChip(g) {
       if (!g || g.isMounted !== false) return '';
+      if (mountIsOnDemand(g)) return '<span class="chip">' + escapeHtml(t('status.onDemand')) + '</span>';
       const status = String(g.mountStatus || '').toLowerCase();
       const label = status === 'working' ? t('common.working').replace(/\.\.\.$/, '') : t('status.notMounted');
       return '<span class="chip bad">' + escapeHtml(label) + '</span>';
@@ -7919,7 +7924,7 @@
         return '<button class="game-tile' +
           (id === previewId ? ' is-preview' : '') +
           (id === state.selected ? ' is-selected' : '') +
-          (g.isMounted === false ? ' is-unmounted' : '') +
+          (g.isMounted === false && !mountIsOnDemand(g) ? ' is-unmounted' : '') +
           (gameInstanceRole(g) === 'current output' ? ' is-output' : '') +
           '" type="button" role="listitem" data-id="' + escapeHtml(id) + '" title="' + escapeHtml(name) + '">' +
           '<span class="tile-art">' + gameIcon(g, false) + tileBadge(g) +
@@ -8692,7 +8697,7 @@
         if (canBuildAmprIndex) {
           actions.push({ id: 'build-ampr-index', label: t('operation.action.buildAprIndex') });
         }
-        if (g.isMounted === true) {
+        if (g.isMounted === true || mountIsOnDemand(g)) {
           actions.push({ id: 'extract-image', label: t('operation.action.extractFolder') });
         }
       }
@@ -9123,7 +9128,7 @@
       const sourceKind = String(g.sourceKind || '').toLowerCase();
       const showRemount = g.isMounted === false &&
         !!g.sourcePath && !g.activeOp && !g.pendingOp && sourceKind !== 'unknown';
-      const showReadTest = g.isMounted === true &&
+      const showReadTest = (g.isMounted === true || mountIsOnDemand(g)) &&
         !!g.sourcePath && !g.activeOp && !g.pendingOp && sourceKind !== 'unknown';
       const remountButton = showRemount
         ? '<button class="remount-path" id="remount-path" aria-label="' + escapeHtml(t('operation.mountNow')) + '" title="' + escapeHtml(t('operation.mountNow')) + '"' +
