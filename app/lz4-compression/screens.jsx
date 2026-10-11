@@ -115,8 +115,11 @@ export function Home({games, history, job, version, freeText, covered, hide, sta
           <Text className="font-semi text-[11px] text-soft tracking-[3px]">LIBRARY</Text>
           <Text className="font-inter text-[12px] text-muted">{`${games.length} ${games.length === 1 ? 'game' : 'games'}`}</Text>
         </View>
-        <ScrollView horizontal className="h-[200px] mt-2">
-          <View className="flex-row gap-5 px-[48px] pt-[18px]">
+        {/* Embedded React scrolls the axis that overflows: the row goes on the ScrollView itself.
+            Focus reveals keep a 32px margin, so the viewport starts 16px in and the first tile still
+            lines up with the 48px gutter when the shelf scrolls back. */}
+        <ScrollView horizontal className="flex-row h-[200px] mt-2 ml-[16px]">
+          <View className="flex-row shrink-0 gap-5 pl-[32px] pr-[48px] pt-[18px]">
             {games.map((game, index) => (
               <Tile key={gameId(game)} game={game} onOpen={onOpen} onFocusGame={onFocusGame}
                 autoFocus={index === startIndex} />
