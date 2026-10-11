@@ -1,5 +1,7 @@
 # LZ4 Compression for PS5
 
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy_Me_a_Coffee-Support_this_project-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/theghostonline)
+
 ![LZ4 Compression](assets-app/pic0.png)
 
 LZ4 compression for PS5 games, done entirely on the console. Pick a game,
@@ -487,6 +489,18 @@ shows a closing screen.
 - Payload operations are owned by the PS5-side engine, not the app or the
   browser tab.
 - Compression and repair workflows can take a long time on large titles.
+
+## Support
+
+LZ4 Compression was built and tested on a real console, one game, pack and
+firmware quirk at a time. Donations here go to this project, not to the
+projects it builds on (see the credits below). If it saved you space on your
+PS5, a coffee helps cover the cost of building it and keeps the updates coming.
+
+<a href="https://buymeacoffee.com/theghostonline"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="50"></a>
+
+Not able to donate? A star on the repository and a bug report with the game,
+title ID and firmware help just as much.
 
 ## Credits and license
 
