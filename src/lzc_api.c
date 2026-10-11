@@ -36,6 +36,7 @@
 #include "transfer_internal.h"
 #include "lzc_paths.h"
 #include "lzc_profiles.h"
+#include "lzc_image_mount.h"
 
 #define LZC_APP_BASE "/user/app"
 #define LZC_APPMETA_BASE "/user/appmeta"
@@ -9230,6 +9231,9 @@ typedef struct lzc_on_demand_mount {
 
 static pthread_mutex_t g_on_demand_lock = PTHREAD_MUTEX_INITIALIZER;
 static lzc_on_demand_mount_t g_on_demand[LZC_ON_DEMAND_MAX];
+/* Read-only mounts the engine made itself for a job (lzc_image_mount.c). */
+static lzc_image_mount_t g_private_mounts[LZC_ON_DEMAND_MAX];
+static size_t g_private_mount_count = 0;
 static size_t g_on_demand_count;
 
 static int
@@ -9291,6 +9295,56 @@ on_demand_remember(const char *title_id, const char *image_path,
 
 /* Releases the mounts made for the last operation, or all of them. A title
  * whose ShadowMountPlus link now points somewhere else is left alone. */
+/* Release the engine's own mounts, of one image or (NULL) all of them. */
+static void
+private_mounts_release(const char *image_path) {
+  lzc_image_mount_t release[LZC_ON_DEMAND_MAX];
+  size_t n = 0;
+  pthread_mutex_lock(&g_on_demand_lock);
+  for(size_t i = 0; i < g_private_mount_count;) {
+    if(image_path && strcmp(g_private_mounts[i].image_path, image_path)) {
+      i++;
+      continue;
+    }
+    release[n++] = g_private_mounts[i];
+    g_private_mounts[i] = g_private_mounts[--g_private_mount_count];
+  }
+  pthread_mutex_unlock(&g_on_demand_lock);
+  for(size_t i = 0; i < n; i++) lzc_image_unmount(&release[i]);
+}
+
+/* Mount an image read-only for a job, without ShadowMountPlus: it refuses
+ * while a game (or this app) runs, and only mounts the copy it registered. */
+static int
+private_mount_for_game(lzc_game_t *game, const char *image, char *err,
+                       size_t err_size) {
+  lzc_image_mount_t m;
+  pthread_mutex_lock(&g_on_demand_lock);
+  for(size_t i = 0; i < g_private_mount_count; i++) {
+    if(!strcmp(g_private_mounts[i].image_path, image)) {
+      snprintf(game->mount_path, sizeof(game->mount_path), "%s",
+               g_private_mounts[i].mount_point);
+      pthread_mutex_unlock(&g_on_demand_lock);
+      set_game_mount_status(game, 1, "mounted");
+      return 0;
+    }
+  }
+  int full = g_private_mount_count >= LZC_ON_DEMAND_MAX;
+  pthread_mutex_unlock(&g_on_demand_lock);
+  if(full) {
+    snprintf(err, err_size, "%s", "too many images mounted");
+    return -1;
+  }
+  job_set_phase("mounting", 0, 0, "Mounting the image");
+  if(lzc_image_mount_ro(image, game->title_id, &m, err, err_size) != 0) return -1;
+  pthread_mutex_lock(&g_on_demand_lock);
+  g_private_mounts[g_private_mount_count++] = m;
+  pthread_mutex_unlock(&g_on_demand_lock);
+  snprintf(game->mount_path, sizeof(game->mount_path), "%s", m.mount_point);
+  set_game_mount_status(game, 1, "mounted");
+  return 0;
+}
+
 static void
 on_demand_release(int temporary_only) {
   lzc_on_demand_mount_t release[LZC_ON_DEMAND_MAX];
@@ -9318,6 +9372,7 @@ on_demand_release(int temporary_only) {
     lzc_log("on-demand mount released title=%s rc=%d", release[i].title_id,
             rc);
   }
+  private_mounts_release(NULL);
 }
 
 void
@@ -9334,6 +9389,7 @@ release_shadowmount_mount_for_source(const char *title_id,
   char image[1024];
   char target[1024];
   if(!valid_title_id(title_id) || !source_path || !source_path[0]) return;
+  private_mounts_release(source_path);
   if(read_title_link(title_id, "mount_img.lnk", image, sizeof(image)) != 0 ||
      !link_first_line_equals(image, source_path)) {
     return;
@@ -9366,6 +9422,17 @@ ensure_on_demand_mount(lzc_game_t *game, int temporary, char *err,
     return 0;
   }
   image = game->image_path[0] ? game->image_path : game->source_path;
+  if(game->is_mounted && game->mount_path[0] && mount_dir_live(game->mount_path)) {
+    return 0;
+  }
+  /* A job that only reads the image mounts it itself, so it works while the
+   * app is open and for a copy ShadowMountPlus isn't using. */
+  if(temporary && lzc_image_mount_supported(image)) {
+    if(private_mount_for_game(game, image, err, err_size) == 0) return 0;
+    lzc_log("private image mount failed title=%s image=%s err=%s",
+           game->title_id, image, err);
+    err[0] = 0;
+  }
   if(!title_mount_on_demand(game->title_id, image)) return 0;
   lzc_log("on-demand mount request title=%s image=%s", game->title_id, image);
   job_set_phase("mounting", 0, 0, "Asking ShadowMountPlus to mount the image");
@@ -14217,6 +14284,7 @@ lzc_api_icon_request(const http_request_t *req) {
 
 void
 lzc_api_recover_on_startup(void) {
+  lzc_image_mount_cleanup_stale();
   cleanup_force_remount_temps_on_startup();
   cleanup_delete_pending_temps_on_startup();
   mount_switch_restore_recovery_log();

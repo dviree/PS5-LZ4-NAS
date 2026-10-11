@@ -9,6 +9,13 @@
   use, and `Scan only` skips it. An imported config still wins.
 - The library lists games only: entries under 2 GB (homebrew and media apps)
   are left out.
+- Jobs that only read an `.exfat` image (Compress with LZ4, Test Read Speed)
+  mount it read-only themselves instead of asking ShadowMountPlus, which
+  refuses while any game or the PS5 app is open and only mounts the copy it
+  registered for a title.
+- Uncompressing an `.ffpfsc` to an image on another drive kept the folder
+  name and failed after writing the whole image; it now gets the right name,
+  and the Uncompress page shows the real size and picks a drive with room.
 
 ## 1.3.0 - 2026-10-11
 
