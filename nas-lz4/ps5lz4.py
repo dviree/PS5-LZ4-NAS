@@ -1,0 +1,1222 @@
+#!/usr/bin/env python3
+"""ps5lz4 - LZ4 HC packing of PS5 games for APR-EMU, run entirely on a NAS.
+
+Pipeline for each game (folder, .exfat, .ffpfs or .ffpfsc):
+
+  1. source    use the folder as is, or extract the image with MkPFS into the
+               work area (.ffpfsc inner images are checked against their
+               .vhash sidecar when one exists)
+  2. check     only games that use AMPR (libSceAmpr import or APR-EMU in
+               fakelib/) can read LZ4 packs; anything else is skipped
+  3. pack      ampr_pack_cli: LZ4 HC (level 9 by default), AMPR index,
+               PackedStdio runtime, byte-for-byte check against the source
+  4. verify    ampr_pack_cli verify: manifest, CRC sidecar, every chunk
+               decoded, every packed file compared byte for byte again
+  5. restore   unpack into a scratch folder and compare every file with the
+               source; only ampr_emu.index and fakelib/libSceAmpr.sprx may
+               differ, and the runtime must be the pinned PackedStdio build
+  6. publish   move the result to OUTPUT/<name>-lz4, write the report, remove
+               the work folder
+
+Originals are never written: the library is mounted read-only and every
+removal is limited to the work area. A failed or interrupted job keeps its
+work folder; running it again resumes after the last finished step.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as _dt
+import errno
+import fcntl
+import hashlib
+import json
+import os
+import re
+import shutil
+import signal
+import struct
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+VERSION = "1.0.0"
+
+LIBRARY = Path(os.environ.get("PS5LZ4_LIBRARY", "/library"))
+OUTPUT = Path(os.environ.get("PS5LZ4_OUTPUT", "/output"))
+STATE = Path(os.environ.get("PS5LZ4_STATE", "/state"))
+WORK = OUTPUT / ".ps5lz4-work"
+PACKER = os.environ.get("PS5LZ4_PACKER", "/usr/local/bin/ampr_pack_cli")
+MKPFS = os.environ.get("PS5LZ4_MKPFS", "mkpfs")
+PROFILES = Path(os.environ.get("PS5LZ4_PROFILES", "/opt/ps5lz4/profiles"))
+CUSTOM_PROFILES = STATE / "profiles"
+LOGS = STATE / "logs"
+REPORTS = STATE / "reports"
+LOCK_PATH = STATE / "run.lock"
+QUEUE_PATH = STATE / "queue.json"
+# The same folders as the NAS sees them, for reports.
+HOST_LIBRARY = os.environ.get("PS5LZ4_HOST_LIBRARY", str(LIBRARY))
+HOST_OUTPUT = os.environ.get("PS5LZ4_HOST_OUTPUT", str(OUTPUT))
+FREE_MARGIN = int(float(os.environ.get("PS5LZ4_FREE_MARGIN_GB", "20")) * 1024**3)
+
+# Pinned APR-EMU PackedStdio runtime embedded in ampr_pack_cli.
+RUNTIME_SHA256 = "69e6c4d5e4f5fb83c9e01815db5861c4c75734acbf4595cafa50d4c218116d1a"
+RUNTIME_REL = "fakelib/libSceAmpr.sprx"
+
+IMAGE_EXTS = {".exfat": "exfat", ".ffpfs": "ffpfs", ".ffpfsc": "ffpfsc"}
+TITLE_RE = re.compile(r"(PPSA|CUSA|PPSM)\d{5}", re.I)
+VHASH_MAGIC = b"PFSCVHS1"
+EXFAT_SIG = b"EXFAT   "
+
+STEPS = ("source", "check", "pack", "verify", "restore", "publish")
+
+_child: subprocess.Popen | None = None
+_stop_requested = False
+
+
+class JobError(Exception):
+    """A step failed; the work folder is kept."""
+
+
+class Skip(Exception):
+    """The game can't be handled safely and is left alone."""
+
+
+# --------------------------------------------------------------------------
+# small helpers
+
+def now() -> str:
+    return _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def human(n: float | int | None) -> str:
+    if n is None:
+        return "-"
+    n = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(n) < 1024 or unit == "TB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.2f} {unit}"
+        n /= 1024
+    return f"{n:.2f} TB"
+
+
+def write_json(path: Path, data) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    os.replace(tmp, path)
+
+
+def read_json(path: Path, default=None):
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return default
+
+
+def tree_bytes(root: Path) -> tuple[int, int]:
+    """(file count, total bytes) of every regular file under root."""
+    files = total = 0
+    for dirpath, _dirs, names in os.walk(root):
+        for name in names:
+            p = os.path.join(dirpath, name)
+            try:
+                st = os.lstat(p)
+            except OSError:
+                continue
+            if os.path.isfile(p) and not os.path.islink(p):
+                files += 1
+                total += st.st_size
+    return files, total
+
+
+def free_bytes(path: Path) -> int:
+    st = os.statvfs(path)
+    return st.f_bavail * st.f_frsize
+
+
+def under(path: Path, root: Path) -> bool:
+    try:
+        Path(os.path.abspath(path)).relative_to(os.path.abspath(root))
+        return True
+    except ValueError:
+        return False
+
+
+def remove_work_path(path: Path) -> None:
+    """rm -rf, but only inside the work area; never the library or output."""
+    if not path.exists() and not path.is_symlink():
+        return
+    if not under(path, WORK) or os.path.abspath(path) == os.path.abspath(WORK):
+        raise RuntimeError(f"refusing to delete outside the work area: {path}")
+    if under(path, LIBRARY):
+        raise RuntimeError(f"refusing to delete inside the library: {path}")
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def safe_name(name: str) -> str:
+    s = re.sub(r"[^A-Za-z0-9._ -]+", "_", name).strip(" .")
+    return s or "game"
+
+
+def nice_prefix() -> list[str]:
+    prefix = []
+    if shutil.which("nice"):
+        prefix += ["nice", "-n", "10"]
+    if shutil.which("ionice"):
+        prefix += ["ionice", "-c2", "-n7"]
+    return prefix
+
+
+def workers() -> int:
+    env = os.environ.get("PS5LZ4_WORKERS")
+    if env:
+        return max(1, int(env))
+    n = os.cpu_count() or 4
+    # Same rule as the PS5 engine: leave one core, 2..8 workers.
+    return max(2, min(8, n - 1))
+
+
+# --------------------------------------------------------------------------
+# game metadata and AMPR compatibility
+
+def parse_param_json(data: bytes) -> tuple[str, str]:
+    try:
+        j = json.loads(data.decode("utf-8", "replace"))
+    except ValueError:
+        return "", ""
+    title_id = str(j.get("titleId") or "")
+    name = ""
+    loc = j.get("localizedParameters") or {}
+    lang = loc.get("defaultLanguage") or "en-US"
+    for key in (lang, "en-US", "en-GB"):
+        entry = loc.get(key) if isinstance(loc, dict) else None
+        if isinstance(entry, dict) and entry.get("titleName"):
+            name = str(entry["titleName"])
+            break
+    if not name and isinstance(loc, dict):
+        for entry in loc.values():
+            if isinstance(entry, dict) and entry.get("titleName"):
+                name = str(entry["titleName"])
+                break
+    return title_id, name
+
+
+def stream_has(chunks, needle: bytes) -> bool:
+    tail = b""
+    for chunk in chunks:
+        buf = tail + chunk
+        if needle in buf:
+            return True
+        tail = buf[-(len(needle) - 1):]
+    return False
+
+
+def file_chunks(path: Path, size: int = 4 << 20):
+    with open(path, "rb") as f:
+        while True:
+            b = f.read(size)
+            if not b:
+                return
+            yield b
+
+
+def find_game_root(top: Path) -> Path | None:
+    """The folder holding eboot.bin: top itself or up to two levels down."""
+    if (top / "eboot.bin").is_file():
+        return top
+    for depth in (1, 2):
+        for p in sorted(top.glob("/".join(["*"] * depth))):
+            if p.is_dir() and (p / "eboot.bin").is_file():
+                return p
+    return None
+
+
+def ampr_status_folder(root: Path) -> tuple[str, str]:
+    """('packed'|'compatible'|'incompatible', reason) for a game folder.
+
+    Mirrors the PS5 engine (populate_lz4_state / title_imports_ampr)."""
+    if (root / "ampr_assets.index").exists():
+        return "packed", "already LZ4 packed (ampr_assets.index present)"
+    for d in root.iterdir():
+        if d.is_dir() and d.name.lower() == "fakelib":
+            for f in d.iterdir():
+                if f.is_file() and f.name.lower() == "libsceampr.sprx":
+                    return "compatible", "ships APR-EMU (fakelib/libSceAmpr.sprx)"
+    eboot = root / "eboot.bin"
+    if eboot.is_file() and stream_has(file_chunks(eboot), b"libSceAmpr"):
+        return "compatible", "eboot.bin imports libSceAmpr"
+    mod = root / "sce_module"
+    if mod.is_dir():
+        for f in sorted(mod.iterdir()):
+            if f.is_file() and f.name.lower().endswith(".prx") and \
+                    stream_has(file_chunks(f), b"libSceAmpr"):
+                return "compatible", f"sce_module/{f.name} imports libSceAmpr"
+    return "incompatible", "does not use AMPR (no libSceAmpr import, no APR-EMU)"
+
+
+def exfat_inspect(image: Path) -> dict:
+    """Title, name, size and AMPR status read straight from an .exfat image."""
+    from mkpfs.exfat import ExfatReader  # pinned MkPFS 1.1.0
+
+    with open(image, "rb") as fh:
+        reader = ExfatReader(fh)
+        files = {e.rel_path.lower(): e for e in reader.iter_files()}
+        prefix = ""
+        if "eboot.bin" not in files:
+            roots = sorted(k[: -len("eboot.bin")] for k in files if k.endswith("/eboot.bin"))
+            prefix = roots[0] if roots else ""
+        def get(rel: str):
+            return files.get((prefix + rel).lower())
+        title_id = name = ""
+        pj = get("sce_sys/param.json")
+        if pj:
+            title_id, name = parse_param_json(b"".join(reader.read_file(pj)))
+        total = sum(e.length for e in files.values())
+        if get("ampr_assets.index"):
+            status = ("packed", "already LZ4 packed (ampr_assets.index present)")
+        elif get("fakelib/libsceampr.sprx"):
+            status = ("compatible", "ships APR-EMU (fakelib/libSceAmpr.sprx)")
+        elif get("eboot.bin") and stream_has(reader.read_file(get("eboot.bin")), b"libSceAmpr"):
+            status = ("compatible", "eboot.bin imports libSceAmpr")
+        else:
+            status = ("incompatible", "does not use AMPR (no libSceAmpr import, no APR-EMU)")
+            for key, entry in sorted(files.items()):
+                if key.startswith(prefix + "sce_module/") and key.endswith(".prx") and \
+                        stream_has(reader.read_file(entry), b"libSceAmpr"):
+                    status = ("compatible", f"{entry.rel_path} imports libSceAmpr")
+                    break
+        listing = {e.rel_path[len(prefix):]: e.length for e in files.values()}
+        return {"title_id": title_id, "name": name, "logical_bytes": total,
+                "files": len(files), "status": status[0], "reason": status[1],
+                "game_prefix": prefix, "listing": listing}
+
+
+def load_bundled_profiles() -> list[dict]:
+    return read_json(PROFILES / "index.json", []) or []
+
+
+def detect_engine(root: Path) -> str:
+    if (root / "toc").is_file() and (root / "dag").is_file() and (root / "d").is_dir():
+        return "insomniac"
+    for base in ("", "Media"):
+        if (root / base / "StreamingAssets").is_dir():
+            for base2 in ("", "Media"):
+                for marker in ("Data/globalgamemanagers", "Data/data.unity3d",
+                               "Data/Managed/Metadata/global-metadata.dat"):
+                    if (root / base2 / marker).is_file():
+                        return "unity"
+    return ""
+
+
+def choose_profile(title_id: str, name: str, root: Path) -> tuple[str | None, str]:
+    """(toml path or None, description). Custom beats bundled beats scan."""
+    if title_id:
+        custom = CUSTOM_PROFILES / f"{title_id.upper()}.toml"
+        if custom.is_file():
+            return str(custom), f"custom ({custom.name})"
+    norm = "".join(c.lower() for c in name if c.isalnum())
+    bundled = load_bundled_profiles()
+    for p in bundled:
+        ids = [t.upper() for t in p.get("titleIds", [])]
+        names = [n for n in p.get("names", []) if len(n) >= 4]
+        if (title_id and title_id.upper() in ids) or any(n in norm for n in names):
+            return str(PROFILES / p["file"]), f"bundled {p['id']} (title match)"
+    engine = detect_engine(root)
+    for p in bundled:
+        if engine and p.get("engine") == engine:
+            return str(PROFILES / p["file"]), f"bundled {p['id']} ({engine} engine layout)"
+    return None, "automatic scan-based profile"
+
+
+# --------------------------------------------------------------------------
+# library
+
+class Entry:
+    def __init__(self, path: Path, kind: str):
+        self.path = path
+        self.kind = kind  # folder | exfat | ffpfs | ffpfsc
+        self.rel = str(path.relative_to(LIBRARY))
+        stem = path.name if kind == "folder" else path.name[: -len(path.suffix)]
+        self.id = safe_name(stem)
+        self.title_id = ""
+        self.name = ""
+        self.duplicate_of: str | None = None
+        m = TITLE_RE.search(path.name)
+        if m:
+            self.title_id = m.group(0).upper()
+
+    @property
+    def output(self) -> Path:
+        return OUTPUT / f"{self.id}-lz4"
+
+    @property
+    def work(self) -> Path:
+        return WORK / self.id
+
+    def size(self) -> int:
+        if self.kind == "folder":
+            return tree_bytes(self.path)[1]
+        return self.path.stat().st_size
+
+
+def scan_library() -> list[Entry]:
+    entries: list[Entry] = []
+    if not LIBRARY.is_dir():
+        return entries
+
+    def walk(d: Path, depth: int):
+        try:
+            children = sorted(d.iterdir(), key=lambda p: p.name.lower())
+        except OSError:
+            return
+        for p in children:
+            if p.name.startswith("."):
+                continue
+            if p.is_dir():
+                if (p / "eboot.bin").is_file():
+                    e = Entry(p, "folder")
+                    pj = p / "sce_sys" / "param.json"
+                    if pj.is_file():
+                        tid, name = parse_param_json(pj.read_bytes())
+                        e.title_id = tid.upper() or e.title_id
+                        e.name = name
+                    entries.append(e)
+                elif depth < 3:
+                    walk(p, depth + 1)
+            elif p.is_file() and p.suffix.lower() in IMAGE_EXTS:
+                entries.append(Entry(p, IMAGE_EXTS[p.suffix.lower()]))
+
+    walk(LIBRARY, 0)
+    # An already-extracted folder wins over an image of the same game.
+    folders = {e.title_id: e for e in entries if e.kind == "folder" and e.title_id}
+    for e in entries:
+        if e.kind != "folder" and e.title_id in folders:
+            e.duplicate_of = folders[e.title_id].rel
+    # Two library entries must never share an output folder.
+    seen: dict[str, Entry] = {}
+    for e in entries:
+        if e.id in seen:
+            e.id = safe_name(e.rel.replace("/", "__"))
+        seen[e.id] = e
+    return entries
+
+
+def resolve_targets(args_targets: list[str], entries: list[Entry]) -> list[Entry]:
+    out: list[Entry] = []
+    for t in args_targets:
+        tl = t.lower().rstrip("/")
+        hits = []
+        if t.isdigit() and 1 <= int(t) <= len(entries):
+            hits = [entries[int(t) - 1]]
+        else:
+            for e in entries:
+                keys = {e.rel.lower(), e.id.lower(), e.path.name.lower(),
+                        str(e.path).lower(), e.title_id.lower()}
+                if tl in keys:
+                    hits.append(e)
+        if not hits:
+            raise SystemExit(f"no game matches '{t}' (see: ps5lz4 scan)")
+        if len(hits) > 1:
+            names = ", ".join(h.rel for h in hits)
+            raise SystemExit(f"'{t}' matches several entries: {names}")
+        out.append(hits[0])
+    return out
+
+
+# --------------------------------------------------------------------------
+# job
+
+class Job:
+    def __init__(self, entry: Entry, level: int, restore_test: bool,
+                 require_vhash: bool):
+        self.e = entry
+        self.level = level
+        self.restore_test = restore_test
+        self.require_vhash = require_vhash
+        self.work = entry.work
+        self.state_path = self.work / "state.json"
+        self.log_path = LOGS / f"{entry.id}.log"
+        self.state = {}
+
+    # logging -------------------------------------------------------------
+    def log(self, msg: str) -> None:
+        line = f"[{now()}] {self.e.id}: {msg}"
+        print(line, flush=True)
+        with open(self.log_path, "a") as f:
+            f.write(line + "\n")
+
+    def save(self) -> None:
+        write_json(self.state_path, self.state)
+
+    def done(self, step: str) -> bool:
+        return step in self.state.get("done", [])
+
+    def mark(self, step: str, **info) -> None:
+        self.state.setdefault("done", [])
+        if step not in self.state["done"]:
+            self.state["done"].append(step)
+        self.state.update(info)
+        self.state["step"] = step
+        self.state["updated"] = now()
+        self.save()
+
+    def set_step(self, step: str) -> None:
+        self.state["step"] = f"{step} (running)"
+        self.state["updated"] = now()
+        self.save()
+
+    def need_space(self, nbytes: int, what: str) -> None:
+        free = free_bytes(OUTPUT)
+        if free < nbytes + FREE_MARGIN:
+            raise JobError(f"not enough free space for {what}: need {human(nbytes)} "
+                           f"+ {human(FREE_MARGIN)} margin, {human(free)} free on the output volume")
+
+    def run_tool(self, argv: list[str], step: str) -> str:
+        """Run a tool niced, its output in the work folder; returns stdout."""
+        global _child
+        out_path = self.work / f"{step}.out"
+        err_path = self.work / f"{step}.err"
+        self.log(f"$ {' '.join(argv)}")
+        with open(out_path, "w") as out, open(err_path, "w") as err:
+            _child = subprocess.Popen(nice_prefix() + argv, stdout=out, stderr=err,
+                                      stdin=subprocess.DEVNULL)
+            rc = _child.wait()
+            _child = None
+        if _stop_requested:
+            raise JobError("stopped by request; run again to resume")
+        if rc != 0:
+            tail = err_path.read_text(errors="replace").replace("\r", "\n").strip().splitlines()
+            tail = [l for l in tail if not l.startswith("[progress]")][-6:]
+            raise JobError(f"{step} failed (exit {rc}): " + " | ".join(tail))
+        return out_path.read_text(errors="replace")
+
+    # steps ---------------------------------------------------------------
+    def step_source(self) -> Path:
+        e = self.e
+        if e.kind == "folder":
+            root = e.path
+            self.mark("source", source_root=str(root), extraction="none (folder used as is)")
+            return root
+        if self.done("source"):
+            root = Path(self.state["source_root"])
+            if root.is_dir():
+                self.log(f"resume: extracted game already verified at {root}")
+                return root
+        self.set_step("source")
+        image = e.path
+        extract = self.work / "extract"
+        partial = self.work / "extract.partial"
+        outer = self.work / "outer.partial"
+        remove_work_path(partial)
+        remove_work_path(outer)
+        remove_work_path(extract)
+        info: dict = {"image_bytes": image.stat().st_size}
+
+        if e.kind == "exfat":
+            meta = exfat_inspect(image)
+            self.state["precheck"] = {k: meta[k] for k in ("title_id", "name", "status", "reason")}
+            if meta["status"] != "compatible":
+                raise Skip(meta["reason"])
+            self.need_space(meta["logical_bytes"], "extraction")
+            self.run_tool([MKPFS, "unpack", "--format", "exfat", "--no-progress",
+                           str(image), str(partial)], "extract")
+            info["extraction"] = "MkPFS exFAT reader"
+            info["vhash"] = "n/a (.exfat has no hash sidecar)"
+            root = find_game_root(partial)
+            if not root:
+                raise JobError("no eboot.bin in the extracted image")
+            # Every file the image lists must be on disk with its exact size.
+            bad = []
+            for rel, length in meta["listing"].items():
+                p = root / rel
+                if not p.is_file() or p.stat().st_size != length:
+                    bad.append(rel)
+            if bad:
+                raise JobError(f"extraction incomplete: {len(bad)} files missing or wrong size, e.g. {bad[:3]}")
+            info["listing_check"] = f"{len(meta['listing'])} files match the image directory"
+        else:
+            self.need_space(image.stat().st_size * 3, "extraction")
+            self.run_tool([MKPFS, "unpack", "--format", "pfs", "--no-progress",
+                           str(image), str(outer)], "extract-outer")
+            info["extraction"] = "MkPFS PFS reader"
+            if find_game_root(outer):
+                outer.rename(partial)
+                info["vhash"] = "n/a (plain PFS image)"
+            else:
+                files = [p for p in outer.rglob("*") if p.is_file()]
+                if len(files) != 1:
+                    raise JobError(f"unexpected image layout: {len(files)} files and no eboot.bin")
+                nested = files[0]
+                info["nested"] = nested.name
+                info["vhash"] = self.check_vhash(image, nested)
+                with open(nested, "rb") as f:
+                    f.seek(3)
+                    fmt = "exfat" if f.read(8) == EXFAT_SIG else "pfs"
+                info["nested_format"] = fmt
+                self.need_space(nested.stat().st_size, "inner extraction")
+                self.run_tool([MKPFS, "unpack", "--format", fmt, "--no-progress",
+                               str(nested), str(partial)], "extract-inner")
+                remove_work_path(outer)
+            root = find_game_root(partial)
+            if not root:
+                raise JobError("no eboot.bin in the extracted image")
+        rel_root = root.relative_to(partial)
+        partial.rename(extract)
+        root = extract / rel_root
+        files, total = tree_bytes(root)
+        info.update(source_root=str(root), source_files=files, source_bytes=total)
+        self.mark("source", **info)
+        self.log(f"extracted {files} files, {human(total)} ({info['vhash']})")
+        for f in ("extract.out", "extract.err", "extract-outer.out", "extract-outer.err",
+                  "extract-inner.out", "extract-inner.err"):
+            remove_work_path(self.work / f)
+        return root
+
+    def check_vhash(self, image: Path, nested: Path) -> str:
+        sidecar = Path(str(image) + ".vhash")
+        if not sidecar.is_file():
+            if self.require_vhash:
+                raise Skip("no .vhash sidecar to check the extraction against (--require-vhash)")
+            return "no .vhash sidecar: extraction not checked against a reference"
+        data = sidecar.read_bytes()
+        if len(data) < 4096 or data[:8] != VHASH_MAGIC:
+            return "invalid .vhash sidecar: not used"
+        block = struct.unpack_from("<Q", data, 16)[0]
+        nested_size = struct.unpack_from("<Q", data, 32)[0]
+        count = struct.unpack_from("<Q", data, 40)[0]
+        size = nested.stat().st_size
+        if block != 65536 or nested_size != size or count != (size + block - 1) // block \
+                or len(data) != 4096 + count * 32:
+            if self.require_vhash:
+                raise Skip("stale .vhash sidecar (--require-vhash)")
+            return "stale .vhash sidecar (sizes differ): not used"
+        self.log(f"checking {count} blocks of {nested.name} against {sidecar.name}")
+        bad = 0
+        with open(nested, "rb") as f:
+            for i in range(count):
+                b = f.read(block)
+                if len(b) < block:
+                    b += b"\0" * (block - len(b))
+                if hashlib.sha256(b).digest() != data[4096 + i * 32: 4096 + i * 32 + 32]:
+                    bad += 1
+        if bad:
+            raise JobError(f"extracted image does not match {sidecar.name}: {bad} of {count} blocks differ "
+                           "(the image or its extraction is damaged)")
+        return f"all {count} blocks match {sidecar.name}"
+
+    def step_check(self, root: Path) -> None:
+        status, reason = ampr_status_folder(root)
+        tid, name = "", ""
+        pj = root / "sce_sys" / "param.json"
+        if pj.is_file():
+            tid, name = parse_param_json(pj.read_bytes())
+        self.state.update(title_id=tid or self.e.title_id, title_name=name)
+        if status != "compatible":
+            raise Skip(reason)
+        profile, desc = choose_profile(self.state["title_id"], name, root)
+        self.mark("check", ampr=reason, profile_path=profile, profile=desc)
+        self.log(f"compatible: {reason}; profile: {desc}")
+
+    def step_pack(self, root: Path) -> Path:
+        pack = self.work / "pack"
+        if self.done("pack") and (pack / "ampr_assets.index").is_file():
+            self.log("resume: packs already built")
+            return pack
+        self.set_step("pack")
+        remove_work_path(pack)
+        _files, total = tree_bytes(root)
+        self.need_space(total, "LZ4 packs")
+        argv = [PACKER, "pack", str(root), str(pack), "--level", str(self.level),
+                "--workers", str(workers()), "--embedded-runtime",
+                "--install-runtime-if-missing", "--verify-loose", "--learn", str(PROFILES)]
+        if self.state.get("profile_path"):
+            argv += ["--profile", self.state["profile_path"]]
+        t0 = time.time()
+        out = self.run_tool(argv, "pack")
+        stats = json.loads(out.strip().splitlines()[-1])
+        if stats.get("lz4", 0) <= 0:
+            # Every file was left loose: LZ4 can't shrink this game's data.
+            raise Skip(f"nothing LZ4 can shrink: all {stats.get('files')} files stay loose "
+                       f"({stats.get('autoLoose')} sampled as incompressible)")
+        self.mark("pack", pack_stats=stats, pack_seconds=round(time.time() - t0))
+        self.log(f"packed {stats['packed']} files into {stats['packs']} volumes "
+                 f"({stats['lz4']} LZ4 + {stats['raw']} raw chunks), {stats['loose']} loose")
+        return pack
+
+    def step_verify(self, root: Path, pack: Path) -> None:
+        if self.done("verify"):
+            return
+        self.set_step("verify")
+        out = self.run_tool([PACKER, "verify", str(pack), str(root)], "verify")
+        stats = json.loads(out.strip().splitlines()[-1])
+        # The result must really be AMPR LZ4: manifest, data volumes, runtime.
+        magic = (pack / "ampr_assets.index").read_bytes()[:8]
+        if magic != b"AMPRPAK4":
+            raise JobError(f"ampr_assets.index has magic {magic!r}, expected AMPRPAK4")
+        paks = sorted(pack.glob("ampr_assets-*.pak"))
+        if not paks:
+            raise JobError("no .pak volumes")
+        for p in paks:
+            with open(p, "rb") as f:
+                if f.read(8) != b"AMPRDAT3":
+                    raise JobError(f"{p.name} is not an AMPRDAT3 volume")
+        runtime = pack / RUNTIME_REL
+        if not runtime.is_file():
+            raise JobError(f"{RUNTIME_REL} missing from the output")
+        sha = hashlib.sha256(runtime.read_bytes()).hexdigest()
+        if sha != RUNTIME_SHA256:
+            raise JobError(f"{RUNTIME_REL} is not the pinned PackedStdio runtime ({sha})")
+        for side in ("ampr_assets.index.crc", "ampr_assets.index.runtime", "ampr_emu.index"):
+            if not (pack / side).is_file():
+                raise JobError(f"{side} missing from the output")
+        self.mark("verify", verify_stats=stats, pak_volumes=len(paks), runtime_sha256=sha)
+        self.log(f"verify passed: every chunk decoded, {stats['packed']} packed files match the source; "
+                 f"{len(paks)} AMPRDAT3 volumes, PackedStdio runtime {sha[:12]}")
+
+    def step_restore(self, root: Path, pack: Path) -> None:
+        if self.done("restore") or not self.restore_test:
+            if not self.restore_test:
+                self.state["restore_test"] = "skipped (--no-restore-test)"
+            return
+        self.set_step("restore")
+        restore = self.work / "restore"
+        remove_work_path(restore)
+        _files, total = tree_bytes(root)
+        self.need_space(total, "restore test")
+        self.run_tool([PACKER, "unpack", str(pack), str(restore)], "restore")
+        expected_extra = {"ampr_emu.index", RUNTIME_REL}
+        same = 0
+        problems: list[str] = []
+        notes: list[str] = []
+        src_files: set[str] = set()
+        for dirpath, _dirs, names in os.walk(root):
+            for name in names:
+                sp = Path(dirpath) / name
+                rel = sp.relative_to(root).as_posix()
+                src_files.add(rel)
+                rp = restore / rel
+                if rel in expected_extra or rel.lower() == RUNTIME_REL.lower():
+                    notes.append(f"{rel} replaced by the PackedStdio runtime"
+                                 if rel.lower() == RUNTIME_REL.lower() else f"{rel} rebuilt")
+                    continue
+                if not rp.is_file():
+                    problems.append(f"missing {rel}")
+                elif sp.stat().st_size != rp.stat().st_size or not files_equal(sp, rp):
+                    problems.append(f"differs {rel}")
+                else:
+                    same += 1
+        for dirpath, _dirs, names in os.walk(restore):
+            for name in names:
+                rel = (Path(dirpath) / name).relative_to(restore).as_posix()
+                if rel not in src_files and rel not in expected_extra:
+                    problems.append(f"unexpected {rel}")
+                elif rel in expected_extra and rel not in src_files:
+                    notes.append(f"{rel} added")
+        if problems:
+            raise JobError(f"restore test failed ({len(problems)} problems): {problems[:5]}")
+        remove_work_path(restore)
+        remove_work_path(self.work / "restore.out")
+        remove_work_path(self.work / "restore.err")
+        self.mark("restore", restore_test=f"passed: {same} files byte-identical after unpack",
+                  restore_notes=sorted(set(notes)))
+        self.log(f"restore test passed: {same} files byte-identical; {', '.join(sorted(set(notes)))}")
+
+    def step_publish(self, root: Path, pack: Path) -> dict:
+        e = self.e
+        if e.output.exists():
+            raise JobError(f"{e.output} already exists; it is never overwritten")
+        os.rename(pack, e.output)
+        out_files, out_bytes = tree_bytes(e.output)
+        src_files, src_bytes = tree_bytes(root)
+        st = self.state
+        report = {
+            "id": e.id,
+            "source": str(Path(HOST_LIBRARY) / e.rel),
+            "source_kind": e.kind,
+            "title_id": st.get("title_id"),
+            "title_name": st.get("title_name"),
+            "output": str(Path(HOST_OUTPUT) / e.output.name),
+            "finished": now(),
+            "codec": f"LZ4 HC level {self.level}" if self.level >= 5 else f"LZ4 fast level {self.level}",
+            "workers": workers(),
+            "profile": st.get("profile"),
+            "ampr": st.get("ampr"),
+            "image_bytes": st.get("image_bytes"),
+            "source_files": src_files,
+            "source_bytes": src_bytes,
+            "output_files": out_files,
+            "output_bytes": out_bytes,
+            "saved_bytes": src_bytes - out_bytes,
+            "saved_percent": round(100.0 * (src_bytes - out_bytes) / src_bytes, 2) if src_bytes else 0,
+            "pack": st.get("pack_stats"),
+            "pack_seconds": st.get("pack_seconds"),
+            "verification": {
+                "extraction": st.get("extraction", "none (folder used as is)"),
+                "vhash": st.get("vhash", "n/a"),
+                "listing_check": st.get("listing_check", "n/a"),
+                "pack_byte_compare": "passed (ampr_pack_cli pack: every packed file compared, loose copies re-read)",
+                "full_verify": "passed (ampr_pack_cli verify: manifest, CRC, every chunk decoded, byte compare)",
+                "restore_test": st.get("restore_test"),
+                "restore_notes": st.get("restore_notes", []),
+                "format": f"AMPRPAK4 index, {st.get('pak_volumes')} AMPRDAT3 volumes",
+                "runtime": f"PackedStdio {RUNTIME_SHA256}",
+            },
+            "verified_on_nas": True,
+            "playable_on_ps5": "not tested: needs a console run (see README)",
+        }
+        if report["image_bytes"]:
+            ib = report["image_bytes"]
+            report["saved_vs_image_percent"] = round(100.0 * (ib - out_bytes) / ib, 2)
+        write_json(REPORTS / f"{e.id}.json", report)
+        self.mark("publish", output=str(e.output))
+        return report
+
+    def run(self) -> dict:
+        e = self.e
+        self.work.mkdir(parents=True, exist_ok=True)
+        self.state = read_json(self.state_path, {}) or {}
+        self.state.setdefault("id", e.id)
+        self.state.setdefault("source", e.rel)
+        self.state.setdefault("started", now())
+        self.state.pop("error", None)
+        self.save()
+        self.log(f"start {e.kind} {e.rel} (LZ4 level {self.level}, {workers()} workers)")
+        if self.state.get("done"):
+            self.log(f"resuming after: {', '.join(self.state['done'])}")
+        root = self.step_source()
+        self.step_check(root)
+        pack = self.step_pack(root)
+        self.step_verify(root, pack)
+        self.step_restore(root, pack)
+        report = self.step_publish(root, pack)
+        # Success: the work folder (extraction, tool logs) is no longer needed.
+        remove_work_path(self.work)
+        self.log(f"DONE {human(report['source_bytes'])} -> {human(report['output_bytes'])} "
+                 f"(saved {human(report['saved_bytes'])}, {report['saved_percent']}%) -> {report['output']}")
+        return report
+
+
+def files_equal(a: Path, b: Path, size: int = 8 << 20) -> bool:
+    with open(a, "rb") as fa, open(b, "rb") as fb:
+        while True:
+            x = fa.read(size)
+            y = fb.read(size)
+            if x != y:
+                return False
+            if not x:
+                return True
+
+
+# --------------------------------------------------------------------------
+# results bookkeeping
+
+def result_for(entry: Entry) -> dict:
+    rep = read_json(REPORTS / f"{entry.id}.json")
+    if rep:
+        return {"status": "done", "detail": f"saved {rep.get('saved_percent')}%"}
+    skip = read_json(REPORTS / f"{entry.id}.skipped.json")
+    if skip:
+        return {"status": "skipped", "detail": skip.get("reason", "")}
+    st = read_json(entry.work / "state.json")
+    if st:
+        if st.get("error"):
+            return {"status": "failed", "detail": st["error"]}
+        return {"status": "partial", "detail": f"after {', '.join(st.get('done', [])) or 'start'}"}
+    if entry.output.exists():
+        return {"status": "exists", "detail": "output folder exists without a report"}
+    return {"status": "pending", "detail": ""}
+
+
+def process(entries: list[Entry], args) -> int:
+    failures = 0
+    queue = read_json(QUEUE_PATH, {}) if args.from_queue else None
+    for e in entries:
+        if _stop_requested:
+            break
+        if queue is not None:
+            queue["current"] = e.id
+            write_json(QUEUE_PATH, queue)
+        res = result_for(e)
+        if res["status"] == "done":
+            print(f"[{now()}] {e.id}: already done ({res['detail']}), skipping", flush=True)
+            continue
+        if res["status"] == "exists":
+            print(f"[{now()}] {e.id}: {e.output} exists without a report; not touching it", flush=True)
+            failures += 1
+            continue
+        if e.duplicate_of and not args.force_image:
+            print(f"[{now()}] {e.id}: skipped, the folder {e.duplicate_of} has the same game "
+                  "(use --force-image to pack the image)", flush=True)
+            continue
+        job = Job(e, args.level, not args.no_restore_test, args.require_vhash)
+        try:
+            job.run()
+            (REPORTS / f"{e.id}.skipped.json").unlink(missing_ok=True)
+        except Skip as s:
+            job.log(f"SKIPPED: {s}")
+            write_json(REPORTS / f"{e.id}.skipped.json",
+                       {"id": e.id, "source": e.rel, "reason": str(s), "when": now()})
+            # Nothing useful in the work area of a skipped game.
+            remove_work_path(e.work)
+        except (JobError, OSError, ValueError, RuntimeError) as err:
+            failures += 1
+            job.state["error"] = str(err)
+            job.state["failed"] = now()
+            job.state["step"] = str(job.state.get("step", "")).replace(" (running)", "") + " (failed)"
+            try:
+                job.save()
+            except OSError:
+                pass
+            job.log(f"FAILED: {err}")
+            job.log(f"work folder kept for troubleshooting: {e.work}")
+        if queue is not None:
+            queue["current"] = None
+            if not _stop_requested:
+                state = result_for(e)["status"]
+                queue.setdefault("failed" if state == "failed" else "finished", []).append(e.id)
+                queue["remaining"] = [x for x in queue.get("remaining", []) if x != e.id]
+            write_json(QUEUE_PATH, queue)
+    return 1 if failures else 0
+
+
+# --------------------------------------------------------------------------
+# commands
+
+def ensure_dirs() -> None:
+    for d in (STATE, LOGS, REPORTS, CUSTOM_PROFILES):
+        d.mkdir(parents=True, exist_ok=True)
+    if OUTPUT.is_dir():
+        WORK.mkdir(exist_ok=True)
+
+
+def acquire_lock():
+    fh = open(LOCK_PATH, "a+")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.seek(0)
+        raise SystemExit(f"another job is running ({fh.read().strip()}); see: ps5lz4 status")
+    fh.seek(0)
+    fh.truncate()
+    fh.write(f"pid={os.getpid()} since={now()}")
+    fh.flush()
+    return fh
+
+
+def on_signal(signum, _frame):
+    global _stop_requested
+    _stop_requested = True
+    if _child and _child.poll() is None:
+        _child.terminate()
+
+
+def cmd_run(args) -> int:
+    ensure_dirs()
+    entries = scan_library()
+    if args.from_queue:
+        q = read_json(QUEUE_PATH, {}) or {}
+        ids = q.get("remaining", [])
+        targets = [e for e in entries if e.id in ids]
+    elif args.all:
+        targets = [e for e in entries if result_for(e)["status"] in ("pending", "partial", "failed")]
+    else:
+        if not args.targets:
+            raise SystemExit("name at least one game, or --all (see: ps5lz4 scan)")
+        targets = resolve_targets(args.targets, entries)
+    if not targets:
+        print("nothing to do")
+        return 0
+    lock = acquire_lock()
+    signal.signal(signal.SIGTERM, on_signal)
+    signal.signal(signal.SIGINT, on_signal)
+    try:
+        return process(targets, args)
+    finally:
+        lock.close()
+
+
+def cmd_start(args) -> int:
+    """Queue games and run them in the background with nohup."""
+    ensure_dirs()
+    entries = scan_library()
+    if args.resume:
+        q = read_json(QUEUE_PATH, {}) or {}
+        if not q.get("remaining"):
+            raise SystemExit("no unfinished queue to resume")
+    else:
+        if args.all:
+            targets = [e for e in entries if result_for(e)["status"] in ("pending", "partial", "failed")]
+        else:
+            if not args.targets:
+                raise SystemExit("name at least one game, or --all (see: ps5lz4 scan)")
+            targets = resolve_targets(args.targets, entries)
+        q = {"created": now(), "remaining": [e.id for e in targets], "finished": [], "failed": [],
+             "current": None, "options": {"level": args.level,
+                                          "no_restore_test": args.no_restore_test,
+                                          "require_vhash": args.require_vhash,
+                                          "force_image": args.force_image}}
+    # Refuse early if a job holds the lock.
+    try:
+        with open(LOCK_PATH, "a+") as fh:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(fh, fcntl.LOCK_UN)
+    except OSError:
+        raise SystemExit("a job is already running; see: ps5lz4 status")
+    write_json(QUEUE_PATH, q)
+    opts = q.get("options", {})
+    log = LOGS / f"queue-{_dt.datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+    argv = ["nohup", sys.executable, os.path.abspath(__file__), "run", "--from-queue",
+            "--level", str(opts.get("level", 9))]
+    for flag in ("no_restore_test", "require_vhash", "force_image"):
+        if opts.get(flag):
+            argv.append("--" + flag.replace("_", "-"))
+    with open(log, "a") as out:
+        proc = subprocess.Popen(argv, stdout=out, stderr=subprocess.STDOUT,
+                                stdin=subprocess.DEVNULL, start_new_session=True)
+    print(f"started in the background (pid {proc.pid}): {len(q['remaining'])} game(s)")
+    print(f"  queue: {', '.join(q['remaining'])}")
+    print(f"  log:   {log}")
+    print("  watch: ps5lz4 status   |   stop: ps5lz4 stop   |   continue later: ps5lz4 start --resume")
+    return 0
+
+
+def cmd_stop(_args) -> int:
+    try:
+        text = LOCK_PATH.read_text()
+    except OSError:
+        text = ""
+    m = re.search(r"pid=(\d+)", text)
+    with open(LOCK_PATH, "a+") as fh:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            print("no job is running")
+            return 0
+        except OSError:
+            pass
+    if not m:
+        raise SystemExit("a job is running but its pid is unknown")
+    os.kill(int(m.group(1)), signal.SIGTERM)
+    print(f"asked job pid {m.group(1)} to stop; its work is kept, continue with: ps5lz4 start --resume")
+    return 0
+
+
+def cmd_scan(args) -> int:
+    ensure_dirs()
+    entries = scan_library()
+    if not entries:
+        print(f"no games found in {LIBRARY}")
+        return 0
+    print(f"{'#':>3}  {'kind':6}  {'size':>10}  {'title':9}  {'status':8}  game")
+    for i, e in enumerate(entries, 1):
+        res = result_for(e)
+        status = res["status"]
+        extra = ""
+        if args.check and status == "pending":
+            try:
+                if e.kind == "folder":
+                    s, reason = ampr_status_folder(e.path)
+                elif e.kind == "exfat":
+                    meta = exfat_inspect(e.path)
+                    e.title_id = meta["title_id"] or e.title_id
+                    s, reason = meta["status"], meta["reason"]
+                else:
+                    s, reason = "unknown", "checked after extraction"
+                extra = f"  [{s}: {reason}]"
+            except Exception as err:  # report, don't stop the listing
+                extra = f"  [check failed: {err}]"
+        if e.duplicate_of:
+            extra += f"  (same game as folder {e.duplicate_of})"
+        if res["detail"] and status != "pending":
+            extra += f"  ({res['detail']})"
+        print(f"{i:>3}  {e.kind:6}  {human(e.size()):>10}  {e.title_id or '-':9}  {status:8}  {e.rel}{extra}")
+    return 0
+
+
+def cmd_status(_args) -> int:
+    ensure_dirs()
+    running = False
+    with open(LOCK_PATH, "a+") as fh:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            running = True
+    lock_text = LOCK_PATH.read_text().strip() if LOCK_PATH.exists() else ""
+    print(f"job: {'RUNNING (' + lock_text + ')' if running else 'idle'}")
+    q = read_json(QUEUE_PATH)
+    if q:
+        print(f"queue: current={q.get('current') or '-'} remaining={q.get('remaining')} "
+              f"finished={q.get('finished')} failed={q.get('failed', [])}")
+    print(f"free on output volume: {human(free_bytes(OUTPUT))}")
+    if WORK.is_dir():
+        for w in sorted(WORK.iterdir()):
+            st = read_json(w / "state.json", {}) or {}
+            line = f"  work/{w.name}: step={st.get('step', '?')} done={st.get('done', [])}"
+            if st.get("error"):
+                line += f"\n      error: {st['error']}"
+            print(line)
+            if running and "running" in str(st.get("step", "")):
+                for errf in sorted(w.glob("*.err")):
+                    tail = errf.read_text(errors="replace").replace("\r", "\n").strip().splitlines()
+                    if tail:
+                        print(f"      {errf.stem}: {tail[-1][:160]}")
+    return 0
+
+
+def cmd_report(args) -> int:
+    ensure_dirs()
+    rows = [read_json(p) for p in sorted(REPORTS.glob("*.json")) if not p.name.endswith(".skipped.json")]
+    rows = [r for r in rows if r]
+    skipped = [read_json(p) for p in sorted(REPORTS.glob("*.skipped.json"))]
+    if args.json:
+        print(json.dumps({"done": rows, "skipped": skipped}, indent=2, ensure_ascii=False))
+        return 0
+    tot_src = tot_out = 0
+    print(f"{'game':40} {'title':9} {'original':>10} {'LZ4':>10} {'saved':>10} {'%':>6}  verified")
+    for r in rows:
+        tot_src += r["source_bytes"]
+        tot_out += r["output_bytes"]
+        print(f"{r['id'][:40]:40} {r.get('title_id') or '-':9} {human(r['source_bytes']):>10} "
+              f"{human(r['output_bytes']):>10} {human(r['saved_bytes']):>10} {r['saved_percent']:>5}%  "
+              f"{'NAS ok' if r.get('verified_on_nas') else 'NO'} / PS5 untested")
+    if rows:
+        pct = 100.0 * (tot_src - tot_out) / tot_src if tot_src else 0
+        print(f"{'TOTAL':40} {'':9} {human(tot_src):>10} {human(tot_out):>10} "
+              f"{human(tot_src - tot_out):>10} {pct:>5.1f}%")
+    for s in skipped:
+        if s:
+            print(f"skipped: {s['id']}: {s['reason']}")
+    # Keep a plain TSV next to the JSON reports.
+    with open(REPORTS / "summary.tsv", "w") as f:
+        f.write("id\ttitle_id\tsource_bytes\toutput_bytes\tsaved_bytes\tsaved_percent\tcodec\tfinished\n")
+        for r in rows:
+            f.write(f"{r['id']}\t{r.get('title_id')}\t{r['source_bytes']}\t{r['output_bytes']}\t"
+                    f"{r['saved_bytes']}\t{r['saved_percent']}\t{r['codec']}\t{r['finished']}\n")
+    return 0
+
+
+def cmd_verify(args) -> int:
+    """Re-check a finished output (all chunks decoded, CRC, manifest)."""
+    ensure_dirs()
+    target = Path(args.output)
+    if not target.is_absolute():
+        target = OUTPUT / args.output
+    if not (target / "ampr_assets.index").is_file():
+        raise SystemExit(f"{target} has no ampr_assets.index")
+    argv = [PACKER, "verify", str(target)] + ([args.source] if args.source else [])
+    rc = subprocess.call(nice_prefix() + argv)
+    print("verify passed" if rc == 0 else f"verify FAILED (exit {rc})")
+    return rc
+
+
+def cmd_clean(args) -> int:
+    """Remove the work folder of a failed or skipped game."""
+    ensure_dirs()
+    for t in args.ids:
+        w = WORK / safe_name(t)
+        if not w.exists():
+            print(f"{t}: no work folder")
+            continue
+        remove_work_path(w)
+        print(f"{t}: removed {w}")
+    return 0
+
+
+def cmd_doctor(_args) -> int:
+    ok = True
+    def line(good: bool, msg: str):
+        nonlocal ok
+        ok &= good
+        print(f"[{'ok' if good else 'FAIL'}] {msg}")
+    print(f"ps5lz4 {VERSION}  arch={os.uname().machine}  cpus={os.cpu_count()}  workers={workers()}")
+    line(LIBRARY.is_dir(), f"library {LIBRARY} readable")
+    probe = LIBRARY / ".ps5lz4-write-test"
+    try:
+        probe.write_text("x")
+        probe.unlink()
+        line(False, "library is WRITABLE: mount it read-only (:ro)")
+    except OSError as err:
+        line(err.errno in (errno.EROFS, errno.EACCES, errno.EPERM), "library is read-only")
+    line(OUTPUT.is_dir() and os.access(OUTPUT, os.W_OK), f"output {OUTPUT} writable")
+    line(STATE.is_dir() and os.access(STATE, os.W_OK), f"state {STATE} writable")
+    line(WORK.is_dir() and os.access(WORK, os.W_OK), f"work area {WORK} writable")
+    try:
+        same_fs = os.stat(OUTPUT).st_dev == os.stat(WORK if WORK.exists() else OUTPUT).st_dev
+        line(same_fs, "work area on the output volume (atomic publish)")
+    except OSError:
+        line(False, "work area")
+    if OUTPUT.is_dir():
+        print(f"     free on output volume: {human(free_bytes(OUTPUT))}")
+    try:
+        out = subprocess.run([PACKER], capture_output=True, text=True).stderr
+        line("verify <packed>" in out, f"packer {PACKER}")
+    except OSError as err:
+        line(False, f"packer {PACKER}: {err}")
+    try:
+        out = subprocess.run([MKPFS, "-V"], capture_output=True, text=True)
+        txt = (out.stdout + out.stderr).strip().splitlines()
+        line(any("1.1.0" in t for t in txt), f"MkPFS: {txt[0] if txt else '?'}")
+    except OSError as err:
+        line(False, f"MkPFS: {err}")
+    line((PROFILES / "index.json").is_file(), f"bundled profiles {PROFILES}")
+    print(f"     PackedStdio runtime pinned: {RUNTIME_SHA256}")
+    return 0 if ok else 1
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(prog="ps5lz4", description="LZ4 HC packing of PS5 games for APR-EMU, on the NAS.")
+    p.add_argument("--version", action="version", version=VERSION)
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    def job_opts(sp):
+        sp.add_argument("--level", type=int, default=int(os.environ.get("PS5LZ4_LEVEL", "9")),
+                        help="LZ4 level: 1-4 fast, 5-12 HC (default 9)")
+        sp.add_argument("--no-restore-test", action="store_true",
+                        help="skip the full unpack-and-compare step (not recommended)")
+        sp.add_argument("--require-vhash", action="store_true",
+                        help="skip .ffpfsc images without a .vhash sidecar")
+        sp.add_argument("--force-image", action="store_true",
+                        help="pack an image even when a folder of the same game exists")
+
+    sp = sub.add_parser("doctor", help="check the installation")
+    sp.set_defaults(func=cmd_doctor)
+    sp = sub.add_parser("scan", help="list the library and each game's state")
+    sp.add_argument("--check", action="store_true", help="also check AMPR compatibility (reads eboot)")
+    sp.set_defaults(func=cmd_scan)
+    sp = sub.add_parser("run", help="pack games now, in the foreground")
+    sp.add_argument("targets", nargs="*", help="# from scan, folder/image name, or title ID")
+    sp.add_argument("--all", action="store_true", help="every game not done yet")
+    sp.add_argument("--from-queue", action="store_true", help=argparse.SUPPRESS)
+    job_opts(sp)
+    sp.set_defaults(func=cmd_run)
+    sp = sub.add_parser("start", help="queue games and run them in the background (nohup)")
+    sp.add_argument("targets", nargs="*")
+    sp.add_argument("--all", action="store_true")
+    sp.add_argument("--resume", action="store_true", help="continue the unfinished queue")
+    job_opts(sp)
+    sp.set_defaults(func=cmd_start)
+    sp = sub.add_parser("status", help="show the running job and the work area")
+    sp.set_defaults(func=cmd_status)
+    sp = sub.add_parser("stop", help="stop the running job (resumable)")
+    sp.set_defaults(func=cmd_stop)
+    sp = sub.add_parser("report", help="sizes and savings of finished games")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_report)
+    sp = sub.add_parser("verify", help="re-verify a finished output folder")
+    sp.add_argument("output", help="output folder name, e.g. MyGame-lz4")
+    sp.add_argument("source", nargs="?", help="optional original folder to compare against")
+    sp.set_defaults(func=cmd_verify)
+    sp = sub.add_parser("clean", help="delete the work folder of a failed game")
+    sp.add_argument("ids", nargs="+")
+    sp.set_defaults(func=cmd_clean)
+    args = p.parse_args()
+    # `ps5lz4 status | head` should just stop, not print a traceback.
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
