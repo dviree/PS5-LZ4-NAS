@@ -17,17 +17,33 @@ Unofficial, and not affiliated with any of the projects it builds on. See
 
 ## The app
 
-- Payload `lz4-compression.elf`, a `LZ4 Compression` home-screen tile (title ID
-  `PSLZ40001`) with its own icon and home-screen art, web UI on port `5920`,
-  and settings in `/data/LZ4Compression`. It doesn't share a tile, port or
-  settings folder with Game Compressor, so both can be installed.
-- A black UI built for the PS5 screen. The game library runs left to right
-  like the PS5 home screen, every game opens its own page with its options
-  laid out as cards, and each action (compress, LZ4, uncompress, copy or move,
-  delete, history, about) opens as a full page. Browser back (or Escape)
-  closes pages.
-- A launch splash while games are scanned, a done screen when a job finishes,
-  and a closing screen when you shut the app down.
+- **The PS5 app** (`LZ4 Compression`, title `PPSA99420`): a native app, no
+  browser. Your library runs left to right like the home screen, every game
+  opens its own page, and every action opens as a full page. D-pad and stick
+  navigation with controller vibration, and Circle goes back.
+- **The engine** (`lz4-compression.elf`): the payload that does the work. It
+  serves the app and the web page on port `5920` and keeps its settings,
+  caches and logs in `/data/LZ4Compression`. The app starts it through
+  Payload Manager when it isn't running.
+- **The web page** at `http://<PS5 IP>:5920` has the same features from a PC
+  or phone, and it's where you upload TOML profiles from another device.
+- It doesn't share a tile, port or settings folder with Game Compressor, so
+  both can be installed.
+
+## Install
+
+1. Download `lz4-compression.elf` and `LZ4-Compression-PPSA99420.zip` from
+   the [latest release](https://github.com/theghostonline/PS5-LZ4-Compression/releases/latest).
+2. Add `lz4-compression.elf` to Payload Manager, so it sits at
+   `/data/pldmgr/payloads/lz4-compression/lz4-compression.elf`. The app starts
+   it from there.
+3. Unzip the app and copy the `PPSA99420` folder to `/data/homebrew/PPSA99420`
+   over FTP. ShadowMount+ adds the `LZ4 Compression` tile. It doesn't scan
+   while a game is running, so close any game if the tile doesn't show up.
+4. Open the tile. If the engine isn't running, the app starts it.
+
+You can also skip the app: load the ELF and open `http://<PS5 IP>:5920` in
+any browser.
 
 ## LZ4 asset packs
 
@@ -191,17 +207,8 @@ deletion.
 - Uncompress compressed games back to folder/app form.
 - Move supported titles between internal storage and USB storage.
 - Track progress, speed, estimated remaining time, and operation history.
-- Keep operations running on the PS5 even if the browser tab closes.
-- Install or refresh a PS5 home-screen launcher tile:
-
-```text
-LZ4 Compression / PSLZ40001 -> http://127.0.0.1:5920/
-```
-
-The PS5 home-screen tile opens the LZ4 Compression web UI in the browser. It is
-not the compression worker itself. Compression, validation, repair, move, and
-uncompress jobs continue on the PS5 if you close the browser window or reopen
-the tile later.
+- Keep operations running on the PS5 even if the app or the browser tab
+  closes.
 
 ## APR Emu Support
 
@@ -372,29 +379,22 @@ builds list theirs in the release's `SHA256SUMS`).
 ## How To Use
 
 1. Make sure ShadowMountPlus has mounted one or more games.
-2. Launch `lz4-compression.elf` from Payload Manager or your payload loader.
-3. Open the `LZ4 Compression` tile, or the web UI from any browser:
-
-```text
-http://<PS5_IP>:5920/
-```
-
-4. Move along the library row and open a game. The arrow keys work too, and
-   `Enter` opens the highlighted game.
-5. Use the main button on the game page:
-   - Folder/image titles show `Compress`.
-   - Compressed titles show `Validate and Repair`.
-   - LZ4 packed titles show `Verify LZ4 Packs`.
-6. Everything else is on the same page under Options, grouped as Compress,
+2. Open the `LZ4 Compression` tile, or load `lz4-compression.elf` and open
+   `http://<PS5_IP>:5920/` in a browser.
+3. Move along the library row and open a game.
+4. Use the main button on the game page:
+   - Games that use AMPR show `Compress with LZ4`.
+   - Other folder and image games show `Compress` (`.ffpfsc`).
+   - Compressed games show `Validate and Repair`.
+   - LZ4 packed games show `Verify LZ4 Packs`.
+5. Everything else is on the same page under Options, grouped as Compress,
    Check, Restore, APR-EMU, Copy and move, and Delete.
-7. Use the History button in the top bar to review previous operations. The
+6. Use the History button in the top bar to review previous operations. The
    home screen also shows the most recent ones.
 
-The app remembers the last game you viewed using a browser cookie, so reopening
-the UI returns to that title when it is still available.
-
-If you close the browser window during an operation, open the LZ4 Compression
-tile again or go back to `http://<PS5_IP>:5920/` to see the current job.
+Jobs run in the engine, so they keep going if you close the app or the
+browser. Open either again to see the current job. When you're done, use the
+power button in the top bar to stop the engine before you play.
 
 ## Compression Settings
 
@@ -465,15 +465,15 @@ Only run LZ4 Compression while you need to compress, validate, repair, move or
 unpack games. Once you're done, close it so it doesn't take anything away from
 your games.
 
-Use the power button in the top bar. LZ4 Compression removes its home-screen
-tile, stops the payload, and shows a final screen telling you to exit the
-browser window.
+In the app, use the power button in the top bar and pick `Stop engine and
+close`. The engine stops and the app closes, and the tile stays on the home
+screen for next time. On the web page the power button stops the engine and
+shows a closing screen.
 
 ## Notes
 
-- Launcher installation is nonfatal. If it fails, the web UI can still be used
-  directly from `http://<PS5_IP>:5920/`.
-- Payload operations are owned by the PS5-side worker, not the browser tab.
+- Payload operations are owned by the PS5-side engine, not the app or the
+  browser tab.
 - Compression and repair workflows can take a long time on large titles.
 
 ## Credits and license

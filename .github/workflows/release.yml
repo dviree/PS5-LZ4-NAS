@@ -63,9 +63,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          notes="RELEASE_NOTES_${GITHUB_REF_NAME#v}.md"
+          if [[ -f "$notes" ]]; then notes_args=(--notes-file "$notes"); else notes_args=(--generate-notes); fi
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" lz4-compression.elf SHA256SUMS --clobber
           else
             gh release create "$GITHUB_REF_NAME" lz4-compression.elf SHA256SUMS \
-              --verify-tag --generate-notes --title "LZ4 Compression $GITHUB_REF_NAME"
+              --verify-tag "${notes_args[@]}" --title "LZ4 Compression $GITHUB_REF_NAME"
           fi
