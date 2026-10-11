@@ -2,10 +2,11 @@
 
 ![LZ4 Compression](assets-app/pic0.png)
 
-LZ4 compression for APR-EMU games, done entirely on the PS5. Pick a game,
+LZ4 compression for PS5 games, done entirely on the console. Pick a game,
 choose `Compress with LZ4`, and it packs the game data into seekable LZ4 asset
 packs that APR-EMU reads while the game runs, checks every file, and installs
-the pack-capable APR-EMU runtime. The game never has to leave the console.
+the pack-capable APR-EMU runtime (adding it when the game ships none). The game
+never has to leave the console.
 
 It also does everything around that: `.ffpfsc` compression, exFAT/PFS images,
 validate and repair, APR-EMU versions, copy and move, and a history of every
@@ -28,7 +29,7 @@ Unofficial, and not affiliated with any of the projects it builds on. See
 - A launch splash while games are scanned, a done screen when a job finishes,
   and a closing screen when you shut the app down.
 
-## LZ4 asset packs for APR-EMU games
+## LZ4 asset packs
 
 APR-EMU (drakmor's [ampr_emu](https://github.com/drakmor/ampr_emu)) can read
 game data from seekable LZ4 asset packs while the game runs. LZ4 Compression
@@ -50,12 +51,18 @@ builds those packs for you:
 
 ### How to use it
 
-LZ4 is offered for games that have APR-EMU, which means a
-`fakelib/libSceAmpr.sprx` file. Folder games work directly. `.exfat`,
-`.ffpfs` and `.ffpfsc` images work while ShadowMountPlus has them mounted.
+LZ4 is the main action for every game that uses AMPR, which is most PS5
+games, whether or not the dump ships APR-EMU. The app checks the game's
+`eboot.bin` and `sce_module` for the `libSceAmpr` import. When the game has no
+`fakelib/libSceAmpr.sprx`, packing adds the pack-capable APR-EMU runtime
+there, and ShadowMount+ loads it in place of the system module when the game
+starts. A game that never imports AMPR can't load APR-EMU, so it gets
+`.ffpfsc` compression instead. Folder games work directly; `.exfat`, `.ffpfs`
+and `.ffpfsc` images are mounted through ShadowMount+ for the job (close any
+running game first, ShadowMount+ won't mount while one is open).
 
-Open the game from the library and pick `Compress with LZ4` under Options.
-You can also click `Use LZ4 packs instead` on the normal Compress page.
+Open the game from the library: `Compress with LZ4` is its main button.
+`.ffpfsc` Compress is under Options.
 
 - **Compression level:** `Fast` (LZ4), `Balanced` (LZ4 HC 9, recommended)
   or `Maximum` (LZ4 HC 12).
@@ -168,7 +175,7 @@ deletion.
 - Automatically build APR Emu `ampr_emu.index` before compressing APR titles.
 - Manually run `Build AMPR Index` on a folder when you only want to refresh the
   APR index.
-- Compress APR-EMU games into seekable LZ4 asset packs on the PS5, verify
+- Compress games into seekable LZ4 asset packs on the PS5, verify
   them, and uncompress them again (see above).
 - Validate compressed games and repair detected PFSC block issues when possible.
 - Uncompress compressed games back to folder/app form.

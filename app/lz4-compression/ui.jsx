@@ -75,7 +75,7 @@ export function TopBar({version, trail, freeText, onHistory, onAbout, onPower}) 
   return (
     <View className="flex-row items-center h-[64px] px-[48px] mt-[16px] gap-4">
       <Image source={logo} className="w-[38px] h-[38px] rounded-[10px]" />
-      <Text className="font-semi text-[19px] text-snow">LZ4 Compression</Text>
+      <Text className="font-semi text-[20px] text-snow">LZ4 Compression</Text>
       {version ? <Text className="font-inter text-[12px] text-muted mt-[4px]">{version}</Text> : null}
       {trail ? <Text className="font-inter text-[15px] text-muted ml-4" numberOfLines={1}>{trail}</Text> : null}
       <View className="flex-1" />

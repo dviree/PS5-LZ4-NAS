@@ -92,7 +92,8 @@ main(int argc, char **argv) {
     fprintf(stderr,
             "usage: %s pack <src> <out|--in-place> [--level N] [--workers N]\n"
             "          [--block-kib N] [--profile toml] [--learn dir]\n"
-            "          [--runtime sprx] [--no-auto-loose] [--verify-loose]\n"
+            "          [--runtime sprx] [--embedded-runtime] [--install-runtime-if-missing]\n"
+            "          [--no-auto-loose] [--verify-loose]\n"
             "       %s verify <packed> [source]\n"
             "       %s unpack <packed> <out|--in-place>\n"
             "       %s probe <root>\n", argv[0], argv[0], argv[0], argv[0]);
@@ -125,7 +126,8 @@ main(int argc, char **argv) {
         o.runtime = read_all(argv[++i], &o.runtime_size);
       } else if(!strcmp(argv[i], "--embedded-runtime")) {
         o.runtime = ampr_pack_runtime_data(&o.runtime_size);
-      } else if(!strcmp(argv[i], "--no-auto-loose")) o.auto_loose_large = 0;
+      } else if(!strcmp(argv[i], "--install-runtime-if-missing")) o.install_runtime_if_missing = 1;
+      else if(!strcmp(argv[i], "--no-auto-loose")) o.auto_loose_large = 0;
       else if(!strcmp(argv[i], "--verify-loose")) o.verify_loose_copies = 1;
       else {
         fprintf(stderr, "unknown option %s\n", argv[i]);

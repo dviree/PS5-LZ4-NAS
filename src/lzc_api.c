@@ -699,6 +699,178 @@ lzc_lz4_runtime_marker_present(const char *root) {
   return found;
 }
 
+/* Whether a game imports libSceAmpr. Such a game can use LZ4 packs even
+ * without APR-EMU: packing installs the PackedStdio runtime as
+ * fakelib/libSceAmpr.sprx, which the game then loads instead of the system
+ * module. Results are cached by the size and mtime of the file that keys
+ * them (eboot.bin for folders, the image for images), so an image that
+ * ShadowMountPlus only mounts while playing is still known while unmounted. */
+#define LZC_AMPR_IMPORT_CACHE LZC_APP_DATA_DIR "/ampr-imports.txt"
+#define LZC_AMPR_IMPORT_MAX 256
+
+typedef struct lzc_import_entry {
+  char path[512];
+  uint64_t size;
+  int64_t mtime;
+  int imports;
+} lzc_import_entry_t;
+
+static pthread_mutex_t g_import_lock = PTHREAD_MUTEX_INITIALIZER;
+static lzc_import_entry_t g_imports[LZC_AMPR_IMPORT_MAX];
+static size_t g_import_count;
+static int g_imports_loaded;
+
+static void
+imports_load_locked(void) {
+  FILE *f;
+  char line[700];
+  if(g_imports_loaded) return;
+  g_imports_loaded = 1;
+  f = fopen(LZC_AMPR_IMPORT_CACHE, "r");
+  if(!f) return;
+  while(g_import_count < LZC_AMPR_IMPORT_MAX && fgets(line, sizeof(line), f)) {
+    lzc_import_entry_t *e = &g_imports[g_import_count];
+    unsigned long long size = 0;
+    long long mtime = 0;
+    int imports = 0;
+    char *tab = strrchr(line, '\t');
+    if(!tab || sscanf(tab + 1, "%llu,%lld,%d", &size, &mtime, &imports) != 3) continue;
+    *tab = 0;
+    snprintf(e->path, sizeof(e->path), "%s", line);
+    e->size = size;
+    e->mtime = mtime;
+    e->imports = imports ? 1 : 0;
+    g_import_count++;
+  }
+  fclose(f);
+}
+
+static void
+imports_save_locked(void) {
+  char tmp[600];
+  FILE *f;
+  snprintf(tmp, sizeof(tmp), "%s.tmp", LZC_AMPR_IMPORT_CACHE);
+  f = fopen(tmp, "w");
+  if(!f) return;
+  for(size_t i = 0; i < g_import_count; i++) {
+    fprintf(f, "%s\t%llu,%lld,%d\n", g_imports[i].path,
+            (unsigned long long)g_imports[i].size,
+            (long long)g_imports[i].mtime, g_imports[i].imports);
+  }
+  if(fclose(f) == 0) rename(tmp, LZC_AMPR_IMPORT_CACHE);
+  else unlink(tmp);
+}
+
+static int
+imports_lookup(const char *path, const struct stat *st) {
+  int result = -1;
+  pthread_mutex_lock(&g_import_lock);
+  imports_load_locked();
+  for(size_t i = 0; i < g_import_count; i++) {
+    if(!strcmp(g_imports[i].path, path) &&
+       g_imports[i].size == (uint64_t)st->st_size &&
+       g_imports[i].mtime == (int64_t)st->st_mtime) {
+      result = g_imports[i].imports;
+      break;
+    }
+  }
+  pthread_mutex_unlock(&g_import_lock);
+  return result;
+}
+
+static void
+imports_store(const char *path, const struct stat *st, int imports) {
+  pthread_mutex_lock(&g_import_lock);
+  imports_load_locked();
+  size_t slot = g_import_count;
+  for(size_t i = 0; i < g_import_count; i++) {
+    if(!strcmp(g_imports[i].path, path)) {
+      slot = i;
+      break;
+    }
+  }
+  if(slot == g_import_count) {
+    if(g_import_count == LZC_AMPR_IMPORT_MAX) {
+      memmove(&g_imports[0], &g_imports[1], sizeof(g_imports[0]) * (LZC_AMPR_IMPORT_MAX - 1));
+      slot = LZC_AMPR_IMPORT_MAX - 1;
+    } else {
+      g_import_count++;
+    }
+  }
+  snprintf(g_imports[slot].path, sizeof(g_imports[slot].path), "%s", path);
+  g_imports[slot].size = (uint64_t)st->st_size;
+  g_imports[slot].mtime = (int64_t)st->st_mtime;
+  g_imports[slot].imports = imports ? 1 : 0;
+  imports_save_locked();
+  pthread_mutex_unlock(&g_import_lock);
+}
+
+/* 1 when the module names in the file include libSceAmpr. The dynamic
+ * string table is not encrypted in the fake-signed SELFs games run from. */
+static int
+file_mentions_ampr(const char *path) {
+  static const char needle[] = "libSceAmpr";
+  const size_t n = sizeof(needle) - 1;
+  const size_t chunk = 4u << 20;
+  unsigned char *buf;
+  size_t carry = 0;
+  int found = 0;
+  int fd = open(path, O_RDONLY);
+  if(fd < 0) return 0;
+  buf = malloc(chunk + n);
+  if(!buf) {
+    close(fd);
+    return 0;
+  }
+  for(;;) {
+    ssize_t got = read(fd, buf + carry, chunk);
+    if(got <= 0) break;
+    size_t len = carry + (size_t)got;
+    for(size_t i = 0; i + n <= len; i++) {
+      if(buf[i] == 'l' && !memcmp(buf + i, needle, n)) {
+        found = 1;
+        break;
+      }
+    }
+    if(found) break;
+    carry = len < n - 1 ? len : n - 1;
+    memmove(buf, buf + len - carry, carry);
+  }
+  free(buf);
+  close(fd);
+  return found;
+}
+
+/* 1 imports, 0 does not, -1 unknown (root unreadable and nothing cached). */
+static int
+title_imports_ampr(const char *root, const char *key_path) {
+  struct stat kst;
+  char path[1024];
+  int found = 0;
+  if(!key_path || stat(key_path, &kst) != 0) return -1;
+  int known = imports_lookup(key_path, &kst);
+  if(known >= 0 || !root) return known;
+  if(snprintf(path, sizeof(path), "%s/eboot.bin", root) < (int)sizeof(path)) {
+    found = file_mentions_ampr(path);
+  }
+  if(!found && snprintf(path, sizeof(path), "%s/sce_module", root) < (int)sizeof(path)) {
+    DIR *d = opendir(path);
+    struct dirent *ent;
+    while(d && !found && (ent = readdir(d)) != NULL) {
+      char prx[1024];
+      size_t len = strlen(ent->d_name);
+      if(len < 5 || strcasecmp(ent->d_name + len - 4, ".prx")) continue;
+      if(snprintf(prx, sizeof(prx), "%s/%s", path, ent->d_name) < (int)sizeof(prx)) {
+        found = file_mentions_ampr(prx);
+      }
+    }
+    if(d) closedir(d);
+  }
+  imports_store(key_path, &kst, found);
+  lzc_log("ampr import check root=%s imports=%d", root, found);
+  return found;
+}
+
 static void
 populate_lz4_state(lzc_game_t *g) {
   char root[1024];
@@ -712,7 +884,17 @@ populate_lz4_state(lzc_game_t *g) {
   g->lz4_profile_available =
       lzc_lz4_profile_path(g->title_id, profile, sizeof(profile)) == 0 &&
       stat(profile, &st) == 0 && S_ISREG(st.st_mode);
-  if(lzc_lz4_game_root(g, root, sizeof(root)) != 0) return;
+  if(lzc_lz4_game_root(g, root, sizeof(root)) != 0) {
+    /* An image that is not mounted right now (ShadowMountPlus mounts them
+     * while playing): use what an earlier check found, otherwise offer LZ4
+     * and let the job check once it has mounted the image. */
+    if((g->source_kind == LZC_SOURCE_IMAGE ||
+        g->source_kind == LZC_SOURCE_COMPRESSED) && g->source_path[0]) {
+      int imports = title_imports_ampr(NULL, g->source_path);
+      g->lz4_supported = imports == 0 ? 0 : imports == 1 ? 1 : 2;
+    }
+    return;
+  }
   if(ampr_pack_probe(root, &ps)) {
     g->lz4_packed = 1;
     g->lz4_pack_count = ps.pack_count;
@@ -722,7 +904,19 @@ populate_lz4_state(lzc_game_t *g) {
     g->ampr_update_supported = 0;
     return;
   }
-  g->lz4_supported = lzc_lz4_runtime_marker_present(root);
+  if(lzc_lz4_runtime_marker_present(root)) {
+    g->lz4_supported = 1;
+    return;
+  }
+  {
+    char key[1024];
+    if(g->source_kind == LZC_SOURCE_FOLDER) {
+      snprintf(key, sizeof(key), "%s/eboot.bin", root);
+    } else {
+      snprintf(key, sizeof(key), "%s", g->source_path);
+    }
+    g->lz4_supported = title_imports_ampr(root, key) == 1;
+  }
 }
 
 static void
@@ -8967,8 +9161,15 @@ ensure_on_demand_mount(lzc_game_t *game, int temporary, char *err,
   if(!title_mount_on_demand(game->title_id, image)) return 0;
   lzc_log("on-demand mount request title=%s image=%s", game->title_id, image);
   job_set_phase("mounting", 0, 0, "Asking ShadowMountPlus to mount the image");
-  if(lzc_shadowmount_request_mount(game->title_id) != 0) {
-    lzc_log("on-demand mount api request failed title=%s", game->title_id);
+  int api_rc = lzc_shadowmount_request_mount(game->title_id);
+  if(api_rc == -409) {
+    snprintf(err, err_size, "%s",
+             "ShadowMountPlus won't mount images while a game is running; close the game and try again");
+    lzc_log("on-demand mount busy title=%s", game->title_id);
+    return -1;
+  }
+  if(api_rc != 0) {
+    lzc_log("on-demand mount api request failed title=%s rc=%d", game->title_id, api_rc);
   }
   for(int i = 0; i < LZC_ON_DEMAND_WAIT_SECONDS * 4; i++) {
     if(job_cancelled()) {
@@ -10632,9 +10833,14 @@ run_lz4_pack_op(lzc_operation_t *op) {
     snprintf(op->error, sizeof(op->error), "%s", "this game is already LZ4 packed");
     return -1;
   }
-  if(!game.lz4_supported) {
+  populate_lz4_state(&game);
+  if(game.lz4_packed) {
+    snprintf(op->error, sizeof(op->error), "%s", "this game is already LZ4 packed");
+    return -1;
+  }
+  if(game.lz4_supported != 1) {
     snprintf(op->error, sizeof(op->error), "%s",
-             "LZ4 packs need APR-EMU: this game has no fakelib/libSceAmpr.sprx");
+             "this game doesn't use AMPR, so APR-EMU can't read LZ4 packs for it; compress it to .ffpfsc instead");
     return -1;
   }
   if(in_place && game.source_kind != LZC_SOURCE_FOLDER) {
@@ -10671,6 +10877,7 @@ run_lz4_pack_op(lzc_operation_t *op) {
   o.profile_path = profile_path[0] ? profile_path : NULL;
   o.learn_dir = LZC_LZ4_PROFILE_DIR;
   o.runtime = ampr_pack_runtime_data(&o.runtime_size);
+  o.install_runtime_if_missing = !lzc_lz4_runtime_marker_present(root);
   o.cb = lzc_lz4_callbacks(&job);
   o.source_root = root;
   lzc_log("lz4-pack root=%s workers=%d runtime=%s", root, o.workers,
@@ -10739,6 +10946,11 @@ run_lz4_pack_op(lzc_operation_t *op) {
       }
     }
     append_operation_phase(op, "lz4-packed");
+    /* Done reading the image: let go of the mount made for this job before
+     * the title moves to the new folder (and the image may be deleted). */
+    if(game.source_kind == LZC_SOURCE_IMAGE || game.source_kind == LZC_SOURCE_COMPRESSED) {
+      release_shadowmount_mount_for_source(op->title_id, game.source_path);
+    }
     int mrc = lzc_lz4_mount_folder_output(op, &game, target, delete_after);
     if(mrc < 0) return -1;
     if(mrc > 0) return 0;
@@ -11935,7 +12147,7 @@ enqueue_lz4_action(const http_request_t *req, lzc_action_t action) {
       return serve_error(req, 400, game.ampr_present && !game.is_mounted &&
                          game.source_kind != LZC_SOURCE_FOLDER ?
                          "mount this image with ShadowMountPlus first so its files can be read" :
-                         "LZ4 packs need APR-EMU: this game has no fakelib/libSceAmpr.sprx");
+                         "this game doesn't use AMPR, so APR-EMU can't read LZ4 packs for it; compress it to .ffpfsc instead");
     }
     if(websrv_get_query_arg(req, "level", level_arg, sizeof(level_arg)) &&
        level_arg[0]) {

@@ -118,7 +118,7 @@ export function Lz4Page({game, mode, depth, covered, hide, onBack, onStart}) {
   return (
     <Page title={`${unpack ? 'Uncompress LZ4' : 'Compress with LZ4'}  ·  ${game.name || game.titleId}`}
       subtitle={unpack ? 'Puts the normal loose files back from the LZ4 packs.'
-        : 'Seekable LZ4 packs that APR-EMU reads while the game runs. Every packed file is checked against the original.'}
+        : 'Seekable LZ4 packs read by APR-EMU while the game runs (added if the game has none). Every packed file is checked against the original.'}
       depth={depth} covered={covered} hide={hide} onBack={onBack}>
       {!unpack ? (
         <>
@@ -287,7 +287,7 @@ export function AboutPage({version, depth, covered, hide, onBack}) {
         <Image source={LOGO} className="w-[128px] h-[128px] rounded-[30px]" />
         <Text className="font-heavy text-[30px] text-snow">LZ4 Compression</Text>
         <Text className="font-inter text-[14px] text-muted">{version || ''}</Text>
-        <Text className="font-inter text-[15px] text-soft">LZ4 compression for APR-EMU games, done right on the PS5.</Text>
+        <Text className="font-inter text-[15px] text-soft">LZ4 compression for PS5 games, done right on the console.</Text>
         <Text className="font-inter text-[13px] text-muted">Upload LZ4 profiles from a PC or phone: open your PS5's IP on port 5920.</Text>
         <View className="mt-4 p-5 rounded-[18px] border border-line bg-panel w-[760px]">
           <Text className="font-inter text-[12px] text-muted">

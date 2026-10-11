@@ -1115,6 +1115,7 @@ typedef struct ap_ctx {
   size_t backup_runtime_size;
   char runtime_rel[512];
   int runtime_replaced;
+  int runtime_created;
   int index_written;
 } ap_ctx_t;
 
@@ -3132,6 +3133,9 @@ rollback_in_place(ap_ctx_t *c) {
   if(c->runtime_replaced && join2(path, sizeof(path), c->src, c->runtime_rel) == 0) {
     (void)write_file_atomic(path, c->backup_runtime, c->backup_runtime_size, 0777);
   }
+  if(c->runtime_created && join2(path, sizeof(path), c->src, c->runtime_rel) == 0) {
+    unlink(path);
+  }
 }
 
 /* -------------------------------------------------------------- build */
@@ -3181,13 +3185,48 @@ default_workers(void) {
   return (int)n;
 }
 
+/* The game imports libSceAmpr but ships no APR-EMU: add the runtime as a new
+ * loose file (next to any fakelib folder the game already has) and index it. */
+static int
+create_runtime(ap_ctx_t *c) {
+  const ampr_pack_options_t *o = c->o;
+  const char *dir = "fakelib";
+  char rel[512];
+  char path[1024];
+  struct stat st;
+  for(size_t i = 0; i < c->scan.dirs.count; i++) {
+    if(!strcasecmp(c->scan.dirs.items[i], "fakelib")) dir = c->scan.dirs.items[i];
+  }
+  snprintf(rel, sizeof(rel), "%s/libSceAmpr.sprx", dir);
+  if(join2(path, sizeof(path), c->in_place ? c->src : c->out, rel) != 0) {
+    ctx_err(c, "path too long: %s", rel);
+    return -1;
+  }
+  if(mkdirs_parent(path) != 0 ||
+     write_file_atomic(path, o->runtime, o->runtime_size, 0777) != 0 ||
+     stat(path, &st) != 0) {
+    ctx_err(c, "install LZ4 runtime: %s", strerror(errno));
+    return -1;
+  }
+  snprintf(c->runtime_rel, sizeof(c->runtime_rel), "%s", rel);
+  c->runtime_created = c->in_place;
+  if(scan_add_file(&c->scan, rel, &st) != 0) {
+    ctx_err(c, "out of memory");
+    return -1;
+  }
+  c->st->runtime_installed = 1;
+  cb_log(&c->cb, "added PackedStdio runtime at %s", rel);
+  return 0;
+}
+
 static int
 install_runtime(ap_ctx_t *c) {
   ap_scan_file_t *rf = scan_find_ci(&c->scan, AMPR_PACK_RUNTIME_REL);
   const ampr_pack_options_t *o = c->o;
   char path[1024];
   struct stat st;
-  if(!rf || !o->runtime || !o->runtime_size) return 0;
+  if(!o->runtime || !o->runtime_size) return 0;
+  if(!rf) return o->install_runtime_if_missing ? create_runtime(c) : 0;
   snprintf(c->runtime_rel, sizeof(c->runtime_rel), "%s", rf->rel);
   if(c->in_place) {
     if(join2(path, sizeof(path), c->src, rf->rel) != 0 ||

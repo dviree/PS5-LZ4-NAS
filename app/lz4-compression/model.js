@@ -27,7 +27,7 @@ export const ACTION_LABEL = {
 
 export const ACTION_DESC = {
   'compress': 'Pack the game into a compressed .ffpfsc image.',
-  'lz4-pack': 'Seekable LZ4 packs that APR-EMU reads while the game runs.',
+  'lz4-pack': 'Seekable LZ4 packs read while the game runs. APR-EMU is added if the game has none.',
   'make-image': 'Build a plain .exfat or .ffpfs image from this folder.',
   'validate-only': 'Read every block and report problems without changing anything.',
   'validate-repair': 'Read every block and repair what it can.',
@@ -84,7 +84,15 @@ function baseAction(game) {
   return '';
 }
 
+// LZ4 is the main action for every game that can use it (it imports AMPR,
+// with or without APR-EMU); .ffpfsc is the fallback.
+function lz4First(game) {
+  if (!game || game.lz4Packed === true || game.lz4Supported !== true) return false;
+  return ['folder', 'image', 'compressed'].includes(kindOf(game));
+}
+
 export function primaryAction(game) {
+  if (lz4First(game)) return 'lz4-pack';
   if (game && game.amprUpdateNeeded === true && game.amprLatestVersion && game.amprLatestSha256) return 'update-ampr';
   return baseAction(game);
 }
@@ -105,7 +113,8 @@ export function secondaryActions(game) {
   const normal = baseAction(game);
   const mountedOrOnDemand = game.isMounted === true || onDemand(game);
   const ids = [];
-  if (primary === 'update-ampr' && normal) ids.push(normal);
+  if ((primary === 'update-ampr' || primary === 'lz4-pack') && normal) ids.push(normal);
+  if (primary === 'lz4-pack' && game.amprUpdateNeeded === true && game.amprLatestVersion) ids.push('update-ampr');
   if (amprCanRestoreOriginal(game) && !packed) ids.push('restore-ampr-original');
   if (game.lz4Supported === true) ids.push('lz4-pack');
   if (packed) {

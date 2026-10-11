@@ -54,6 +54,9 @@ typedef struct ampr_pack_options {
   /* Pinned PackedStdio runtime. Installed over fakelib/libSceAmpr.sprx. */
   const unsigned char *runtime;
   size_t runtime_size;
+  /* Install the runtime as a new fakelib/libSceAmpr.sprx when the game has
+   * none (it imports libSceAmpr but ships no APR-EMU). */
+  int install_runtime_if_missing;
   /* Copy mode: re-read and compare every copied loose file. */
   int verify_loose_copies;
   ampr_pack_callbacks_t cb;

@@ -1385,7 +1385,8 @@ shadowmount_api_title_post(const char *route, const char *title_id) {
   close(fd);
   response[used] = 0;
   if(sscanf(response, "HTTP/%*s %d", &status) != 1) return -1;
-  if(status >= 400) return -1;
+  /* -409 (EBUSY): ShadowMountPlus refuses mounts while a game is running. */
+  if(status >= 400) return -status;
   return 0;
 }
 

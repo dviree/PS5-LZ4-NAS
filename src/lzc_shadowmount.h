@@ -46,6 +46,8 @@ int lzc_shadowmount_request_title_source_scan(const char *title_id,
                                              char *err,
                                              size_t err_size);
 int lzc_shadowmount_request_scan(char *err, size_t err_size);
+/* 0 on success, -<HTTP status> when ShadowMountPlus refuses (-409 while a
+ * game is running), -1 when its API can't be reached. */
 int lzc_shadowmount_request_mount(const char *title_id);
 int lzc_shadowmount_request_unmount(const char *title_id);
 int lzc_shadowmount_manual_remove_source(const char *source_path, char *err,

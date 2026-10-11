@@ -4668,7 +4668,7 @@
           <img class="about-logo" src="/lz4-logo.png" alt="" draggable="false">
           <div class="about-name" id="about-name">LZ4 Compression</div>
           <div class="chip" id="about-version"></div>
-          <div class="about-tagline" data-i18n="about.tagline">LZ4 compression for APR-EMU games, done right on the PS5. Plus .ffpfsc compression, images, verify and repair.</div>
+          <div class="about-tagline" data-i18n="about.tagline">LZ4 compression for PS5 games, done right on the console. Plus .ffpfsc compression, images, verify and repair.</div>
           <div class="about-notes" data-i18n="about.notes">Built on Game Compressor by Juma Sayeh and the LZ4 workflow from Lazy_AMPR by Nazky. Packed games are read by drakmor's ampr_emu. Unofficial, and not affiliated with either project.</div>
         </div>
       </div>
@@ -8273,7 +8273,16 @@
       return '';
     }
 
+    // LZ4 is the main action for every game that can use it (it imports
+    // AMPR, with or without APR-EMU); .ffpfsc is the fallback.
+    function lz4First(g) {
+      if (!g || g.lz4Packed === true || g.lz4Supported !== true) return false;
+      const kind = String(g.sourceKind || '').toLowerCase();
+      return kind === 'folder' || kind === 'image' || kind === 'compressed';
+    }
+
     function actionFor(g) {
+      if (lz4First(g)) return 'lz4-pack';
       if (g && g.amprUpdateNeeded === true) return 'update-ampr';
       return baseActionFor(g);
     }
@@ -8286,6 +8295,7 @@
         : t('operation.action.validateRepair');
       if (action === 'compress') return t('operation.action.compress');
       if (action === 'lz4-verify') return t('operation.action.lz4Verify');
+      if (action === 'lz4-pack') return t('operation.action.lz4Pack');
       return t('common.start');
     }
 
@@ -8660,8 +8670,11 @@
       const canBuildAmprIndex = g.amprPresent === true && g.lz4Packed !== true;
       const primaryAction = actionFor(g);
       const normalAction = baseActionFor(g);
-      if (primaryAction === 'update-ampr' && normalAction) {
-        actions.push({ id: normalAction, label: actionLabel({ ...g, amprUpdateNeeded: false }) });
+      if ((primaryAction === 'update-ampr' || primaryAction === 'lz4-pack') && normalAction) {
+        actions.push({ id: normalAction, label: actionLabel({ ...g, amprUpdateNeeded: false, lz4Supported: false }) });
+      }
+      if (primaryAction === 'lz4-pack' && g.amprUpdateNeeded === true) {
+        actions.push({ id: 'update-ampr', label: t('operation.action.updateAmpr') });
       }
       const lz4Packed = g.lz4Packed === true;
       if (g.amprPresent === true && !lz4Packed) {
@@ -8670,7 +8683,7 @@
       if (amprCanRestoreOriginal(g) && !lz4Packed) {
         actions.push({ id: 'restore-ampr-original', label: t('operation.action.restoreAmpr') });
       }
-      if (g.lz4Supported === true) {
+      if (g.lz4Supported === true && primaryAction !== 'lz4-pack') {
         actions.push({ id: 'lz4-pack', label: t('operation.action.lz4Pack') });
       }
       if (lz4Packed) {
@@ -10783,6 +10796,10 @@
       const action = overrideAction || actionFor(g);
       if (!action) return;
       if (!g || !g.sourcePath) return;
+      if (action === 'lz4-pack') {
+        showLz4Modal(g, 'pack');
+        return;
+      }
       if (action === 'update-ampr') {
         await updateAmprForGame(g);
         return;
