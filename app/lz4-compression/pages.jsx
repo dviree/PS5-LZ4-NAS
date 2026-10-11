@@ -1,8 +1,8 @@
 // Full-screen action pages, history, about, and the splash / done overlays.
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {View, Text, Image, ScrollView, FocusScope} from '@ps5-react/core';
 import {api, iconUrl} from './api.js';
-import {ACTION_LABEL, formatBytes, kindLabel, opSummary, opTime, opTone, resultText, storageLabel} from './model.js';
+import {ACTION_LABEL, formatBytes, kindLabel, readableError, opSummary, opTime, opTone, resultText, storageLabel} from './model.js';
 import {ActionRow, Choice, Dot, LevelScale, LOGO, PrimaryButton, SectionLabel} from './ui.jsx';
 
 export function Page({title, depth, covered, hide, onBack, children}) {
@@ -241,6 +241,25 @@ export function UncompressPage({game, depth, covered, hide, onBack, onStart}) {
   const [dest, setDest] = useState('inplace');
   const [usbId, setUsbId] = useState('');
   const [policy, setPolicy] = useState('keep');
+  const [plan, setPlan] = useState(null);
+  const picked = useRef(false);
+  useEffect(() => {
+    let live = true;
+    api.uncompressPlan(game).then(data => { if (live) setPlan(data); }).catch(() => {});
+    return () => { live = false; };
+  }, [game.titleId, game.sourcePath]);
+  // The uncompressed game is far bigger than the .ffpfsc: show what each place has room for.
+  const need = plan ? plan.requiredBytes || 0 : 0;
+  const fits = free => !need || !free || free >= need;
+  const room = free => (fits(free) ? `${formatBytes(free)} free` : `Needs ${formatBytes(need)}, ${formatBytes(free)} free`);
+  const hereFree = plan ? plan.freeBytes || 0 : 0;
+  useEffect(() => {
+    if (picked.current || !plan || fits(hereFree)) return;
+    const target = usb.find(item => fits(item.freeBytes));
+    if (target) { setDest('usb'); setUsbId(target.id); }
+  }, [plan, usb]);
+  const pick = (next, id) => { picked.current = true; setDest(next); setUsbId(id || ''); };
+  const sized = text => (need ? `${text}  ·  ${formatBytes(need)}` : text);
   const start = () => onStart(() => api.uncompress(game, {
     mode: mode === 'image' ? 'image' : 'app', destination: dest, deletePolicy: policy, usbId: dest === 'usb' ? usbId : '',
   }), 'Uncompressing');
@@ -249,17 +268,19 @@ export function UncompressPage({game, depth, covered, hide, onBack, onStart}) {
       depth={depth} covered={covered} hide={hide} onBack={onBack}>
       <SectionLabel>Output</SectionLabel>
       <Row>
-        <Choice title="Image" desc="The image inside the .ffpfsc" selected={mode === 'image'} onPress={() => setMode('image')} autoFocus />
-        <Choice title="Game folder" desc="Loose files" selected={mode === 'app'} onPress={() => setMode('app')} />
+        <Choice title="Image" desc={sized('The image inside the .ffpfsc')} selected={mode === 'image'} onPress={() => setMode('image')} autoFocus />
+        <Choice title="Game folder" desc={sized('Loose files')} selected={mode === 'app'} onPress={() => setMode('app')} />
       </Row>
       <SectionLabel>Destination</SectionLabel>
       <Row>
-        <Choice title="In place" desc={storageLabel(game)} selected={dest === 'inplace'} onPress={() => setDest('inplace')} />
+        <Choice title="In place" desc={hereFree ? `${storageLabel(game)}  ·  ${room(hereFree)}` : storageLabel(game)}
+          selected={dest === 'inplace'} disabled={!fits(hereFree)} onPress={() => pick('inplace')} />
         {!onData(game) ? <Choice title="Internal SSD" desc="/data/homebrew" selected={dest === 'internal'}
-          onPress={() => setDest('internal')} /> : null}
+          onPress={() => pick('internal')} /> : null}
         {usb.map(target => (
-          <Choice key={target.id} title={target.name || 'USB'} desc={usbDesc(target)}
-            selected={dest === 'usb' && usbId === target.id} onPress={() => { setDest('usb'); setUsbId(target.id); }} />
+          <Choice key={target.id} title={target.name || 'USB'}
+            desc={`${target.targetRoot || target.root}  ·  ${room(target.freeBytes)}`} disabled={!fits(target.freeBytes)}
+            selected={dest === 'usb' && usbId === target.id} onPress={() => pick('usb', target.id)} />
         ))}
       </Row>
       <SectionLabel>Compressed image</SectionLabel>
@@ -335,7 +356,7 @@ export function HistoryPage({history, depth, covered, hide, onBack}) {
             <View className="flex-1 gap-1">
               <Text className="font-semi text-[15px] text-snow" numberOfLines={1}>{op.displayName || op.titleId}</Text>
               <Text className="font-inter text-[12px] text-soft" numberOfLines={1}>{opSummary(op)}</Text>
-              {op.error ? <Text className="font-inter text-[12px] text-bad" numberOfLines={2}>{op.error}</Text> : null}
+              {op.error ? <Text className="font-inter text-[12px] text-bad" numberOfLines={2}>{readableError(op.error)}</Text> : null}
             </View>
             <Text className="font-inter text-[12px] text-muted">{when(opTime(op))}</Text>
             <View className="flex-row items-center gap-2 w-[150px]">
@@ -423,7 +444,7 @@ export function DoneOverlay({op, game, onClose}) {
           <Text className="font-heavy text-[30px] text-snow">{ok ? 'Done' : 'Something went wrong'}</Text>
           <Text className="font-inter text-[15px] text-soft text-center" numberOfLines={2}>{op.displayName || op.titleId}</Text>
           <Text className="font-inter text-[14px] text-soft text-center" numberOfLines={2}>{opSummary(op)}</Text>
-          {op.error ? <Text className="font-inter text-[13px] text-bad text-center" numberOfLines={3}>{op.error}</Text> : null}
+          {op.error ? <Text className="font-inter text-[13px] text-bad text-center" numberOfLines={3}>{readableError(op.error)}</Text> : null}
           <View className="mt-3"><PrimaryButton label="OK" onPress={onClose} autoFocus /></View>
         </View>
       </View>

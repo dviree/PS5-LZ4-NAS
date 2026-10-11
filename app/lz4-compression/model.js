@@ -150,6 +150,13 @@ export function profileText(game) {
   return 'Automatic scan';
 }
 
+// Engine errors carry raw byte counts ("free 12005212160 more bytes").
+export function readableError(text) {
+  return String(text || '')
+    .replace(/\b(\d{1,20})\s+more\s+bytes?\b/gi, (match, value) => `${formatBytes(Number(value))} more`)
+    .replace(/\b(\d{1,20})\s+bytes?\b/gi, (match, value) => formatBytes(Number(value)));
+}
+
 export function formatBytes(bytes) {
   let value = Number(bytes || 0);
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];

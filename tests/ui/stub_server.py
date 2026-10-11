@@ -76,6 +76,12 @@ class H(BaseHTTPRequestHandler):
         if path == '/api/lzc/usb': return self.send_json({'usb': [{'id': 'usb1', 'name': 'USB 1', 'root': '/mnt/usb1', 'targetRoot': '/mnt/usb1/homebrew', 'totalBytes': 2000 * G, 'freeBytes': 900 * G}]})
         if path == '/api/lzc/ampr/versions': return self.send_json({'versions': []})
         if path == '/api/lzc/size-priority': return self.send_json({'ok': True})
+        if path == '/api/lzc/uncompress-plan':
+            tid = q.get('titleId', '')
+            return self.send_json({'ok': True, 'titleId': tid, 'sourcePath': q.get('sourcePath', ''), 'nestedName': tid + '.exfat',
+                                   'nestedType': 'exfat', 'imageExtension': '.exfat', 'filesOutputPath': '/data/homebrew/%s-app' % tid,
+                                   'imageOutputPath': '/data/homebrew/%s.exfat' % tid, 'requiredBytes': 90 * G,
+                                   'freeBytes': 60 * G, 'extraBytes': 30 * G})
         if path == '/api/lzc/lz4/configs':
             name = ''.join(ch for ch in q.get('name', '').lower() if ch.isalnum())
             configs = [
