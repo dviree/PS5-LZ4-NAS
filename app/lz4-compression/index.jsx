@@ -2,7 +2,7 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {AppRegistry, BackHandler, Controller, View, useFocus, useNavigationEvents} from '@ps5-react/core';
 import {api, startEngine} from './api.js';
-import {ACTION_PAGES, formatBytes, gameId, stabilize} from './model.js';
+import {ACTION_PAGES, formatBytes, gameId, readableError, stabilize} from './model.js';
 import {GamePage, Home} from './screens.jsx';
 import {
   AboutPage, CompressPage, ConfigPage, DeletePage, DoneOverlay, HistoryPage, Lz4Page, MovePage, Offline, PowerPage,
@@ -45,7 +45,7 @@ function lowSpaceText(err) {
     const extra = data.extraBytes ? formatBytes(data.extraBytes) : '';
     return extra ? `Not enough free space: ${extra} more is needed.` : 'Not enough free space.';
   }
-  return err.message || 'The engine refused the request.';
+  return readableError(err.message) || 'The engine refused the request.';
 }
 
 function App() {

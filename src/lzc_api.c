@@ -8589,6 +8589,16 @@ run_uncompress_op(lzc_operation_t *op) {
     return -1;
   }
   if(op->target_root[0]) {
+    /* game.output_path is the files output (<id>-app); an image needs the
+     * name an in-place image uncompress would use (<id>.exfat / .ffpfs),
+     * or the finished image fails its output check. */
+    if(as_image &&
+       prepare_uncompress_plan(&game, 1, NULL, NULL, err, sizeof(err)) != 0) {
+      snprintf(op->error, sizeof(op->error), "%s",
+               err[0] ? err : "could not inspect compressed image");
+      lzc_log("uncompress failed title=%s err=%s", op->title_id, op->error);
+      return -1;
+    }
     if(build_uncompress_target_path(op->target_root, &game, target_path,
                                     sizeof(target_path), err,
                                     sizeof(err)) != 0) {
@@ -11935,14 +11945,29 @@ uncompress_plan_request(const http_request_t *req) {
      game.source_kind != LZC_SOURCE_COMPRESSED) {
     return serve_error(req, 400, "game is not compressed");
   }
-  infer_uncompress_nested_from_shadow(game.source_path, nested_name,
-                                      sizeof(nested_name), &nested_type);
-  if(build_default_uncompress_image_path(game.source_path, nested_type,
-                                         image_output_path,
-                                         sizeof(image_output_path),
-                                         err, sizeof(err)) != 0) {
-    return serve_error(req, 400,
-                       err[0] ? err : "could not inspect compressed image");
+  /* Read the .ffpfsc header like the job does (no mount needed), so the
+   * page sees the real nested image and its full size. ShadowMount+'s
+   * mount info is only a fallback: it's gone while the image is not
+   * mounted, and then the guess was the compressed size. */
+  char files_output_path[1024];
+  pfs_decompress_info_t dec = {0};
+  snprintf(files_output_path, sizeof(files_output_path), "%s", game.output_path);
+  if(prepare_uncompress_plan(&game, 1, NULL, &dec, err, sizeof(err)) == 0) {
+    snprintf(nested_name, sizeof(nested_name), "%s", dec.nested_name);
+    nested_type = dec.nested_type;
+    snprintf(image_output_path, sizeof(image_output_path), "%s", dec.output_path);
+    snprintf(game.output_path, sizeof(game.output_path), "%s", files_output_path);
+  } else {
+    err[0] = 0;
+    infer_uncompress_nested_from_shadow(game.source_path, nested_name,
+                                        sizeof(nested_name), &nested_type);
+    if(build_default_uncompress_image_path(game.source_path, nested_type,
+                                           image_output_path,
+                                           sizeof(image_output_path),
+                                           err, sizeof(err)) != 0) {
+      return serve_error(req, 400,
+                         err[0] ? err : "could not inspect compressed image");
+    }
   }
   json_buf_t b = {0};
   const char *type = nested_type_name(nested_type);
