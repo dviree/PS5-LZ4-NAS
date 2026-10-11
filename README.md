@@ -502,4 +502,4 @@ copyright notices are kept in the source files.
 
 This is homebrew software for experimental PS5 workflows. Use it at your own
 risk. The project is not affiliated with Sony, PlayStation, or any game
-publisher.
+publisher. To be used with own game dumps.
