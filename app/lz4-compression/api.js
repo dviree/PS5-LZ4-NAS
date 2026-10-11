@@ -1,0 +1,102 @@
+// Client for the LZ4 Compression payload (the engine) on the console.
+import {Http} from '@ps5-react/core';
+
+export const ENGINE = 'http://127.0.0.1:5920';
+const PAYLOAD_MANAGER = 'http://127.0.0.1:8084';
+export const ENGINE_ELF = '/data/pldmgr/payloads/lz4-compression/lz4-compression.elf';
+
+async function call(path, options = {}) {
+  const response = await Http.request(ENGINE + path, {
+    method: options.method || 'GET',
+    maxBytes: options.maxBytes || 4 * 1024 * 1024,
+  });
+  let data = {};
+  try {
+    const text = await response.text();
+    data = text ? JSON.parse(text) : {};
+  } catch (err) {
+    data = {};
+  }
+  if (!response.ok) {
+    const error = new Error(data.error || `HTTP ${response.status}`);
+    error.data = data;
+    throw error;
+  }
+  return data;
+}
+
+const post = path => call(path, {method: 'POST'});
+
+export function gameQuery(game) {
+  let query = 'titleId=' + encodeURIComponent(game.titleId || '');
+  if (game.sourcePath) query += '&sourcePath=' + encodeURIComponent(game.sourcePath);
+  return query;
+}
+
+export function iconUrl(game, full) {
+  if (!game || !game.hasIcon) return '';
+  const version = `${game.iconSize || 0}-${game.iconMtime || 0}`;
+  return `${ENGINE}/api/lzc/icon?titleId=${encodeURIComponent(game.titleId)}` +
+    (full ? '' : '&size=thumb') + `&v=${encodeURIComponent(version)}`;
+}
+
+export const api = {
+  status: () => call('/api/status'),
+  games: () => call('/api/lzc/games'),
+  history: () => call('/api/lzc/history'),
+  job: () => call('/api/lzc/job'),
+  usb: () => call('/api/lzc/usb'),
+  lz4Profile: game => call('/api/lzc/lz4/profile?titleId=' + encodeURIComponent(game.titleId)),
+  uncompressPlan: game => call('/api/lzc/uncompress-plan?' + gameQuery(game)),
+  cancelJob: () => post('/api/lzc/job/cancel'),
+  cancelQueued: id => post('/api/lzc/queue/cancel?id=' + encodeURIComponent(id)),
+  shutdown: () => post('/api/control/shutdown'),
+  // Simple actions that start straight away.
+  run(action, game) {
+    const routes = {
+      'validate-only': 'validate-only', 'validate-repair': 'validate-repair',
+      'lz4-verify': 'lz4-verify', 'build-ampr-index': 'build-ampr-index',
+      'set-read-only': 'set-read-only', 'extract-image': 'extract-image',
+      'refresh-mount': 'refresh-mount', 'read-speed-test': 'read-speed-test',
+      'restore-ampr-original': 'restore-ampr-original',
+    };
+    return post(`/api/lzc/${routes[action]}?` + gameQuery(game));
+  },
+  updateAmpr: game => post('/api/lzc/update-ampr?' + gameQuery(game) +
+    '&version=' + encodeURIComponent(game.amprLatestVersion || '') +
+    '&sha256=' + encodeURIComponent(game.amprLatestSha256 || '') + '&intent=latest'),
+  compress(game, {action, format, destination, deletePolicy, usbId, confirmStream}) {
+    let url = (action === 'make-image' ? '/api/lzc/make-image?' : '/api/lzc/compress?') +
+      gameQuery(game) + '&format=' + encodeURIComponent(format);
+    if (deletePolicy) url += '&deletePolicy=' + encodeURIComponent(deletePolicy);
+    if (destination && destination !== 'keep') url += '&destination=' + encodeURIComponent(destination);
+    if (usbId) url += '&usbId=' + encodeURIComponent(usbId);
+    if (confirmStream) url += '&confirmStream=1';
+    return post(url);
+  },
+  lz4(game, {mode, level, profile, destination, deletePolicy, usbId}) {
+    let url = (mode === 'unpack' ? '/api/lzc/lz4-unpack?' : '/api/lzc/lz4-pack?') + gameQuery(game) +
+      '&destination=' + encodeURIComponent(destination) + '&deletePolicy=' + encodeURIComponent(deletePolicy);
+    if (mode !== 'unpack') url += '&level=' + encodeURIComponent(level) + '&profile=' + encodeURIComponent(profile);
+    if (destination === 'usb' && usbId) url += '&usbId=' + encodeURIComponent(usbId);
+    return post(url);
+  },
+  uncompress(game, {mode, destination, deletePolicy, usbId}) {
+    let url = '/api/lzc/uncompress?' + gameQuery(game) + '&mode=' + encodeURIComponent(mode) +
+      '&destination=' + encodeURIComponent(destination) + '&deletePolicy=' + encodeURIComponent(deletePolicy);
+    if (usbId) url += '&usbId=' + encodeURIComponent(usbId);
+    return post(url);
+  },
+  move(game, {copy, target, usbId}) {
+    const verb = copy ? 'copy' : 'move';
+    if (target === 'internal') return post(`/api/lzc/${verb}-to-internal?` + gameQuery(game));
+    return post(`/api/lzc/${verb}-to-usb?` + gameQuery(game) + '&usbId=' + encodeURIComponent(usbId));
+  },
+  deleteGame: game => post('/api/lzc/delete-game-data?' + gameQuery(game) + '&confirm=delete'),
+};
+
+// Asks Payload Manager to load the engine when it isn't running yet.
+export async function startEngine() {
+  const response = await Http.request(`${PAYLOAD_MANAGER}/loadpayload:${ENGINE_ELF}`, {method: 'GET', maxBytes: 65536});
+  return response.ok;
+}

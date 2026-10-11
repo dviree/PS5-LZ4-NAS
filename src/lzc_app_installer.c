@@ -271,7 +271,8 @@ init_ps5_services(void) {
   }
 }
 
-static int
+/* Kept for the web-launcher tile of 1.3.0 test builds; no longer called. */
+__attribute__((unused)) static int
 lzc_install_app_if_needed(void) {
   appinst_api_t api;
   char app_dir[256];
@@ -423,21 +424,20 @@ out:
 static void *
 launcher_thread(void *arg) {
   (void)arg;
+  struct stat st;
+  char param_path[256];
 
-  lzc_log("launcher started after web server");
-
-  pthread_mutex_lock(&g_launcher_install_lock);
-  init_ps5_services();
-  int app_install_status = lzc_install_app_if_needed();
-  pthread_mutex_unlock(&g_launcher_install_lock);
-  if(app_install_status >= 0) {
-    lzc_log("launcher ready rc=%d", app_install_status);
+  /* The LZ4 Compression app (PPSA99420, a folder in /data/homebrew that
+   * ShadowMountPlus registers) is the home-screen tile now. Remove the old
+   * browser launcher tile if an earlier build installed it. */
+  snprintf(param_path, sizeof(param_path), LZC_APP_ROOT "/%s/sce_sys/param.json",
+           LZC_LAUNCHER_TITLE_ID);
+  if(stat(param_path, &st) == 0) {
+    int rc = lzc_launcher_remove();
+    lzc_log("legacy web launcher tile removed rc=0x%08x", (unsigned)rc);
   } else {
-    lzc_log("launcher skipped rc=%d, web server remains available",
-           app_install_status);
-    lzc_notify_message("Home tile skipped", "Use web UI");
+    lzc_log("launcher: no legacy web tile");
   }
-
   return NULL;
 }
 

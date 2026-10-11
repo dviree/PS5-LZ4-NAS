@@ -310,6 +310,30 @@ gen/
 lz4-compression.elf
 ```
 
+## The PS5 app
+
+`app/lz4-compression` is the console app (title `PPSA99420`): the library,
+game pages and action pages with D-pad and stick navigation, controller
+vibration and no browser. It talks to the engine (`lz4-compression.elf`) on
+`127.0.0.1:5920` and starts it through Payload Manager when it isn't running.
+The web page on port 5920 stays available from a PC or phone, for example to
+upload LZ4 profiles.
+
+It is built with [PS5 React](https://github.com/half144/ps5-react) on macOS
+(Apple Silicon):
+
+```sh
+git clone https://github.com/half144/ps5-react.git && cd ps5-react
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && npm ci
+brew install cmake sdl2 llvm@18 curl libarchive
+PATH="$PWD/.venv/bin:$PATH" npm run dev -- --app-dir ../PS5-LZ4-Compression/app/lz4-compression    # desktop preview
+PATH="$PWD/.venv/bin:$PATH" npm run build -- --app-dir ../PS5-LZ4-Compression/app/lz4-compression  # dist/PPSA99420
+```
+
+Keep LLVM 18 out of `PATH` (the build finds it on its own); the host tools
+need Apple's clang. Copy `dist/PPSA99420` to `/data/homebrew/PPSA99420` and
+ShadowMount+ adds the tile.
+
 ## Deploy
 
 Copy the built ELF to your PS5 payload folder. A typical Payload Manager path is:

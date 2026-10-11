@@ -34,6 +34,14 @@ own terms. Original copyright notices are kept in the source files.
 
 The PS5 port of the LZ4 packer and the LZ4 Compression app are by Husam Osman.
 
+## The PS5 app
+
+The LZ4 Compression app (`app/lz4-compression`, title `PPSA99420`) is built
+with PS5 React, created by half144 and PS5 React contributors
+(https://github.com/half144/ps5-react), under the GNU GPL v3 or later with its
+attribution term. The built app folder carries the framework's own `notices/`
+(QuickJS, Embedded React, Inter, HarfBuzz, SheenBidi, libarchive and others).
+
 ## Code and binaries in this repository
 
 | Component | Where | License |
