@@ -1,0 +1,11 @@
+.git
+build
+gen
+lz4-compression.elf
+app
+assets-app
+tests
+tools/art
+*.md
+!nas/README.md
+!profiles/README.md

@@ -14,8 +14,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#ifdef LZC_NAS
+#include <dirent.h>
+#include <sys/prctl.h>
+#else
 #include <sys/syscall.h>
 #include <sys/sysctl.h>
+#endif
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -48,7 +53,11 @@ static void
 detect_lan_ip(char *out, size_t out_size) {
   struct ifaddrs *ifaddr = NULL;
 
+#ifdef LZC_NAS
+  snprintf(out, out_size, "<NAS_IP>");
+#else
   snprintf(out, out_size, "<PS5_IP>");
+#endif
   if(getifaddrs(&ifaddr) != 0) return;
 
   for(struct ifaddrs *ifa = ifaddr; ifa; ifa = ifa->ifa_next) {
@@ -180,6 +189,50 @@ wait_for_old_server_down(unsigned short port) {
   return local_port_open(port) ? -1 : 0;
 }
 
+#ifdef LZC_NAS
+/* Linux: find other engine processes by their /proc comm name (the kernel
+ * keeps the first 15 characters). */
+static int
+signal_stale_lz4_compression_process(int signal_no) {
+  char want[16];
+  pid_t self = getpid();
+  int signaled = 0;
+  DIR *d = opendir("/proc");
+  struct dirent *ent;
+
+  snprintf(want, sizeof(want), "%s", LZC_PAYLOAD_NAME);
+  if(!d) {
+    lzc_log("stale handoff process enumerate failed errno=%d", errno);
+    return -1;
+  }
+  while((ent = readdir(d)) != NULL) {
+    char path[288];
+    char name[64] = {0};
+    char *end = NULL;
+    long pid = strtol(ent->d_name, &end, 10);
+    FILE *f;
+
+    if(!end || *end || pid <= 0 || (pid_t)pid == self) continue;
+    snprintf(path, sizeof(path), "/proc/%ld/comm", pid);
+    f = fopen(path, "r");
+    if(!f) continue;
+    if(fgets(name, sizeof(name), f)) name[strcspn(name, "\n")] = 0;
+    fclose(f);
+    if(strcmp(name, want) != 0) continue;
+
+    if(kill((pid_t)pid, signal_no) == 0) {
+      signaled++;
+      lzc_log("stale handoff signaled pid=%ld name=%s signal=%d",
+             pid, name, signal_no);
+    } else {
+      lzc_log("stale handoff signal failed pid=%ld name=%s signal=%d errno=%d",
+             pid, name, signal_no, errno);
+    }
+  }
+  closedir(d);
+  return signaled;
+}
+#else
 static int
 signal_stale_lz4_compression_process(int signal_no) {
   int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_PROC, 0 };
@@ -240,6 +293,7 @@ signal_stale_lz4_compression_process(int signal_no) {
   free(buf);
   return signaled;
 }
+#endif
 
 static int
 recover_stale_instance(unsigned short port) {
@@ -415,7 +469,11 @@ int
 main(int argc, char **argv) {
   lzc_diag_init();
   lzc_diag_install_signal_handlers();
+#ifdef LZC_NAS
+  prctl(PR_SET_NAME, LZC_PAYLOAD_NAME, 0, 0, 0);
+#else
   syscall(SYS_thr_set_name, -1, LZC_PAYLOAD_NAME);
+#endif
   lzc_checkpoint("process start");
   lzc_log("PID=%ld argc=%d", (long)getpid(), argc);
   for(int i = 0; i < argc; i++) {

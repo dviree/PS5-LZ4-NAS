@@ -3535,6 +3535,16 @@ wait_for_shadowmount_links(const char *title_id,
   int restart_recovery_attempted = 0;
 
   if(err && err_size) err[0] = 0;
+#ifdef LZC_NAS
+  /* No console here to remount the title on. Report it the way a missed
+   * ShadowMountPlus mount is reported, so jobs keep their output and finish
+   * without waiting. */
+  snprintf(err, err_size,
+           "ShadowMountPlus did not remount %s: NAS build, there is no PS5 "
+           "here; ShadowMountPlus picks the game up once it is on the console",
+           title_id ? title_id : "");
+  return -1;
+#endif
   lzc_log("shadowmount wait title=%s mount=%s image=%s",
          title_id ? title_id : "",
          expected_mount_link ? expected_mount_link : "",
@@ -5590,7 +5600,12 @@ prepare_uncompress_plan(lzc_game_t *game, int as_image,
 static int
 repair_with_wait(const char *title_id, const char *path,
                  pfs_repair_info_t *info, char *err, size_t err_size) {
+#ifdef LZC_NAS
+  /* Only a PS5 can mount the image; one attempt, no waiting. */
+  time_t deadline = time(NULL);
+#else
   time_t deadline = time(NULL) + LZC_REPAIR_WAIT_SECONDS;
+#endif
   lzc_checkpoint("repair waiting for mount");
   lzc_log("repair wait title=%s path=%s", title_id ? title_id : "",
          path ? path : "");
@@ -5636,7 +5651,12 @@ static int
 repair_scan_only_with_wait(const char *title_id, const char *path,
                            pfs_repair_info_t *info, int *scan_rc_out,
                            char *err, size_t err_size) {
+#ifdef LZC_NAS
+  /* Only a PS5 can mount the image; one attempt, no waiting. */
+  time_t deadline = time(NULL);
+#else
   time_t deadline = time(NULL) + LZC_REPAIR_WAIT_SECONDS;
+#endif
   lzc_checkpoint("validate-only waiting for mount");
   lzc_log("validate-only wait title=%s path=%s", title_id ? title_id : "",
          path ? path : "");
@@ -6062,6 +6082,12 @@ build_mount_switch_hidden_path(const lzc_operation_t *op,
 
 static int
 mount_switch_source_can_be_hidden(const lzc_game_t *game) {
+#ifdef LZC_NAS
+  /* Hiding other copies only steers ShadowMountPlus; never rename folders
+   * on NAS shares for it. */
+  (void)game;
+  return 0;
+#endif
   return game &&
       game->source_kind != LZC_SOURCE_UNKNOWN &&
       game->source_path[0] &&
@@ -11877,6 +11903,16 @@ enqueue_action(const http_request_t *req, lzc_action_t action) {
       snprintf(delete_policy, sizeof(delete_policy), "%s", "after");
     }
   }
+#ifdef LZC_NAS
+  /* The .ffpfsc writer removes a folder source as soon as the image is
+   * written; on a PS5 the console's PFSC decoder then validates and repairs
+   * it. A NAS can't run that check, so the original always stays. */
+  if(action == LZC_ACTION_COMPRESS && strcmp(delete_policy, "keep") != 0) {
+    lzc_log("nas: .ffpfsc compress keeps the original (requested %s)",
+            delete_policy);
+    snprintf(delete_policy, sizeof(delete_policy), "%s", "keep");
+  }
+#endif
   pthread_mutex_lock(&g_lzc_lock);
   int response = 0;
   lzc_operation_t *op = alloc_queued_operation_locked(req, title_id, action,
