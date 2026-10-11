@@ -71,3 +71,27 @@ jobs:
             gh release create "$GITHUB_REF_NAME" lz4-compression.elf SHA256SUMS \
               --verify-tag "${notes_args[@]}" --title "LZ4 Compression $GITHUB_REF_NAME"
           fi
+
+  nas:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build the NAS (Linux) engine
+        run: make -f nas/Makefile -j"$(nproc)"
+
+      - name: Build the NAS Docker image
+        run: docker build -t lz4-compression-nas .
+
+      - name: Smoke test the container
+        run: |
+          docker run -d --name lzc -p 5920:5920 lz4-compression-nas
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:5920/api/status && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:5920/api/status | grep -q '"ok":true'
+          curl -sf http://127.0.0.1:5920/api/lzc/games | grep -q '"ok":true'
+          docker rm -f lzc

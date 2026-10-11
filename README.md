@@ -47,6 +47,13 @@ Unofficial, and not affiliated with any of the projects it builds on. See
 You can also skip the app: load the ELF and open `http://<PS5 IP>:5920` in
 any browser.
 
+### Run it on a NAS instead
+
+The engine also runs entirely on a NAS (Docker on Synology, QNAP, Unraid,
+TrueNAS or any Linux box), with nothing installed on the PS5: you open the
+same web page at `http://<NAS IP>:5920` and it works on the games stored on
+the NAS. See [nas/README.md](nas/README.md).
+
 ## LZ4 asset packs
 
 APR-EMU (drakmor's [ampr_emu](https://github.com/drakmor/ampr_emu)) can read
