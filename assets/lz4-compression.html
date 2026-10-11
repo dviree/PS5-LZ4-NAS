@@ -3928,6 +3928,23 @@
       color: #fff;
     }
 
+    .about-support {
+      display: inline-block;
+      margin: 6px 0 2px;
+      border-radius: 10px;
+      transition: transform .16s ease;
+    }
+
+    .about-support:hover,
+    .about-support:focus-visible {
+      transform: translateY(-2px);
+    }
+
+    .about-support img {
+      display: block;
+      height: 50px;
+    }
+
     .lz4-level {
       margin-bottom: 18px;
     }
@@ -4712,6 +4729,9 @@
           <img class="about-logo" src="/lz4-logo.png" alt="" draggable="false">
           <div class="about-name" id="about-name">LZ4 Compression</div>
           <div class="chip" id="about-version"></div>
+          <a class="about-support" href="https://buymeacoffee.com/theghostonline" target="_blank" rel="noopener">
+            <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="50">
+          </a>
           <div class="about-notes" data-i18n="about.notes">Built on Game Compressor by Juma Sayeh and the LZ4 workflow from Lazy_AMPR by Nazky. Packed games are read by drakmor's ampr_emu. Unofficial, and not affiliated with either project.</div>
         </div>
       </div>

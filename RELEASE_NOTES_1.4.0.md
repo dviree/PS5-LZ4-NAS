@@ -40,3 +40,7 @@
 
 Tested on firmware 13.60 with Payload Manager, kstuff and ShadowMount+ 1.7.
 Keep your original game until you've launched the packed version.
+
+Unofficial, and not affiliated with the projects it builds on. If it saved you
+space, you can support the cost of building it:
+[Buy Me a Coffee](https://buymeacoffee.com/theghostonline)
