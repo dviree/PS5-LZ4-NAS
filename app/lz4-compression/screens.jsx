@@ -2,6 +2,7 @@
 import {memo, useCallback, useState} from 'react';
 import {View, Text, Image, ScrollView, FocusScope, useIsFocused} from '@ps5-react/core';
 import {iconUrl} from './api.js';
+import donateQr from './assets/donate-qr.png';
 import {
   ACTION_DESC, ACTION_ICON, ACTION_LABEL, GROUPS, badgeText, gameId, gameSize, kindLabel, opSummary,
   opTone, primaryAction, profileText, progressFor, resultText, secondaryActions, statusOf, storageLabel, formatBytes,
@@ -104,7 +105,7 @@ export function Home({games, history, job, version, freeText, covered, hide, sta
   const [focusId, setFocusId] = useState(startId || '');
   const onFocusGame = useCallback(id => setFocusId(id), []);
   const focused = games.find(game => gameId(game) === focusId) || games[0] || null;
-  const recent = history.slice(0, 4);
+  const recent = history.slice(0, 3);
   const byTitle = new Map(games.map(game => [game.titleId, game]));
   const startIndex = Math.max(0, games.findIndex(game => gameId(game) === (startId || '')));
   return (
@@ -138,6 +139,12 @@ export function Home({games, history, job, version, freeText, covered, hide, sta
             </View>
           </View>
         ) : null}
+        {/* Optional support, out of the way (as in PS5VR): a small dimmed QR code
+            in the corner for buymeacoffee.com/theghostonline. */}
+        <View className="absolute right-[48px] bottom-[36px] items-center gap-[10px]">
+          <Image source={donateQr} className="w-[88px] h-[88px]" />
+          <Text className="font-semi text-[16px] text-[#78849b]">Support LZ4 Compression</Text>
+        </View>
       </View>
     </FocusScope>
   );
