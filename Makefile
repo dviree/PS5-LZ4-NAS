@@ -52,6 +52,11 @@ AMPR_RUNTIME_SHA256 := 69e6c4d5e4f5fb83c9e01815db5861c4c75734acbf4595cafa50d4c21
 AMPR_RUNTIME_GEN := gen/ampr_runtime_blob.c
 OBJS += build/gen/ampr_runtime_blob.o
 
+# ampr_pack TOML profiles picked automatically for matching games.
+PROFILES := profiles/index.json $(wildcard profiles/*.toml)
+PROFILES_GEN := gen/lz4_profiles.c
+OBJS += build/gen/lz4_profiles.o
+
 LZ4_SRCS := lz4.c lz4hc.c
 LZ4_OBJS := $(patsubst %.c,build/lz4/%.o,$(LZ4_SRCS))
 OBJS += $(LZ4_OBJS)
@@ -117,6 +122,15 @@ $(AMPR_RUNTIME_GEN): $(AMPR_RUNTIME) tools/gen_binary_c.py
 build/gen/ampr_runtime_blob.o: $(AMPR_RUNTIME_GEN)
 	mkdir -p $(dir $@)
 	"$(CC)" -O2 -c $< -o $@
+
+$(PROFILES_GEN): $(PROFILES) tools/gen_profiles_c.py
+	mkdir -p $(dir $@)
+	$(PYTHON) tools/gen_profiles_c.py profiles/index.json > $@.tmp
+	mv $@.tmp $@
+
+build/gen/lz4_profiles.o: $(PROFILES_GEN) src/lzc_profiles.h
+	mkdir -p $(dir $@)
+	"$(CC)" -O2 -Isrc -c $< -o $@
 
 build/lz4/%.o: third_party/lz4/%.c $(wildcard third_party/lz4/*.h) Makefile
 	mkdir -p $(dir $@)

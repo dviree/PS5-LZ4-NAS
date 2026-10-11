@@ -4,7 +4,7 @@ import {View, Text, Image, ScrollView, FocusScope, useIsFocused} from '@ps5-reac
 import {iconUrl} from './api.js';
 import {
   ACTION_DESC, ACTION_ICON, ACTION_LABEL, GROUPS, badgeText, gameId, gameSize, kindLabel, opSummary,
-  opTone, primaryAction, progressFor, resultText, secondaryActions, statusOf, storageLabel, formatBytes,
+  opTone, primaryAction, profileText, progressFor, resultText, secondaryActions, statusOf, storageLabel, formatBytes,
 } from './model.js';
 import {Dot, OptionCard, PrimaryButton, ProgressBar, SectionLabel, Spec, TopBar} from './ui.jsx';
 
@@ -178,6 +178,7 @@ export function GamePage({game, job, covered, hide, depth, onBack, onAction, onC
   if (game.savedBytes > 0) specs.push(['Saved', formatBytes(game.savedBytes), 'good']);
   if (game.amprPresent) specs.push(['APR-EMU', game.amprVersion || 'Present']);
   if (game.lz4Packed) specs.push(['LZ4 packs', String(game.lz4PackCount || 0)]);
+  else if (game.lz4Supported) specs.push(['LZ4 profile', profileText(game)]);
   const groups = GROUPS.map(([key, label, ids]) => [key, label, ids.filter(id => actions.includes(id))])
     .filter(([, , ids]) => ids.length);
   return (

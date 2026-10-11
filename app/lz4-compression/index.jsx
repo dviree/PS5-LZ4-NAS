@@ -292,10 +292,12 @@ function App() {
   });
 
   const doneGame = done ? games.find(game => game.titleId === done.titleId) : null;
+  // Games only: apps (homebrew, media apps) mounted next to them stay out of the library.
+  const library = games.filter(game => !game.isApp);
   return (
     <View className="w-screen h-screen bg-ink">
       {bridge}
-      <Home games={games} history={history} job={job} version={version} freeText={freeSpaceText(games)}
+      <Home games={library} history={history} job={job} version={version} freeText={freeSpaceText(games)}
         covered={depth > 0 || !!done} hide={depth > 0} onOpen={openGame}
         onHistory={() => push({name: 'history'})} onAbout={() => push({name: 'about'})} onPower={() => push({name: 'power'})} />
       {pages}

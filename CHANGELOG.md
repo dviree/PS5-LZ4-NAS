@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Bundled LZ4 profiles: the tested community TOMLs (ASTRO BOT, EA Sports UFC
+  6, and the Insomniac and Unity engine profiles from danthespal's
+  MkPFS.CSharp) ship with the engine. `Automatic` picks one by Title ID,
+  name or the game's file layout, the game page shows which profile it will
+  use, and `Scan only` skips it. An imported config still wins.
+- The library lists games only: entries under 2 GB (homebrew and media apps)
+  are left out.
+
 ## 1.3.0 - 2026-10-11
 
 First release of LZ4 Compression. Release notes:

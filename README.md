@@ -83,7 +83,14 @@ Open the game from the library: `Compress with LZ4` is its main button.
 - **Compression level:** the same 1 to 12 scale as Lazy_AMPR. 1 to 4 use
   LZ4's fast mode, 5 to 12 use LZ4 HC. 9 is the default, 12 is the smallest
   and slowest.
-- **Packing profile:** `Automatic`, or `Custom or Trace Config` to use an
+- **Packing profile:** `Automatic` picks the best profile on its own. The
+  app ships the tested community profiles from [`profiles/`](profiles/)
+  (ASTRO BOT, EA Sports UFC 6, and the Insomniac and Unity engine profiles)
+  and matches them by Title ID, by name, or by the game's file layout, so a
+  matching game already has the right TOML when you open it. The game page
+  shows which one it will use. Games without a match get the scan-based
+  profile, and `Scan only` skips the bundled one.
+- `Custom or Trace Config` uses your own
   `ampr_pack` TOML, for example one generated from APR traces with
   `ampr_pack_profile.py` or a community profile for the game. Two ways to get
   one in:
@@ -96,9 +103,10 @@ Open the game from the library: `Compress with LZ4` is its main button.
   - Upload `profile.toml` plus any `include_from` lists it names from a PC
     or phone browser.
 
-  Profiles are stored in
-  `/data/LZ4Compression/lz4-profiles/<TITLE_ID>/`, and the automatic
-  profile also learns the loose rules from every uploaded profile.
+  Your own config always wins over the bundled one. Profiles are stored in
+  `/data/LZ4Compression/lz4-profiles/<TITLE_ID>/`, and the scan-based
+  profile also learns the loose rules from every bundled and uploaded
+  profile.
 - **Destination:** next to the game, internal SSD or external storage. The
   output is a game folder named `<name>-lz4`.
 - **Original handling:**
@@ -441,6 +449,10 @@ original by default. If you choose to remove the original, it uses the safer
 `Delete after verified` behavior.
 
 ## Game Discovery
+
+The library only lists games. Apps that ShadowMount+ mounts next to them
+(homebrew, media apps) are left out: anything under 2 GB once its size is
+known counts as an app.
 
 Mounted games are shown automatically. LZ4 Compression also scans known game
 storage folders, including:

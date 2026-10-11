@@ -112,8 +112,8 @@ export function Lz4Page({game, mode, depth, covered, hide, onBack, onStart, onIm
       if (!live) return;
       setProfileInfo(info);
       const ready = !!info.exists && !(info.includes || []).some(item => !item.present);
-      // A config that was just imported is what the user wants to pack with.
-      setProfile(ready && profileRev ? 'custom' : 'auto');
+      // The game's own imported config wins, then the bundled pick (Automatic).
+      setProfile(ready ? 'custom' : 'auto');
     }).catch(() => {});
     api.lz4Configs(game).then(data => {
       if (live) setMatch((data.configs || []).find(item => item.match) || null);
@@ -126,6 +126,9 @@ export function Lz4Page({game, mode, depth, covered, hide, onBack, onStart, onIm
   const missing = profileInfo && profileInfo.exists ? (profileInfo.includes || []).filter(item => !item.present) : [];
   const customDesc = profileReady ? 'Imported config for this game'
     : missing.length ? `Missing ${missing.map(item => item.name).join(', ')}` : 'Import a TOML config first';
+  const auto = game.lz4AutoProfile;
+  const autoDesc = auto ? `${auto.label} profile, tested on ${auto.tested}`
+    : 'Scans the game and keeps executables, system files and media loose';
   const canReplace = folder && dest === 'inplace';
   const chosenPolicy = !canReplace && policy === 'replace' ? 'after' : policy;
   const start = () => onStart(() => api.lz4(game, {
@@ -140,8 +143,9 @@ export function Lz4Page({game, mode, depth, covered, hide, onBack, onStart, onIm
           <LevelScale value={level} onChange={setLevel} autoFocus />
           <SectionLabel>Packing profile</SectionLabel>
           <Row>
-            <Choice title="Automatic" desc="Keeps executables, system files and media loose" wide selected={profile === 'auto'}
-              onPress={() => setProfile('auto')} />
+            <Choice title="Automatic" desc={autoDesc} wide selected={profile === 'auto'} onPress={() => setProfile('auto')} />
+            {auto ? <Choice title="Scan only" desc="Skip the bundled profile and scan the game" wide selected={profile === 'scan'}
+              onPress={() => setProfile('scan')} /> : null}
             <Choice title="Custom or trace config" wide desc={customDesc}
               selected={profile === 'custom'} disabled={!profileReady} onPress={() => setProfile('custom')} />
             <ActionRow title="Import config" icon="download" onPress={onImport} focusKey="import-config"

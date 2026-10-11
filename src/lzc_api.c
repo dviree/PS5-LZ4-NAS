@@ -35,6 +35,7 @@
 #include "pfs_repair.h"
 #include "transfer_internal.h"
 #include "lzc_paths.h"
+#include "lzc_profiles.h"
 
 #define LZC_APP_BASE "/user/app"
 #define LZC_APPMETA_BASE "/user/appmeta"
@@ -60,6 +61,10 @@
 #define LZC_REPAIR_WAIT_SECONDS 180
 #define LZC_REPAIR_WAIT_STEP_SECONDS 2
 #define LZC_REMOUNT_WAIT_SECONDS 45
+/* The PS5 app's own title, and the size under which a library entry counts
+ * as an app rather than a game. */
+#define LZC_SELF_TITLE_ID "PPSA99420"
+#define LZC_APP_MAX_BYTES (2ULL * 1024ULL * 1024ULL * 1024ULL)
 #define LZC_REMOUNT_WAIT_STEP_SECONDS 1
 #define LZC_MOUNT_SCAN_REQUEST_SECONDS 2
 #define LZC_MOUNT_NUDGE_FIRST_SECONDS 5
@@ -217,6 +222,10 @@ typedef struct lzc_game {
   int lz4_packed;
   int lz4_supported;
   int lz4_profile_available;
+  /* Bundled profile "Automatic" packs with (id, or empty for the scan) and
+   * how it matched: LZC_BUNDLED_MATCH_TITLE or _ENGINE. */
+  char lz4_auto_profile[32];
+  int lz4_auto_profile_match;
   uint32_t lz4_pack_count;
   uint64_t lz4_files;
   char ampr_path[1024];
@@ -669,6 +678,183 @@ lzc_lz4_profile_path(const char *title_id, char *out, size_t out_size) {
   return n < 0 || (size_t)n >= out_size ? -1 : 0;
 }
 
+/* ---- bundled profiles (profiles/index.json) ---------------------------- */
+
+#define LZC_BUNDLED_MATCH_TITLE 1
+#define LZC_BUNDLED_MATCH_ENGINE 2
+
+static void config_normalize(const char *in, char *out, size_t out_size);
+
+/* `value` is one of the comma separated entries (case-insensitive). */
+static int
+csv_has(const char *csv, const char *value) {
+  size_t n = value ? strlen(value) : 0;
+  const char *p = csv;
+  if(!n) return 0;
+  while(p && *p) {
+    const char *comma = strchr(p, ',');
+    size_t len = comma ? (size_t)(comma - p) : strlen(p);
+    if(len == n && !strncasecmp(p, value, n)) return 1;
+    p = comma ? comma + 1 : NULL;
+  }
+  return 0;
+}
+
+/* One of the comma separated entries appears in `text`. */
+static int
+csv_found_in(const char *csv, const char *text) {
+  const char *p = csv;
+  char token[64];
+  if(!text || !text[0]) return 0;
+  while(p && *p) {
+    const char *comma = strchr(p, ',');
+    size_t len = comma ? (size_t)(comma - p) : strlen(p);
+    if(len >= 4 && len < sizeof(token)) {
+      memcpy(token, p, len);
+      token[len] = 0;
+      if(strstr(text, token)) return 1;
+    }
+    p = comma ? comma + 1 : NULL;
+  }
+  return 0;
+}
+
+static int
+path_is_dir(const char *path) {
+  struct stat st;
+  return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+static int
+path_is_file(const char *path) {
+  struct stat st;
+  return stat(path, &st) == 0 && S_ISREG(st.st_mode);
+}
+
+/* The engines the bundled profiles cover, told apart by their file layout:
+ * Insomniac keeps toc, dag and a d/ folder at the top of /app0; Unity has
+ * StreamingAssets next to its Data files (at the top or under Media/). */
+static const char *
+detect_game_engine(const char *root) {
+  static const char *const bases[] = { "", "/Media" };
+  char a[1100];
+  char b[1100];
+  char c[1100];
+  if(!root || !root[0]) return "";
+  snprintf(a, sizeof(a), "%s/toc", root);
+  snprintf(b, sizeof(b), "%s/dag", root);
+  snprintf(c, sizeof(c), "%s/d", root);
+  if(path_is_file(a) && path_is_file(b) && path_is_dir(c)) return "insomniac";
+  for(size_t i = 0; i < sizeof(bases) / sizeof(bases[0]); i++) {
+    snprintf(a, sizeof(a), "%s%s/StreamingAssets", root, bases[i]);
+    if(!path_is_dir(a)) continue;
+    for(size_t k = 0; k < sizeof(bases) / sizeof(bases[0]); k++) {
+      static const char *const markers[] = {
+        "Data/globalgamemanagers", "Data/data.unity3d",
+        "Data/Managed/Metadata/global-metadata.dat",
+      };
+      for(size_t m = 0; m < sizeof(markers) / sizeof(markers[0]); m++) {
+        snprintf(b, sizeof(b), "%s%s/%s", root, bases[k], markers[m]);
+        if(path_is_file(b)) return "unity";
+      }
+    }
+  }
+  return "";
+}
+
+/* Title ID or name first (made or tested for this game), then the engine
+ * layout when the game's files can be read. */
+static const lzc_bundled_profile_t *
+bundled_profile_match(const lzc_game_t *g, const char *root, int *match) {
+  char name[512];
+  *match = 0;
+  config_normalize(g->name, name, sizeof(name));
+  for(size_t i = 0; i < lzc_bundled_profile_count; i++) {
+    const lzc_bundled_profile_t *p = &lzc_bundled_profiles[i];
+    if(csv_has(p->title_ids, g->title_id) || csv_found_in(p->names, name)) {
+      *match = LZC_BUNDLED_MATCH_TITLE;
+      return p;
+    }
+  }
+  const char *engine = detect_game_engine(root);
+  for(size_t i = 0; engine[0] && i < lzc_bundled_profile_count; i++) {
+    const lzc_bundled_profile_t *p = &lzc_bundled_profiles[i];
+    if(!strcmp(p->engine, engine)) {
+      *match = LZC_BUNDLED_MATCH_ENGINE;
+      return p;
+    }
+  }
+  return NULL;
+}
+
+static const lzc_bundled_profile_t *
+bundled_profile_by_id(const char *id) {
+  for(size_t i = 0; id && id[0] && i < lzc_bundled_profile_count; i++) {
+    if(!strcmp(lzc_bundled_profiles[i].id, id)) return &lzc_bundled_profiles[i];
+  }
+  return NULL;
+}
+
+/* Bundled profiles live flat in the profile folder, where the automatic
+ * profile also learns their loose rules. */
+static int
+bundled_profile_path(const lzc_bundled_profile_t *p, char *out, size_t out_size) {
+  int n = snprintf(out, out_size, "%s/bundled-%s.toml", LZC_LZ4_PROFILE_DIR, p->id);
+  return n < 0 || (size_t)n >= out_size ? -1 : 0;
+}
+
+static int
+file_equals_bytes(const char *path, const unsigned char *data, size_t size) {
+  struct stat st;
+  unsigned char buf[4096];
+  size_t off = 0;
+  if(stat(path, &st) != 0 || !S_ISREG(st.st_mode) || (size_t)st.st_size != size) return 0;
+  int fd = open(path, O_RDONLY);
+  if(fd < 0) return 0;
+  while(off < size) {
+    ssize_t got = read(fd, buf, sizeof(buf));
+    if(got <= 0 || memcmp(buf, data + off, (size_t)got)) break;
+    off += (size_t)got;
+  }
+  close(fd);
+  return off == size;
+}
+
+static void
+bundled_profiles_sync(void) {
+  (void)mkdirs(LZC_LZ4_PROFILE_DIR);
+  for(size_t i = 0; i < lzc_bundled_profile_count; i++) {
+    const lzc_bundled_profile_t *p = &lzc_bundled_profiles[i];
+    char path[1024];
+    char tmp[1100];
+    if(bundled_profile_path(p, path, sizeof(path)) != 0 ||
+       file_equals_bytes(path, p->data, p->size)) {
+      continue;
+    }
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if(fd < 0) continue;
+    int ok = write_all_fd(fd, p->data, p->size) == 0;
+    close(fd);
+    if(!ok || rename(tmp, path) != 0) {
+      unlink(tmp);
+      lzc_log("bundled profile write failed id=%s", p->id);
+    }
+  }
+}
+
+static void
+set_auto_profile(lzc_game_t *g, const char *root) {
+  int match = 0;
+  const lzc_bundled_profile_t *p = bundled_profile_match(g, root, &match);
+  g->lz4_auto_profile[0] = 0;
+  g->lz4_auto_profile_match = 0;
+  if(p) {
+    snprintf(g->lz4_auto_profile, sizeof(g->lz4_auto_profile), "%s", p->id);
+    g->lz4_auto_profile_match = match;
+  }
+}
+
 /* fakelib/libSceAmpr.sprx, matched case-insensitively like the packer. */
 static int
 lzc_lz4_runtime_marker_present(const char *root) {
@@ -885,6 +1071,8 @@ populate_lz4_state(lzc_game_t *g) {
   g->lz4_supported = 0;
   g->lz4_pack_count = 0;
   g->lz4_files = 0;
+  g->lz4_auto_profile[0] = 0;
+  g->lz4_auto_profile_match = 0;
   g->lz4_profile_available =
       lzc_lz4_profile_path(g->title_id, profile, sizeof(profile)) == 0 &&
       stat(profile, &st) == 0 && S_ISREG(st.st_mode);
@@ -896,6 +1084,8 @@ populate_lz4_state(lzc_game_t *g) {
         g->source_kind == LZC_SOURCE_COMPRESSED) && g->source_path[0]) {
       int imports = title_imports_ampr(NULL, g->source_path);
       g->lz4_supported = imports == 0 ? 0 : imports == 1 ? 1 : 2;
+      /* Title or name only; the engine layout is checked once mounted. */
+      if(g->lz4_supported) set_auto_profile(g, NULL);
     }
     return;
   }
@@ -910,6 +1100,7 @@ populate_lz4_state(lzc_game_t *g) {
   }
   if(lzc_lz4_runtime_marker_present(root)) {
     g->lz4_supported = 1;
+    set_auto_profile(g, root);
     return;
   }
   {
@@ -922,6 +1113,7 @@ populate_lz4_state(lzc_game_t *g) {
     int imports = title_imports_ampr(root, key);
     g->lz4_supported = imports == 1 ? 1 :
                        imports < 0 && g->source_kind != LZC_SOURCE_FOLDER ? 2 : 0;
+    if(g->lz4_supported) set_auto_profile(g, root);
   }
 }
 
@@ -10858,12 +11050,24 @@ run_lz4_pack_op(lzc_operation_t *op) {
     snprintf(op->error, sizeof(op->error), "%s", "bad LZ4 level");
     return -1;
   }
+  bundled_profiles_sync();
   if(!strcmp(op->lz4_profile, "custom")) {
     if(lzc_lz4_profile_path(op->title_id, profile_path, sizeof(profile_path)) != 0 ||
        stat(profile_path, &sb) != 0 || !S_ISREG(sb.st_mode)) {
       snprintf(op->error, sizeof(op->error), "%s",
                "the custom LZ4 profile for this game is missing");
       return -1;
+    }
+  } else if(!strcmp(op->lz4_profile, "auto") && game.lz4_auto_profile[0]) {
+    /* Automatic: the bundled profile for this game or its engine. */
+    const lzc_bundled_profile_t *bp = bundled_profile_by_id(game.lz4_auto_profile);
+    if(bp && bundled_profile_path(bp, profile_path, sizeof(profile_path)) == 0 &&
+       stat(profile_path, &sb) == 0 && S_ISREG(sb.st_mode)) {
+      lzc_log("lz4-pack bundled profile=%s match=%s title=%s", bp->id,
+             game.lz4_auto_profile_match == LZC_BUNDLED_MATCH_TITLE ? "title" : "engine",
+             op->title_id);
+    } else {
+      profile_path[0] = 0;
     }
   }
   if(close_title_if_running(op->title_id, err, sizeof(err)) != 0) {
@@ -12170,6 +12374,8 @@ enqueue_lz4_action(const http_request_t *req, lzc_action_t action) {
           return serve_error(req, 400, "upload a custom LZ4 profile for this game first");
         }
         snprintf(profile, sizeof(profile), "%s", "custom");
+      } else if(!strcasecmp(profile_arg, "scan")) {
+        snprintf(profile, sizeof(profile), "%s", "scan");
       } else if(strcasecmp(profile_arg, "auto")) {
         return serve_error(req, 400, "bad LZ4 profile");
       }
@@ -12903,6 +13109,25 @@ append_game_summary(json_buf_t *b, int *first, const lzc_game_t *game,
                   game->lz4_pack_count,
                   (unsigned long long)game->lz4_files) != 0) {
     return -1;
+  }
+  {
+    const lzc_bundled_profile_t *bp = bundled_profile_by_id(game->lz4_auto_profile);
+    /* Apps (homebrew, media apps) sit in the same list; anything under
+     * 2 GiB once its size is known is treated as one. */
+    int is_app = !strcmp(game->title_id, LZC_SELF_TITLE_ID) ||
+                 (!active && !game->size_pending && game->source_size > 0 &&
+                  game->source_size < LZC_APP_MAX_BYTES);
+    if(json_appendf(b, ",\"isApp\":%s", is_app ? "true" : "false") != 0) return -1;
+    if(bp &&
+       (json_append(b, ",\"lz4AutoProfile\":{\"id\":") != 0 ||
+        json_string(b, bp->id) != 0 ||
+        json_append(b, ",\"label\":") != 0 || json_string(b, bp->label) != 0 ||
+        json_append(b, ",\"tested\":") != 0 || json_string(b, bp->tested) != 0 ||
+        json_appendf(b, ",\"match\":\"%s\"}",
+                     game->lz4_auto_profile_match == LZC_BUNDLED_MATCH_TITLE
+                         ? "title" : "engine") != 0)) {
+      return -1;
+    }
   }
   if(active) {
     if(json_append(b, ",\"activeOp\":") != 0 ||

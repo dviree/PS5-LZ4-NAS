@@ -142,6 +142,14 @@ export function secondaryActions(game) {
   return [...new Set(ids)].filter(id => id !== primary);
 }
 
+// Which TOML "Compress with LZ4" uses for this game by default.
+export function profileText(game) {
+  if (game.lz4ProfileAvailable) return 'Imported config';
+  const auto = game.lz4AutoProfile;
+  if (auto) return auto.match === 'title' ? auto.label : `${auto.label} (same engine)`;
+  return 'Automatic scan';
+}
+
 export function formatBytes(bytes) {
   let value = Number(bytes || 0);
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];

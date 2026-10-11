@@ -4898,7 +4898,14 @@
             <button class="format-row is-default-choice" type="button" data-lz4-profile="auto">
               <div>
                 <div class="history-title" data-i18n="lz4.profile.auto">Automatic</div>
-                <div class="history-meta" data-i18n="lz4.profile.autoMeta">Scans the game and keeps executables, system files and media loose</div>
+                <div class="history-meta" id="lz4-auto-meta"></div>
+              </div>
+              <span class="chip" data-i18n="common.select">Select</span>
+            </button>
+            <button class="format-row" type="button" data-lz4-profile="scan" id="lz4-scan-row">
+              <div>
+                <div class="history-title" data-i18n="lz4.profile.scan">Scan Only</div>
+                <div class="history-meta" data-i18n="lz4.profile.scanMeta">Skip the bundled profile and scan the game</div>
               </div>
               <span class="chip" data-i18n="common.select">Select</span>
             </button>
@@ -6769,6 +6776,16 @@
 	      return '<span class="chip ok">' + escapeHtml(t('status.lz4Packed', {
 	        count: Number(g.lz4PackCount || 0)
 	      })) + '</span>';
+	    }
+
+	    // Which TOML Compress with LZ4 uses by default for this game.
+	    function lz4ProfileChip(g) {
+	      if (!g || g.lz4Packed || !g.lz4Supported) return '';
+	      const auto = g.lz4AutoProfile;
+	      const text = g.lz4ProfileAvailable ? t('lz4.profile.chipImported')
+	        : auto ? t(auto.match === 'title' ? 'lz4.profile.chipBundled' : 'lz4.profile.chipEngine', { label: auto.label })
+	          : t('lz4.profile.chipScan');
+	      return '<span class="chip">' + escapeHtml(text) + '</span>';
 	    }
 
 	    function aprIndexedChipForGame(g) {
@@ -9216,6 +9233,7 @@
 	        amprUpdateChip(g) +
 	        amprVersionChip(g) +
 	        aprIndexedChipForGame(g) +
+	        lz4ProfileChip(g) +
 	        lz4ChipForGame(g) +
 	        sizeChip(g) +
 	        savedChip(g) +
@@ -9567,7 +9585,8 @@
 	            queueFinishedOperationReminder(previousActiveId);
 	          }
 	        }
-	        state.games = games.games || [];
+	        // Games only: apps mounted next to them (homebrew, media apps) stay out.
+	        state.games = (games.games || []).filter((g) => !g.isApp);
 	        applyOperationOutputPresentation();
 	        state.games = sortGamesForList(state.games);
 	        maybeShowFinishedOperationReminder();
@@ -10037,6 +10056,12 @@
       $('lz4-usb-panel').classList.toggle('hidden', state.lz4Destination !== 'usb');
       renderLz4UsbSelect();
       $('lz4-level-meta').textContent = lz4LevelMeta(state.lz4Level);
+      const autoProfile = g.lz4AutoProfile || null;
+      $('lz4-auto-meta').textContent = autoProfile
+        ? t('lz4.profile.autoBundled', { label: autoProfile.label, tested: autoProfile.tested })
+        : t('lz4.profile.autoMeta');
+      $('lz4-scan-row').classList.toggle('is-hidden', unpack || !autoProfile);
+      if (!autoProfile && state.lz4Profile === 'scan') state.lz4Profile = 'auto';
       document.querySelectorAll('[data-lz4-level], [data-lz4-profile], [data-lz4-destination], [data-lz4-policy]').forEach((button) => {
         const level = button.getAttribute('data-lz4-level');
         const profile = button.getAttribute('data-lz4-profile');
@@ -10048,7 +10073,8 @@
           selected = level === state.lz4Level;
         } else if (profile) {
           selected = profile === state.lz4Profile;
-          disabled = profile === 'custom' && !lz4ProfileReady();
+          disabled = (profile === 'custom' && !lz4ProfileReady()) ||
+            (profile === 'scan' && !(g.lz4AutoProfile));
         } else if (destination) {
           selected = destination === state.lz4Destination;
           disabled = (destination === 'internal' && !showInternal) ||
@@ -10122,6 +10148,8 @@
       } catch (err) {
         state.lz4ProfileInfo = null;
       }
+      // The game's own imported config wins over Automatic.
+      if (state.lz4Game === g && lz4ProfileReady() && state.lz4Profile === 'auto') state.lz4Profile = 'custom';
       if (state.lz4Game === g) updateLz4ModalSelection();
     }
 

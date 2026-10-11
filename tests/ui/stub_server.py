@@ -21,7 +21,10 @@ def game(**kw):
     base.update(kw); base['instanceId'] = base['titleId'] + ':' + base['sourcePath']; return base
 GAMES = [
     game(titleId='PPSA01325', name='ASTRO BOT', sourceKind='folder', sourcePath='/mnt/usb0/homebrew/PPSA01325-app',
-         outputPath='/mnt/usb0/homebrew/PPSA01325.ffpfsc', storage='usb', amprPresent=True, lz4Supported=True),
+         outputPath='/mnt/usb0/homebrew/PPSA01325.ffpfsc', storage='usb', amprPresent=True, lz4Supported=True,
+         lz4AutoProfile={'id': 'astrobot', 'label': 'ASTRO BOT', 'tested': 'ASTRO BOT (PPSA21567, 01.019.000)', 'match': 'title'}),
+    game(titleId='PPSA99058', name='Overdrive', sourceKind='folder', sourcePath='/data/homebrew/PPSA99058',
+         outputPath='/data/homebrew/PPSA99058.ffpfsc', storage='internal', sourceSize=300 * 1024 * 1024, isApp=True),
     game(titleId='PPSA04264', name='Marvel Spider-Man', sourceKind='folder', sourcePath='/data/homebrew/PPSA04264-app-lz4',
          outputPath='/data/homebrew/PPSA04264.ffpfsc', storage='internal', amprPresent=True, lz4Packed=True,
          lz4PackCount=4, lz4Files=5210, canMoveToInternal=False),
