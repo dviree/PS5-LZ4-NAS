@@ -75,9 +75,7 @@ function Hero({game, job}) {
           </Text>
           <ProgressBar percent={progress.percent} />
         </View>
-      ) : (
-        <Text className="font-inter text-[13px] text-muted mt-1">{`Press X to open  ·  ${ACTION_LABEL[primaryAction(game)] || ''}`}</Text>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -85,7 +83,7 @@ function Hero({game, job}) {
 const RecentCard = memo(function RecentCard({op, game, onOpen}) {
   const icon = game ? iconUrl(game, false) : '';
   return (
-    <View onPress={() => onOpen(game ? gameId(game) : '')}
+    <View onPress={() => onOpen(game ? gameId(game) : '')} focusKey={'recent-' + op.id}
       className="flex-row items-center gap-3 w-[280px] h-[64px] px-3 rounded-[16px] bg-panel border border-line
         transition focused:border-snow focused:scale-[1.03]">
       {icon ? <Image source={{uri: icon}} className="w-[44px] h-[44px] rounded-[10px] bg-raised" />

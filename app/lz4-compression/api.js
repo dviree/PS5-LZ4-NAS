@@ -47,6 +47,12 @@ export const api = {
   job: () => call('/api/lzc/job'),
   usb: () => call('/api/lzc/usb'),
   lz4Profile: game => call('/api/lzc/lz4/profile?titleId=' + encodeURIComponent(game.titleId)),
+  // TOML profiles found on USB drives and in the import folder, matches first.
+  lz4Configs: game => call('/api/lzc/lz4/configs?titleId=' + encodeURIComponent(game.titleId) +
+    '&name=' + encodeURIComponent(game.name || '')),
+  importConfig: (game, path) => post('/api/lzc/lz4/profile?titleId=' + encodeURIComponent(game.titleId) +
+    '&action=import&path=' + encodeURIComponent(path)),
+  removeProfile: game => post('/api/lzc/lz4/profile?titleId=' + encodeURIComponent(game.titleId) + '&action=delete'),
   uncompressPlan: game => call('/api/lzc/uncompress-plan?' + gameQuery(game)),
   cancelJob: () => post('/api/lzc/job/cancel'),
   cancelQueued: id => post('/api/lzc/queue/cancel?id=' + encodeURIComponent(id)),

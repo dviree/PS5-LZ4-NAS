@@ -3,16 +3,15 @@ import {useEffect, useState} from 'react';
 import {View, Text, Image, ScrollView, FocusScope} from '@ps5-react/core';
 import {api, iconUrl} from './api.js';
 import {ACTION_LABEL, formatBytes, kindLabel, opSummary, opTime, opTone, resultText, storageLabel} from './model.js';
-import {Choice, Dot, LOGO, PrimaryButton, SectionLabel} from './ui.jsx';
+import {ActionRow, Choice, Dot, LevelScale, LOGO, PrimaryButton, SectionLabel} from './ui.jsx';
 
-export function Page({title, subtitle, depth, covered, hide, onBack, children}) {
+export function Page({title, depth, covered, hide, onBack, children}) {
   return (
     <FocusScope autoFocus restoreFocus focusKey={'screen-' + depth} inert={covered}
       onBack={() => { onBack(); return true; }}>
       <View className={hide ? 'hidden' : 'absolute inset-0 bg-ink'}>
-        <View className="px-[48px] pt-[36px] pb-2 gap-1">
+        <View className="px-[48px] pt-[36px] pb-2">
           <Text className="font-heavy text-[28px] text-snow" numberOfLines={1}>{title}</Text>
-          {subtitle ? <Text className="font-inter text-[14px] text-muted" numberOfLines={1}>{subtitle}</Text> : null}
         </View>
         <ScrollView className="flex-1">
           <View className="px-[48px] pb-[64px]">{children}</View>
@@ -42,6 +41,8 @@ function usbDesc(target) {
 
 const onData = game => String(game.sourcePath || '').startsWith('/data/');
 
+const whereText = where => (where === 'Import folder' ? 'in the import folder' : `on ${where}`);
+
 // ---------------------------------------------------------------- compress / make image
 
 export function CompressPage({game, action, depth, covered, hide, onBack, onStart}) {
@@ -59,7 +60,6 @@ export function CompressPage({game, action, depth, covered, hide, onBack, onStar
   }), makeImage ? 'Making image' : 'Compressing');
   return (
     <Page title={`${ACTION_LABEL[action]}  ·  ${game.name || game.titleId}`}
-      subtitle={makeImage ? 'Builds a plain image you can mount with ShadowMount+.' : 'Packs the game into a compressed .ffpfsc image.'}
       depth={depth} covered={covered} hide={hide} onBack={onBack}>
       <SectionLabel>{makeImage ? 'Image format' : 'Inner image format'}</SectionLabel>
       <Row>
@@ -91,50 +91,65 @@ export function CompressPage({game, action, depth, covered, hide, onBack, onStar
 
 // ---------------------------------------------------------------- LZ4 pack / unpack
 
-export function Lz4Page({game, mode, depth, covered, hide, onBack, onStart}) {
+export function Lz4Page({game, mode, depth, covered, hide, onBack, onStart, onImport, profileRev}) {
   const usb = useUsb();
   const unpack = mode === 'unpack';
   const folder = String(game.sourceKind || '') === 'folder';
-  const [level, setLevel] = useState('balanced');
+  const [level, setLevel] = useState(9);
   const [profile, setProfile] = useState('auto');
-  const [profileReady, setProfileReady] = useState(false);
+  const [profileInfo, setProfileInfo] = useState(null);
+  const [match, setMatch] = useState(null);
   const [dest, setDest] = useState('inplace');
   const [usbId, setUsbId] = useState('');
   const [policy, setPolicy] = useState('after');
+  const [refresh, setRefresh] = useState(0);
+  const profileReady = !!(profileInfo && profileInfo.exists) &&
+    !(profileInfo.includes || []).some(item => !item.present);
   useEffect(() => {
     if (unpack) return undefined;
     let live = true;
     api.lz4Profile(game).then(info => {
+      if (!live) return;
+      setProfileInfo(info);
       const ready = !!info.exists && !(info.includes || []).some(item => !item.present);
-      if (live) setProfileReady(ready);
+      // A config that was just imported is what the user wants to pack with.
+      setProfile(ready && profileRev ? 'custom' : 'auto');
+    }).catch(() => {});
+    api.lz4Configs(game).then(data => {
+      if (live) setMatch((data.configs || []).find(item => item.match) || null);
     }).catch(() => {});
     return () => { live = false; };
-  }, [game.titleId, unpack]);
+  }, [game.titleId, unpack, profileRev, refresh]);
+  const removeProfile = () => {
+    api.removeProfile(game).then(() => setRefresh(value => value + 1)).catch(() => {});
+  };
+  const missing = profileInfo && profileInfo.exists ? (profileInfo.includes || []).filter(item => !item.present) : [];
+  const customDesc = profileReady ? 'Imported config for this game'
+    : missing.length ? `Missing ${missing.map(item => item.name).join(', ')}` : 'Import a TOML config first';
   const canReplace = folder && dest === 'inplace';
   const chosenPolicy = !canReplace && policy === 'replace' ? 'after' : policy;
   const start = () => onStart(() => api.lz4(game, {
-    mode: unpack ? 'unpack' : 'pack', level, profile, destination: dest, deletePolicy: chosenPolicy, usbId,
+    mode: unpack ? 'unpack' : 'pack', level: String(level), profile, destination: dest, deletePolicy: chosenPolicy, usbId,
   }), unpack ? 'Unpacking LZ4' : 'Packing with LZ4');
   return (
     <Page title={`${unpack ? 'Uncompress LZ4' : 'Compress with LZ4'}  ·  ${game.name || game.titleId}`}
-      subtitle={unpack ? 'Puts the normal loose files back from the LZ4 packs.'
-        : 'Seekable LZ4 packs read by APR-EMU while the game runs (added if the game has none). Every packed file is checked against the original.'}
       depth={depth} covered={covered} hide={hide} onBack={onBack}>
       {!unpack ? (
         <>
-          <SectionLabel>Level</SectionLabel>
-          <Row>
-            <Choice title="Fast" desc="LZ4, quickest" selected={level === 'fast'} onPress={() => setLevel('fast')} />
-            <Choice title="Balanced" desc="LZ4 HC 9, recommended" selected={level === 'balanced'} onPress={() => setLevel('balanced')} autoFocus />
-            <Choice title="Maximum" desc="LZ4 HC 12, smallest and slowest" selected={level === 'max'} onPress={() => setLevel('max')} />
-          </Row>
+          <SectionLabel>Compression level</SectionLabel>
+          <LevelScale value={level} onChange={setLevel} autoFocus />
           <SectionLabel>Packing profile</SectionLabel>
           <Row>
             <Choice title="Automatic" desc="Keeps executables, system files and media loose" wide selected={profile === 'auto'}
               onPress={() => setProfile('auto')} />
-            <Choice title="Custom or trace profile" wide
-              desc={profileReady ? 'Uploaded profile for this game' : 'Upload one from a PC or phone at port 5920'}
+            <Choice title="Custom or trace config" wide desc={customDesc}
               selected={profile === 'custom'} disabled={!profileReady} onPress={() => setProfile('custom')} />
+            <ActionRow title="Import config" icon="download" onPress={onImport} focusKey="import-config"
+              desc={match ? `Found ${match.name} ${whereText(match.where)}` : 'A Lazy_AMPR or ampr_pack TOML from USB or the import folder'} />
+            {profileInfo && profileInfo.exists ? (
+              <ActionRow title="Remove config" icon="trash" onPress={removeProfile} focusKey="remove-config"
+                desc="Go back to automatic packing for this game" />
+            ) : null}
           </Row>
         </>
       ) : null}
@@ -162,6 +177,58 @@ export function Lz4Page({game, mode, depth, covered, hide, onBack, onStart}) {
   );
 }
 
+// ---------------------------------------------------------------- import config
+
+export function ConfigPage({game, depth, covered, hide, onBack, onImported}) {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let live = true;
+    api.lz4Configs(game).then(result => { if (live) setData(result); })
+      .catch(err => { if (live) { setData({configs: []}); setError(err.message || ''); } });
+    return () => { live = false; };
+  }, [game.titleId]);
+  const pick = config => {
+    if (busy) return;
+    setBusy(config.path);
+    setError('');
+    api.importConfig(game, config.path).then(() => onImported(config.name))
+      .catch(err => { setBusy(''); setError(err.message || 'Import failed'); });
+  };
+  const configs = data ? data.configs || [] : [];
+  return (
+    <Page title={`Import config  ·  ${game.name || game.titleId}`}
+      depth={depth} covered={covered} hide={hide} onBack={onBack}>
+      {!data ? <Text className="font-inter text-[14px] text-muted mt-6">Looking for configs</Text> : null}
+      {data && !configs.length ? (
+        <View className="mt-6 gap-2 w-[760px]">
+          <Text className="font-semi text-[16px] text-snow">No TOML configs found</Text>
+          <Text className="font-inter text-[14px] text-soft">
+            {`Looked in ${data.importDir || '/data/LZ4Compression/import'} and on USB drives (top folder, toml, toml_profiles).`}
+          </Text>
+        </View>
+      ) : null}
+      {configs.some(item => item.match) ? <SectionLabel>Matches this game</SectionLabel> : null}
+      <Row>
+        {configs.filter(item => item.match).map((config, index) => (
+          <ActionRow key={config.path} title={config.name} icon="download" autoFocus={index === 0} focusKey={'config-' + config.path}
+            desc={busy === config.path ? 'Importing' : `${config.where}  ·  ${formatBytes(config.size)}`} onPress={() => pick(config)} />
+        ))}
+      </Row>
+      {configs.some(item => !item.match) ? <SectionLabel>Other configs</SectionLabel> : null}
+      <Row>
+        {configs.filter(item => !item.match).map((config, index) => (
+          <ActionRow key={config.path} title={config.name} icon="list" focusKey={'config-' + config.path}
+            autoFocus={index === 0 && !configs.some(item => item.match)}
+            desc={busy === config.path ? 'Importing' : `${config.where}  ·  ${formatBytes(config.size)}`} onPress={() => pick(config)} />
+        ))}
+      </Row>
+      {error ? <Text className="font-inter text-[14px] text-bad mt-6">{error}</Text> : null}
+    </Page>
+  );
+}
+
 // ---------------------------------------------------------------- uncompress
 
 export function UncompressPage({game, depth, covered, hide, onBack, onStart}) {
@@ -174,7 +241,7 @@ export function UncompressPage({game, depth, covered, hide, onBack, onStart}) {
     mode: mode === 'image' ? 'image' : 'app', destination: dest, deletePolicy: policy, usbId: dest === 'usb' ? usbId : '',
   }), 'Uncompressing');
   return (
-    <Page title={`Uncompress  ·  ${game.name || game.titleId}`} subtitle="Turns the .ffpfsc back into a plain image or a game folder."
+    <Page title={`Uncompress  ·  ${game.name || game.titleId}`}
       depth={depth} covered={covered} hide={hide} onBack={onBack}>
       <SectionLabel>Output</SectionLabel>
       <Row>
@@ -209,7 +276,6 @@ export function MovePage({game, copy, depth, covered, hide, onBack, onStart}) {
   const go = (target, usbId) => onStart(() => api.move(game, {copy, target, usbId}), copy ? 'Copying' : 'Moving');
   return (
     <Page title={`${verb} to…  ·  ${game.name || game.titleId}`}
-      subtitle={copy ? 'Makes a second copy somewhere else.' : 'Moves the game and removes it from here once it is copied.'}
       depth={depth} covered={covered} hide={hide} onBack={onBack}>
       <SectionLabel>Where to</SectionLabel>
       <View className="gap-4">
@@ -230,12 +296,13 @@ export function MovePage({game, copy, depth, covered, hide, onBack, onStart}) {
 
 export function DeletePage({game, depth, covered, hide, onBack, onStart}) {
   return (
-    <Page title="Delete game data" subtitle="This permanently deletes this copy from storage. It can't be undone."
+    <Page title="Delete game data"
       depth={depth} covered={covered} hide={hide} onBack={onBack}>
       <View className="mt-6 p-6 rounded-[20px] border-2 border-bad bg-[#1d070c] gap-2 w-[760px]">
         <Text className="font-heavy text-[20px] text-snow">{game.name || game.titleId}</Text>
         <Text className="font-inter text-[13px] text-soft">{`${kindLabel(game)}  ·  ${storageLabel(game)}`}</Text>
         <Text className="font-inter text-[12px] text-muted" numberOfLines={2}>{game.sourcePath}</Text>
+        <Text className="font-semi text-[13px] text-bad mt-2">This can't be undone.</Text>
       </View>
       <View className="flex-row gap-4 mt-8">
         <PrimaryButton label="Cancel" onPress={onBack} autoFocus />
@@ -256,7 +323,7 @@ function when(seconds) {
 
 export function HistoryPage({history, depth, covered, hide, onBack}) {
   return (
-    <Page title="History" subtitle={`${history.length} jobs`} depth={depth} covered={covered} hide={hide} onBack={onBack}>
+    <Page title="History">
       <View className="gap-3 mt-4">
         {history.length ? history.map((op, index) => (
           <View key={op.id} focusable autoFocus={index === 0}
@@ -287,8 +354,6 @@ export function AboutPage({version, depth, covered, hide, onBack}) {
         <Image source={LOGO} className="w-[128px] h-[128px] rounded-[30px]" />
         <Text className="font-heavy text-[30px] text-snow">LZ4 Compression</Text>
         <Text className="font-inter text-[14px] text-muted">{version || ''}</Text>
-        <Text className="font-inter text-[15px] text-soft">LZ4 compression for PS5 games, done right on the console.</Text>
-        <Text className="font-inter text-[13px] text-muted">Upload LZ4 profiles from a PC or phone: open your PS5's IP on port 5920.</Text>
         <View className="mt-4 p-5 rounded-[18px] border border-line bg-panel w-[760px]">
           <Text className="font-inter text-[12px] text-muted">
             Built on Game Compressor by Juma Sayeh and the LZ4 workflow from Lazy_AMPR by Nazky. Packed games are read by drakmor's ampr_emu. Unofficial, and not affiliated with either project. Interface made with PS5 React, created by half144 and PS5 React contributors (github.com/half144/ps5-react).
@@ -301,7 +366,7 @@ export function AboutPage({version, depth, covered, hide, onBack}) {
 
 export function PowerPage({depth, covered, hide, onBack, onStop}) {
   return (
-    <Page title="Close LZ4 Compression" subtitle="Stop the engine before you play, so it doesn't take anything away from your games."
+    <Page title="Close LZ4 Compression"
       depth={depth} covered={covered} hide={hide} onBack={onBack}>
       <View className="flex-row gap-4 mt-8">
         <PrimaryButton label="Stop engine and close" onPress={() => onStop(true)} autoFocus />
@@ -332,9 +397,7 @@ export function Offline({message, onStart, onRetry}) {
       <View className="w-screen h-screen bg-ink items-center justify-center gap-5">
         <Image source={LOGO} className="w-[110px] h-[110px] rounded-[26px] opacity-70" />
         <Text className="font-heavy text-[28px] text-snow">The engine isn't running</Text>
-        <Text className="font-inter text-[14px] text-muted w-[720px] text-center">
-          {message || 'Load lz4-compression.elf from Payload Manager, or let the app start it for you.'}
-        </Text>
+        {message ? <Text className="font-inter text-[14px] text-muted w-[720px] text-center">{message}</Text> : null}
         <View className="flex-row gap-4 mt-4">
           <PrimaryButton label="Start engine" onPress={onStart} autoFocus />
           <PrimaryButton label="Try again" onPress={onRetry} />
@@ -357,9 +420,6 @@ export function DoneOverlay({op, game, onClose}) {
           <Text className="font-inter text-[15px] text-soft text-center" numberOfLines={2}>{op.displayName || op.titleId}</Text>
           <Text className="font-inter text-[14px] text-soft text-center" numberOfLines={2}>{opSummary(op)}</Text>
           {op.error ? <Text className="font-inter text-[13px] text-bad text-center" numberOfLines={3}>{op.error}</Text> : null}
-          {ok ? <Text className="font-inter text-[12px] text-muted text-center">
-            Before playing, close LZ4 Compression so it doesn't take anything away from your games.
-          </Text> : null}
           <View className="mt-3"><PrimaryButton label="OK" onPress={onClose} autoFocus /></View>
         </View>
       </View>

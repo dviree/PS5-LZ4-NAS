@@ -66,15 +66,19 @@ with sync_playwright() as p:
     box = page.query_selector('#lz4-modal .modal').bounding_box()
     check('action page is full screen', box['width'] >= 1919 and box['height'] >= 1079, box)
     sel = lambda attr, v: page.get_attribute(f'[{attr}="{v}"]', 'class') or ''
-    check('default level balanced', 'is-selected' in sel('data-lz4-level', 'balanced'))
+    check('default level 9', 'is-selected' in sel('data-lz4-level', '9'))
+    check('twelve level steps', len(page.query_selector_all('[data-lz4-level]')) == 12)
+    check('level meta text', page.inner_text('#lz4-level-meta').startswith('Level 9'), page.inner_text('#lz4-level-meta'))
     check('default profile auto', 'is-selected' in sel('data-lz4-profile', 'auto'))
     check('custom disabled without upload', page.is_disabled('[data-lz4-profile="custom"]'))
     check('output name -lz4', page.inner_text('#lz4-output-meta') == 'PPSA01325-app-lz4', page.inner_text('#lz4-output-meta'))
-    check('selected level row is white', page.evaluate("getComputedStyle(document.querySelector('[data-lz4-level=balanced]')).backgroundColor") == 'rgb(255, 255, 255)')
+    check('selected level step is white', page.evaluate("getComputedStyle(document.querySelector('[data-lz4-level=\"9\"]')).backgroundColor") == 'rgb(255, 255, 255)')
+    check('console configs listed', page.is_visible('#lz4-config-select') and 'matches this game' in page.inner_text('#lz4-config-select'), page.inner_text('#lz4-config-select'))
     page.screenshot(path=OUT + '/04-lz4-page.png')
     page.click('[data-lz4-destination="usb"]'); page.wait_for_timeout(200)
     check('replace disabled on usb', page.is_disabled('[data-lz4-policy="replace"]'))
-    page.click('[data-lz4-destination="inplace"]'); page.click('[data-lz4-policy="replace"]'); page.click('[data-lz4-level="max"]')
+    page.click('[data-lz4-destination="inplace"]'); page.click('[data-lz4-policy="replace"]'); page.click('[data-lz4-level="12"]')
+    check('level 12 meta', 'smallest' in page.inner_text('#lz4-level-meta'), page.inner_text('#lz4-level-meta'))
     open(OUT + '/profile.toml', 'w').write('[pack]\ncompression_level = 12\n[[rule]]\naction = "compress"\ninclude_from = ["astro.rule-001.include.txt"]\n')
     open(OUT + '/astro.rule-001.include.txt', 'w').write('data/prein/**\n')
     with page.expect_file_chooser() as fc: page.click('#lz4-profile-upload')
@@ -82,11 +86,14 @@ with sync_playwright() as p:
     with page.expect_file_chooser() as fc: page.click('#lz4-profile-upload-list')
     fc.value.set_files(OUT + '/astro.rule-001.include.txt'); page.wait_for_timeout(400)
     check('custom enabled after uploads', not page.is_disabled('[data-lz4-profile="custom"]'), page.inner_text('#lz4-profile-meta'))
+    page.click('#lz4-config-import'); page.wait_for_timeout(400)
+    imp = [r for r in state()['requests'] if r['path'] == '/api/lzc/lz4/profile' and r['query'].get('action') == 'import']
+    check('console import request', bool(imp) and imp[-1]['query'].get('path', '').endswith('PPSA01325.toml'), imp[-1:] )
     page.click('[data-lz4-profile="custom"]')
     page.click('#lz4-start'); page.wait_for_timeout(700)
     reqs = [r for r in state()['requests'] if r['path'] == '/api/lzc/lz4-pack']
     q = reqs[-1]['query'] if reqs else {}
-    check('pack request params', q.get('level') == 'max' and q.get('profile') == 'custom' and q.get('deletePolicy') == 'replace' and q.get('titleId') == 'PPSA01325', q)
+    check('pack request params', q.get('level') == '12' and q.get('profile') == 'custom' and q.get('deletePolicy') == 'replace' and q.get('titleId') == 'PPSA01325', q)
     check('page closed after start', not page.is_visible('#lz4-modal'))
     check('still on game page', page.is_visible('#game-view'))
     # back button closes an action page, not the game page

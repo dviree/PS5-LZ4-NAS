@@ -200,6 +200,60 @@ export function Choice({title, desc, selected, disabled, onPress, autoFocus, wid
   );
 }
 
+// Wide row that opens something (no radio circle), used next to Choice rows.
+export function ActionRow({title, desc, icon, onPress, autoFocus, focusKey}) {
+  return (
+    <View onPress={onPress} autoFocus={autoFocus} focusKey={focusKey}
+      className="flex-row items-center w-[420px] min-h-[74px] px-5 py-3 rounded-[16px] bg-panel border-2
+        border-line transition focused:border-snow focused:scale-[1.03]">
+      <Icon name={icon || 'download'} />
+      <View className="flex-1 ml-4">
+        <Text className="font-semi text-[15px] text-snow">{title}</Text>
+        {desc ? <Text className="font-inter text-[12px] text-muted mt-[2px]" numberOfLines={2}>{desc}</Text> : null}
+      </View>
+      <Icon name="arrowRight" size="sm" />
+    </View>
+  );
+}
+
+// Lazy_AMPR's 1-12 scale: 1-4 use LZ4's fast mode, 5-12 use LZ4 HC.
+export function levelNote(level) {
+  if (level <= 4) return 'LZ4 fast mode, quickest';
+  if (level <= 8) return 'LZ4 HC, balanced';
+  if (level === 9) return 'LZ4 HC, the default';
+  if (level < 12) return 'LZ4 HC, smaller packs, slower';
+  return 'LZ4 HC, smallest and slowest';
+}
+
+function LevelStep({level, selected, onPress, autoFocus}) {
+  return (
+    <View onPress={onPress} autoFocus={autoFocus} selected={selected} focusKey={'level-' + level}
+      className="w-[56px] h-[56px] rounded-[14px] bg-panel border-2 border-line items-center justify-center
+        transition selected:bg-snow selected:border-snow focused:border-accent focused:scale-110">
+      <Text className={selected ? 'font-heavy text-[16px] text-ink' : 'font-heavy text-[16px] text-snow'}>{String(level)}</Text>
+    </View>
+  );
+}
+
+export function LevelScale({value, onChange, autoFocus}) {
+  const cells = [];
+  for (let level = 1; level <= 12; level++) {
+    if (level === 5 || level === 9) cells.push(<View key={'gap-' + level} className="w-[8px]" />);
+    cells.push(<LevelStep key={level} level={level} selected={level === value} onPress={() => onChange(level)}
+      autoFocus={autoFocus && level === value} />);
+  }
+  return (
+    <View className="w-[792px] gap-3">
+      <View className="flex-row gap-2">{cells}</View>
+      <View className="flex-row">
+        <Text className="font-semi text-[11px] text-muted tracking-[2px] flex-1">FAST</Text>
+        <Text className="font-semi text-[11px] text-muted tracking-[2px]">MAX</Text>
+      </View>
+      <Text className="font-inter text-[14px] text-soft">{`Level ${value}  ·  ${levelNote(value)}`}</Text>
+    </View>
+  );
+}
+
 export function SectionLabel({children}) {
   return <Text className="font-semi text-[11px] text-muted tracking-[2px] mt-6 mb-3">{String(children).toUpperCase()}</Text>;
 }

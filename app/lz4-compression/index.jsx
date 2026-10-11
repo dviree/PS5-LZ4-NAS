@@ -5,7 +5,7 @@ import {api, startEngine} from './api.js';
 import {ACTION_PAGES, formatBytes, gameId, stabilize} from './model.js';
 import {GamePage, Home} from './screens.jsx';
 import {
-  AboutPage, CompressPage, DeletePage, DoneOverlay, HistoryPage, Lz4Page, MovePage, Offline, PowerPage,
+  AboutPage, CompressPage, ConfigPage, DeletePage, DoneOverlay, HistoryPage, Lz4Page, MovePage, Offline, PowerPage,
   Splash, Toast, UncompressPage,
 } from './pages.jsx';
 
@@ -23,6 +23,15 @@ function useHaptics() {
       // Vibration is a nicety; never let it break navigation.
     }
   });
+}
+
+// Holds the focused key and focus() for the app without re-rendering it on
+// every D-pad move (useFocus re-renders whoever calls it).
+function FocusBridge({bridge}) {
+  const {focusedKey, focus} = useFocus();
+  bridge.current.key = focusedKey;
+  bridge.current.focus = focus;
+  return null;
 }
 
 function freeSpaceText(games) {
@@ -50,9 +59,12 @@ function App() {
   const [stack, setStack] = useState([{name: 'home'}]);
   const [toast, setToast] = useState(null);
   const [done, setDone] = useState(null);
+  const [imported, setImported] = useState({id: '', count: 0});
   const lastActive = useRef('');
   const toastTimer = useRef(0);
-  const {focus} = useFocus();
+  const focusBridge = useRef({key: null, focus: () => false});
+  const restoreTo = useRef(null);
+  const doneFrom = useRef(null);
   useHaptics();
 
   const showToast = useCallback((title, text, error) => {
@@ -133,7 +145,10 @@ function App() {
         if (finished) {
           const data = await api.history();
           const op = (data.history || []).find(item => String(item.id) === previous);
-          if (op && op.status !== 'cancelled') setDone(op);
+          if (op && op.status !== 'cancelled') {
+            doneFrom.current = focusBridge.current.key;
+            setDone(op);
+          }
         }
       } catch (err) {
         // The engine went away (closed from the web page, or crashed).
@@ -142,16 +157,32 @@ function App() {
     return () => clearInterval(timer);
   }, [phase, refreshAll]);
 
-  const push = useCallback(entry => setStack(previous => [...previous, entry]), []);
-  const pop = useCallback(() => setStack(previous => (previous.length > 1 ? previous.slice(0, -1) : previous)), []);
+  // Each page remembers what opened it, so closing it puts focus back there.
+  const push = useCallback(entry => {
+    const from = focusBridge.current.key;
+    setStack(previous => [...previous, {...entry, from}]);
+  }, []);
+  const pop = useCallback(() => setStack(previous => {
+    if (previous.length <= 1) return previous;
+    restoreTo.current = previous[previous.length - 1].from || null;
+    return previous.slice(0, -1);
+  }), []);
   const depth = stack.length - 1;
 
   // Give focus back to the screen that is uncovered.
   const lastDepth = useRef(0);
   useEffect(() => {
-    if (depth < lastDepth.current) focus(depth === 0 ? 'screen-home' : 'screen-' + depth);
+    // After the commit, once the uncovered screen is no longer inert.
+    if (depth < lastDepth.current) {
+      const from = restoreTo.current;
+      restoreTo.current = null;
+      setTimeout(() => {
+        const {focus} = focusBridge.current;
+        if (!(from && focus(from))) focus(depth === 0 ? 'screen-home' : 'screen-' + depth);
+      }, 0);
+    }
     lastDepth.current = depth;
-  }, [depth, focus]);
+  }, [depth]);
 
   const top = stack[stack.length - 1];
   const gameOf = entry => (entry && entry.id ? games.find(game => gameId(game) === entry.id) : null);
@@ -218,9 +249,10 @@ function App() {
     BackHandler.exitApp();
   }, []);
 
-  if (phase === 'connecting') return <Splash status={splashText} />;
+  const bridge = <FocusBridge bridge={focusBridge} />;
+  if (phase === 'connecting') return <>{bridge}<Splash status={splashText} /></>;
   if (phase === 'offline') {
-    return <Offline message={offlineText} onStart={() => connect(true)} onRetry={() => connect(false)} />;
+    return <>{bridge}<Offline message={offlineText} onStart={() => connect(true)} onRetry={() => connect(false)} /></>;
   }
 
   const pages = stack.slice(1).map((entry, index) => {
@@ -239,7 +271,15 @@ function App() {
     if (!game) return null;
     if (entry.name === 'compress') return <CompressPage {...common} game={game} action={entry.action} onStart={startFrom} />;
     if (entry.name === 'lz4') {
-      return <Lz4Page {...common} game={game} mode={entry.action === 'lz4-unpack' ? 'unpack' : 'pack'} onStart={startFrom} />;
+      return <Lz4Page {...common} game={game} mode={entry.action === 'lz4-unpack' ? 'unpack' : 'pack'} onStart={startFrom}
+        profileRev={imported.id === entry.id ? imported.count : 0} onImport={() => push({name: 'configs', id: entry.id})} />;
+    }
+    if (entry.name === 'configs') {
+      return <ConfigPage {...common} game={game} onImported={name => {
+        setImported(previous => ({id: entry.id, count: previous.count + 1}));
+        showToast('Config imported', name);
+        pop();
+      }} />;
     }
     if (entry.name === 'uncompress') return <UncompressPage {...common} game={game} onStart={startFrom} />;
     if (entry.name === 'move') return <MovePage {...common} game={game} copy={entry.action === 'copy-to'} onStart={startFrom} />;
@@ -254,13 +294,18 @@ function App() {
   const doneGame = done ? games.find(game => game.titleId === done.titleId) : null;
   return (
     <View className="w-screen h-screen bg-ink">
+      {bridge}
       <Home games={games} history={history} job={job} version={version} freeText={freeSpaceText(games)}
         covered={depth > 0 || !!done} hide={depth > 0} onOpen={openGame}
         onHistory={() => push({name: 'history'})} onAbout={() => push({name: 'about'})} onPower={() => push({name: 'power'})} />
       {pages}
       {done ? <DoneOverlay op={done} game={doneGame} onClose={() => {
         setDone(null);
-        setTimeout(() => focus(depth === 0 ? 'screen-home' : 'screen-' + depth), 0);
+        const from = doneFrom.current;
+        setTimeout(() => {
+          const {focus} = focusBridge.current;
+          if (!(from && focus(from))) focus(depth === 0 ? 'screen-home' : 'screen-' + depth);
+        }, 0);
       }} /> : null}
       <Toast toast={toast} />
     </View>

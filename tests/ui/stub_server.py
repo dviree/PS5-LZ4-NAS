@@ -73,6 +73,19 @@ class H(BaseHTTPRequestHandler):
         if path == '/api/lzc/usb': return self.send_json({'usb': [{'id': 'usb1', 'name': 'USB 1', 'root': '/mnt/usb1', 'targetRoot': '/mnt/usb1/homebrew', 'totalBytes': 2000 * G, 'freeBytes': 900 * G}]})
         if path == '/api/lzc/ampr/versions': return self.send_json({'versions': []})
         if path == '/api/lzc/size-priority': return self.send_json({'ok': True})
+        if path == '/api/lzc/lz4/configs':
+            name = ''.join(ch for ch in q.get('name', '').lower() if ch.isalnum())
+            configs = [
+                {'path': '/mnt/usb1/toml_profiles/astrobot.toml', 'name': 'astrobot.toml', 'where': 'USB 1', 'size': 3100},
+                {'path': '/data/LZ4Compression/import/%s.toml' % q.get('titleId', ''), 'name': '%s.toml' % q.get('titleId', ''),
+                 'where': 'Import folder', 'size': 2048},
+            ]
+            for c in configs: c['match'] = c['name'].split('.')[0].lower() in (q.get('titleId', '').lower(), name)
+            configs.sort(key=lambda c: (not c['match'], c['name']))
+            return self.send_json({'importDir': '/data/LZ4Compression/import', 'configs': configs})
+        if path == '/api/lzc/lz4/profile' and q.get('action') == 'import':
+            STATE['profile'] = b'[pack]\nlevel = 12\n'
+            return self.send_json(profile_status(q.get('titleId')))
         if path == '/api/lzc/lz4/profile':
             if method == 'POST' and q.get('action') != 'delete':
                 if q.get('file', 'profile.toml') == 'profile.toml': STATE['profile'] = body

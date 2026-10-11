@@ -40,7 +40,7 @@ builds those packs for you:
    packed, while executables, PRX/SPRX, `sce_sys`, `sce_module`, `fakelib`,
    saves, configs and already-compressed media stay loose. Large files that
    LZ4 can't shrink are sampled and left loose automatically.
-3. Compresses every block with LZ4 (fast, HC 9 or HC 12) on all CPU cores.
+3. Compresses every block with LZ4 at the level you pick (1 to 12) on all CPU cores.
 4. Writes `ampr_assets.index`, its `.crc` and `.runtime` sidecars and the
    `ampr_assets-*.pak` volumes (AMPRPAK4 / AMPRDAT3, the same format
    `ampr_pack.py` writes).
@@ -64,13 +64,23 @@ running game first, ShadowMount+ won't mount while one is open).
 Open the game from the library: `Compress with LZ4` is its main button.
 `.ffpfsc` Compress is under Options.
 
-- **Compression level:** `Fast` (LZ4), `Balanced` (LZ4 HC 9, recommended)
-  or `Maximum` (LZ4 HC 12).
-- **Packing profile:** `Automatic`, or `Custom or Trace Profile` to use an
+- **Compression level:** the same 1 to 12 scale as Lazy_AMPR. 1 to 4 use
+  LZ4's fast mode, 5 to 12 use LZ4 HC. 9 is the default, 12 is the smallest
+  and slowest.
+- **Packing profile:** `Automatic`, or `Custom or Trace Config` to use an
   `ampr_pack` TOML, for example one generated from APR traces with
-  `ampr_pack_profile.py` or a community profile for the game. Upload
-  `profile.toml` plus any `include_from` lists it names from a PC or phone
-  browser. Profiles are stored in
+  `ampr_pack_profile.py` or a community profile for the game. Two ways to get
+  one in:
+  - **Import config** in the PS5 app (or Import From Console on the web page)
+    lists the `.toml` files in `/data/LZ4Compression/import` and on any USB
+    drive (top folder, `toml`, `tomls`, `toml_profiles`, `profiles`,
+    `LZ4Compression` or `Lazy_AMPR`). Files named after the Title ID or the
+    game's name show up first, the same matching Lazy_AMPR uses.
+    `include_from` lists next to the TOML are copied with it.
+  - Upload `profile.toml` plus any `include_from` lists it names from a PC
+    or phone browser.
+
+  Profiles are stored in
   `/data/LZ4Compression/lz4-profiles/<TITLE_ID>/`, and the automatic
   profile also learns the loose rules from every uploaded profile.
 - **Destination:** next to the game, internal SSD or external storage. The

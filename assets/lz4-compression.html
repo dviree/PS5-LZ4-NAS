@@ -838,13 +838,6 @@
       font-weight: 780;
     }
 
-    .terminated-copy {
-      margin: 0;
-      color: var(--muted);
-      font-size: 14px;
-      line-height: 1.45;
-      font-weight: 650;
-    }
 
     .free-space-label {
       min-width: 0;
@@ -1730,12 +1723,6 @@
       line-height: 1.25;
     }
 
-    .loading-subtitle {
-      margin-top: 5px;
-      max-width: 280px;
-      font-size: 12px;
-      line-height: 1.4;
-    }
 
     @keyframes loading-dot {
 
@@ -2204,6 +2191,19 @@
       flex-wrap: wrap;
       gap: 8px;
       margin: -4px 0 14px;
+    }
+
+    .lz4-config-select {
+      flex: 1 1 260px;
+      min-width: 0;
+      height: 40px;
+      padding: 0 12px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: var(--surface-solid);
+      color: var(--text);
+      font: inherit;
+      font-weight: 600;
     }
 
     .lz4-profile-tools.hidden,
@@ -3928,6 +3928,60 @@
       color: #fff;
     }
 
+    .lz4-level {
+      margin-bottom: 18px;
+    }
+
+    .lz4-level-scale {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .lz4-level-step {
+      height: 50px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, .045);
+      color: var(--text);
+      font: inherit;
+      font-size: 16px;
+      font-weight: 760;
+      cursor: pointer;
+      transition: background .16s ease, border-color .16s ease, transform .16s ease;
+    }
+
+    .lz4-level-step:nth-child(5),
+    .lz4-level-step:nth-child(9) {
+      margin-left: 6px;
+    }
+
+    .lz4-level-step:hover {
+      border-color: rgba(255, 255, 255, .5);
+      transform: translateY(-2px);
+    }
+
+    .lz4-level-step.is-selected {
+      border-color: #fff;
+      background: #fff;
+      color: #000;
+    }
+
+    .lz4-level-ends {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 760;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+
+    #lz4-level-meta {
+      margin-top: 6px;
+    }
+
     html.lz4 body .history-title {
       font-size: 16px;
     }
@@ -4059,12 +4113,6 @@
       letter-spacing: -.015em;
     }
 
-    html.lz4 body .about-tagline {
-      max-width: 620px;
-      color: #c9c9d0;
-      font-size: 17px;
-      line-height: 1.5;
-    }
 
     html.lz4 body .about-notes {
       max-width: 640px;
@@ -4263,10 +4311,6 @@
       font-weight: 800;
     }
 
-    html.lz4 body .terminated-copy {
-      font-size: 16px;
-      line-height: 1.5;
-    }
 
     html.lz4[dir="rtl"] body .crumb-back svg,
     html.lz4[dir="rtl"] body .modal-head .icon-btn svg,
@@ -4668,7 +4712,6 @@
           <img class="about-logo" src="/lz4-logo.png" alt="" draggable="false">
           <div class="about-name" id="about-name">LZ4 Compression</div>
           <div class="chip" id="about-version"></div>
-          <div class="about-tagline" data-i18n="about.tagline">LZ4 compression for PS5 games, done right on the console. Plus .ffpfsc compression, images, verify and repair.</div>
           <div class="about-notes" data-i18n="about.notes">Built on Game Compressor by Juma Sayeh and the LZ4 workflow from Lazy_AMPR by Nazky. Packed games are read by drakmor's ampr_emu. Unofficial, and not affiliated with either project.</div>
         </div>
       </div>
@@ -4829,25 +4872,26 @@
         <div class="format-switch-note" id="lz4-note"></div>
         <div id="lz4-pack-options">
           <div class="format-section-title" data-i18n="lz4.levelTitle">Compression Level</div>
-          <div class="format-grid is-three-up">
-            <button class="format-row" type="button" data-lz4-level="fast">
-              <div>
-                <div class="history-title" data-i18n="lz4.level.fast">Fast</div>
-                <div class="history-meta" data-i18n="lz4.level.fastMeta">LZ4, quickest</div>
-              </div>
-            </button>
-            <button class="format-row is-default-choice" type="button" data-lz4-level="balanced">
-              <div>
-                <div class="history-title" data-i18n="lz4.level.balanced">Balanced</div>
-                <div class="history-meta" data-i18n="lz4.level.balancedMeta">LZ4 HC 9, recommended</div>
-              </div>
-            </button>
-            <button class="format-row" type="button" data-lz4-level="max">
-              <div>
-                <div class="history-title" data-i18n="lz4.level.max">Maximum</div>
-                <div class="history-meta" data-i18n="lz4.level.maxMeta">LZ4 HC 12, smallest and slowest</div>
-              </div>
-            </button>
+          <div class="lz4-level">
+            <div class="lz4-level-scale">
+              <button class="lz4-level-step" type="button" data-lz4-level="1">1</button>
+              <button class="lz4-level-step" type="button" data-lz4-level="2">2</button>
+              <button class="lz4-level-step" type="button" data-lz4-level="3">3</button>
+              <button class="lz4-level-step" type="button" data-lz4-level="4">4</button>
+              <button class="lz4-level-step" type="button" data-lz4-level="5">5</button>
+              <button class="lz4-level-step" type="button" data-lz4-level="6">6</button>
+              <button class="lz4-level-step" type="button" data-lz4-level="7">7</button>
+              <button class="lz4-level-step" type="button" data-lz4-level="8">8</button>
+              <button class="lz4-level-step" type="button" data-lz4-level="9">9</button>
+              <button class="lz4-level-step" type="button" data-lz4-level="10">10</button>
+              <button class="lz4-level-step" type="button" data-lz4-level="11">11</button>
+              <button class="lz4-level-step" type="button" data-lz4-level="12">12</button>
+            </div>
+            <div class="lz4-level-ends">
+              <span data-i18n="lz4.level.fast">Fast</span>
+              <span data-i18n="lz4.level.max">Max</span>
+            </div>
+            <div class="history-meta" id="lz4-level-meta"></div>
           </div>
           <div class="format-section-title" data-i18n="lz4.profileTitle">Packing Profile</div>
           <div class="format-grid">
@@ -4872,8 +4916,13 @@
             <button class="small-action" type="button" id="lz4-profile-upload-list"
               data-i18n="lz4.profile.uploadList">Upload Include List</button>
             <button class="small-action" type="button" id="lz4-profile-remove"
-              data-i18n="lz4.profile.remove">Remove Profile</button>
+              data-i18n="lz4.profile.remove">Remove Config</button>
             <input type="file" id="lz4-profile-file" accept=".toml,.txt,text/plain" hidden>
+          </div>
+          <div class="lz4-profile-tools hidden" id="lz4-config-tools">
+            <select class="lz4-config-select" id="lz4-config-select"></select>
+            <button class="small-action" type="button" id="lz4-config-import"
+              data-i18n="lz4.profile.importConsole">Import From Console</button>
           </div>
         </div>
         <div class="format-section-title" data-i18n="common.destination">Destination</div>
@@ -5109,7 +5158,7 @@
       uncompressUsbOpen: false,
       lz4Game: null,
       lz4Mode: 'pack',
-      lz4Level: 'balanced',
+      lz4Level: '9',
       lz4Profile: 'auto',
       lz4Destination: 'inplace',
       lz4Policy: 'after',
@@ -5118,6 +5167,7 @@
       lz4UsbLoading: false,
       lz4UsbOpen: false,
       lz4ProfileInfo: null,
+      lz4Configs: [],
       lz4ProfileBusy: false,
       lz4UploadKind: 'profile',
       deleteGame: null,
@@ -8237,10 +8287,7 @@
         '<div class="loading-pill" aria-hidden="true">' +
         '<span class="loading-dots"><span></span><span></span><span></span></span>' +
         '</div>' +
-        '<div><div class="loading-title">' + escapeHtml(t('loading.scanningGames')) + '</div>' +
-        '<div class="loading-subtitle">' +
-        escapeHtml(detail ? t('loading.gamesDetail') : t('loading.gamesList')) +
-        '</div></div>' +
+        '<div><div class="loading-title">' + escapeHtml(t('loading.scanningGames')) + '</div></div>' +
         '</div>';
     }
 
@@ -9928,6 +9975,14 @@
         : '';
     }
 
+    // Same scale as Lazy_AMPR: 1-4 use LZ4's fast mode, 5-12 use LZ4 HC.
+    function lz4LevelMeta(value) {
+      const n = Math.min(12, Math.max(1, parseInt(value, 10) || 9));
+      const key = n <= 4 ? 'lz4.level.metaFast' : n <= 8 ? 'lz4.level.metaBalanced'
+        : n < 12 ? (n === 9 ? 'lz4.level.metaDefault' : 'lz4.level.metaHigh') : 'lz4.level.metaMax';
+      return t(key, { n });
+    }
+
     function lz4ProfileMetaText() {
       const info = state.lz4ProfileInfo;
       if (state.lz4ProfileBusy) return t('lz4.profile.uploading');
@@ -9972,6 +10027,8 @@
       $('lz4-profile-remove').disabled = state.lz4ProfileBusy ||
         !(state.lz4ProfileInfo && state.lz4ProfileInfo.exists);
       $('lz4-profile-upload').disabled = state.lz4ProfileBusy;
+      $('lz4-config-tools').classList.toggle('hidden', unpack || !state.lz4Configs.length);
+      $('lz4-config-import').disabled = state.lz4ProfileBusy || !state.lz4Configs.length;
       $('lz4-profile-upload-list').disabled = state.lz4ProfileBusy ||
         !(state.lz4ProfileInfo && state.lz4ProfileInfo.exists);
       $('lz4-replace-title').textContent = unpack ? t('lz4.policy.replaceUnpack') : t('lz4.policy.replace');
@@ -9979,6 +10036,7 @@
       $('lz4-internal-row').classList.toggle('is-hidden', !showInternal);
       $('lz4-usb-panel').classList.toggle('hidden', state.lz4Destination !== 'usb');
       renderLz4UsbSelect();
+      $('lz4-level-meta').textContent = lz4LevelMeta(state.lz4Level);
       document.querySelectorAll('[data-lz4-level], [data-lz4-profile], [data-lz4-destination], [data-lz4-policy]').forEach((button) => {
         const level = button.getAttribute('data-lz4-level');
         const profile = button.getAttribute('data-lz4-profile');
@@ -10016,7 +10074,49 @@
         (state.lz4Destination === 'usb' && !state.lz4UsbId);
     }
 
+    // TOML configs already on the console (USB drives, the import folder),
+    // matched to the game by name the way Lazy_AMPR links them.
+    async function loadLz4Configs(g) {
+      try {
+        const data = await api('/api/lzc/lz4/configs?titleId=' + encodeURIComponent(g.titleId) +
+          '&name=' + encodeURIComponent(g.name || ''));
+        state.lz4Configs = data.configs || [];
+      } catch (err) {
+        state.lz4Configs = [];
+      }
+      if (state.lz4Game !== g) return;
+      const select = $('lz4-config-select');
+      select.textContent = '';
+      state.lz4Configs.forEach((config) => {
+        const option = document.createElement('option');
+        option.value = config.path;
+        option.textContent = (config.match ? t('lz4.profile.configMatch', { name: config.name }) : config.name) +
+          '  ·  ' + config.where;
+        select.appendChild(option);
+      });
+      updateLz4ModalSelection();
+    }
+
+    async function importLz4Config() {
+      const g = state.lz4Game;
+      const path = $('lz4-config-select').value;
+      if (!g || !path || state.lz4ProfileBusy) return;
+      state.lz4ProfileBusy = true;
+      updateLz4ModalSelection();
+      try {
+        state.lz4ProfileInfo = await api('/api/lzc/lz4/profile?titleId=' + encodeURIComponent(g.titleId) +
+          '&action=import&path=' + encodeURIComponent(path), { method: 'POST' });
+      } catch (err) {
+        alert(formatByteText(err.message));
+      } finally {
+        state.lz4ProfileBusy = false;
+        if (lz4ProfileReady()) state.lz4Profile = 'custom';
+        updateLz4ModalSelection();
+      }
+    }
+
     async function loadLz4ProfileInfo(g) {
+      loadLz4Configs(g);
       try {
         state.lz4ProfileInfo = await api('/api/lzc/lz4/profile?titleId=' + encodeURIComponent(g.titleId));
       } catch (err) {
@@ -10029,7 +10129,7 @@
       if (!g || !g.sourcePath) return;
       state.lz4Game = g;
       state.lz4Mode = mode === 'unpack' ? 'unpack' : 'pack';
-      state.lz4Level = 'balanced';
+      state.lz4Level = '9';
       state.lz4Profile = 'auto';
       state.lz4Destination = 'inplace';
       state.lz4Policy = 'after';
@@ -10038,6 +10138,7 @@
       state.lz4UsbLoading = true;
       state.lz4UsbOpen = false;
       state.lz4ProfileInfo = null;
+      state.lz4Configs = [];
       state.lz4ProfileBusy = false;
       updateLz4ModalSelection();
       showModal('lz4-modal');
@@ -10950,7 +11051,6 @@
         '<div class="terminated-screen" role="status" aria-live="assertive">' +
         '<img class="terminated-logo" src="/lz4-logo.png" alt="" draggable="false">' +
         '<h2 class="terminated-title">' + escapeHtml(t('terminate.terminated')) + '</h2>' +
-        '<p class="terminated-copy">' + escapeHtml(t('terminate.exitMessage')) + '</p>' +
         '</div>';
     }
 
@@ -11141,6 +11241,7 @@
       $('lz4-profile-upload').addEventListener('click', () => pickLz4ProfileFile('profile'));
       $('lz4-profile-upload-list').addEventListener('click', () => pickLz4ProfileFile('list'));
       $('lz4-profile-remove').addEventListener('click', removeLz4Profile);
+      $('lz4-config-import').addEventListener('click', importLz4Config);
       $('lz4-profile-file').addEventListener('change', (event) => {
         const input = event.target;
         const file = input && input.files && input.files[0] ? input.files[0] : null;
@@ -11150,7 +11251,7 @@
       document.querySelectorAll('[data-lz4-level]').forEach((button) => {
         button.addEventListener('click', () => {
           if (button.disabled) return;
-          state.lz4Level = button.getAttribute('data-lz4-level') || 'balanced';
+          state.lz4Level = button.getAttribute('data-lz4-level') || '9';
           updateLz4ModalSelection();
         });
       });

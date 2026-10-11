@@ -59,7 +59,7 @@
 #define LZC_CLOSE_WAIT_SECONDS 20
 #define LZC_REPAIR_WAIT_SECONDS 180
 #define LZC_REPAIR_WAIT_STEP_SECONDS 2
-#define LZC_REMOUNT_WAIT_SECONDS 10
+#define LZC_REMOUNT_WAIT_SECONDS 45
 #define LZC_REMOUNT_WAIT_STEP_SECONDS 1
 #define LZC_MOUNT_SCAN_REQUEST_SECONDS 2
 #define LZC_MOUNT_NUDGE_FIRST_SECONDS 5
@@ -805,8 +805,9 @@ imports_store(const char *path, const struct stat *st, int imports) {
   pthread_mutex_unlock(&g_import_lock);
 }
 
-/* 1 when the module names in the file include libSceAmpr. The dynamic
- * string table is not encrypted in the fake-signed SELFs games run from. */
+/* 1 when the module names in the file include libSceAmpr, 0 when not, -1 when
+ * it can't be read. The dynamic string table is not encrypted in the
+ * fake-signed SELFs games run from. */
 static int
 file_mentions_ampr(const char *path) {
   static const char needle[] = "libSceAmpr";
@@ -816,11 +817,11 @@ file_mentions_ampr(const char *path) {
   size_t carry = 0;
   int found = 0;
   int fd = open(path, O_RDONLY);
-  if(fd < 0) return 0;
+  if(fd < 0) return -1;
   buf = malloc(chunk + n);
   if(!buf) {
     close(fd);
-    return 0;
+    return -1;
   }
   for(;;) {
     ssize_t got = read(fd, buf + carry, chunk);
@@ -850,8 +851,11 @@ title_imports_ampr(const char *root, const char *key_path) {
   if(!key_path || stat(key_path, &kst) != 0) return -1;
   int known = imports_lookup(key_path, &kst);
   if(known >= 0 || !root) return known;
-  if(snprintf(path, sizeof(path), "%s/eboot.bin", root) < (int)sizeof(path)) {
-    found = file_mentions_ampr(path);
+  /* An eboot that can't be read (an on-demand mount that isn't up yet)
+   * means unknown, not "no": don't cache that. */
+  if(snprintf(path, sizeof(path), "%s/eboot.bin", root) >= (int)sizeof(path) ||
+     (found = file_mentions_ampr(path)) < 0) {
+    return -1;
   }
   if(!found && snprintf(path, sizeof(path), "%s/sce_module", root) < (int)sizeof(path)) {
     DIR *d = opendir(path);
@@ -861,7 +865,7 @@ title_imports_ampr(const char *root, const char *key_path) {
       size_t len = strlen(ent->d_name);
       if(len < 5 || strcasecmp(ent->d_name + len - 4, ".prx")) continue;
       if(snprintf(prx, sizeof(prx), "%s/%s", path, ent->d_name) < (int)sizeof(prx)) {
-        found = file_mentions_ampr(prx);
+        found = file_mentions_ampr(prx) == 1;
       }
     }
     if(d) closedir(d);
@@ -915,7 +919,9 @@ populate_lz4_state(lzc_game_t *g) {
     } else {
       snprintf(key, sizeof(key), "%s", g->source_path);
     }
-    g->lz4_supported = title_imports_ampr(root, key) == 1;
+    int imports = title_imports_ampr(root, key);
+    g->lz4_supported = imports == 1 ? 1 :
+                       imports < 0 && g->source_kind != LZC_SOURCE_FOLDER ? 2 : 0;
   }
 }
 
@@ -12307,6 +12313,212 @@ lz4_profile_status_json(json_buf_t *b, const char *title_id) {
   return 0;
 }
 
+#define LZC_LZ4_IMPORT_DIR LZC_BASE "/import"
+#define LZC_LZ4_CONFIG_MAX 64
+#define LZC_LZ4_CONFIG_MAX_BYTES (4u << 20)
+
+typedef struct lzc_lz4_config {
+  char path[1024];
+  char name[256];
+  char where[64];
+  uint64_t size;
+  int match;
+} lzc_lz4_config_t;
+
+/* Where "Import config" looks for TOML profiles: the import folder in the
+ * app's data, the top of every drive and its homebrew folder, and the usual
+ * profile subfolders (Lazy_AMPR's toml_profiles among them). */
+static const char *const LZ4_CONFIG_SUBDIRS[] = {
+  "", "toml", "tomls", "toml_profiles", "profiles", "LZ4Compression", "Lazy_AMPR",
+};
+
+static void
+config_normalize(const char *in, char *out, size_t out_size) {
+  size_t n = 0;
+  for(; in && *in && n + 1 < out_size; in++) {
+    unsigned char c = (unsigned char)*in;
+    if(isalnum(c)) out[n++] = (char)tolower(c);
+  }
+  out[n] = 0;
+}
+
+/* Lazy_AMPR's rule: a TOML belongs to a game when its file name, keeping only
+ * letters and digits, matches the Title ID or the game's name, or one
+ * contains the other. Very short names only match exactly. */
+static int
+config_matches_game(const char *file_name, const char *title_id,
+                    const char *game_name) {
+  char base[256];
+  char stem[256];
+  char key[512];
+  const char *keys[2] = { title_id, game_name };
+  snprintf(base, sizeof(base), "%s", file_name);
+  char *dot = strrchr(base, '.');
+  if(dot) *dot = 0;
+  config_normalize(base, stem, sizeof(stem));
+  if(!stem[0]) return 0;
+  for(int i = 0; i < 2; i++) {
+    config_normalize(keys[i], key, sizeof(key));
+    if(!key[0]) continue;
+    if(!strcmp(stem, key)) return 1;
+    if(strlen(stem) >= 4 && strlen(key) >= 4 &&
+       (strstr(key, stem) || strstr(stem, key))) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int
+lz4_config_path_ok(const char *path) {
+  size_t n = path ? strlen(path) : 0;
+  if(n < 7 || path[0] != '/' || strcasecmp(path + n - 5, ".toml") ||
+     strstr(path, "/../") || strstr(path, "/./") || strstr(path, "//")) {
+    return 0;
+  }
+  if(path_under_root(path, LZC_LZ4_IMPORT_DIR)) return 1;
+  for(size_t i = 0; i < LZC_STORAGE_TARGET_COUNT; i++) {
+    if(path_under_root(path, LZC_STORAGE_TARGETS[i].root)) return 1;
+  }
+  return 0;
+}
+
+static void
+lz4_scan_config_dir(const char *dir, const char *where, const char *title_id,
+                    const char *game_name, lzc_lz4_config_t *out,
+                    size_t *count, size_t max) {
+  DIR *d = opendir(dir);
+  struct dirent *ent;
+  if(!d) return;
+  while(*count < max && (ent = readdir(d)) != NULL) {
+    lzc_lz4_config_t *c = &out[*count];
+    struct stat st;
+    size_t len = strlen(ent->d_name);
+    if(ent->d_name[0] == '.' || len < 6 || len >= sizeof(c->name) ||
+       strcasecmp(ent->d_name + len - 5, ".toml") ||
+       snprintf(c->path, sizeof(c->path), "%s/%s", dir, ent->d_name) >=
+       (int)sizeof(c->path) ||
+       stat(c->path, &st) != 0 || !S_ISREG(st.st_mode) ||
+       (uint64_t)st.st_size > LZC_LZ4_CONFIG_MAX_BYTES) {
+      continue;
+    }
+    snprintf(c->name, sizeof(c->name), "%s", ent->d_name);
+    snprintf(c->where, sizeof(c->where), "%s", where);
+    c->size = (uint64_t)st.st_size;
+    c->match = config_matches_game(ent->d_name, title_id, game_name);
+    (*count)++;
+  }
+  closedir(d);
+}
+
+static int
+cmp_lz4_config(const void *a, const void *b) {
+  const lzc_lz4_config_t *x = a;
+  const lzc_lz4_config_t *y = b;
+  if(x->match != y->match) return y->match - x->match;
+  return strcasecmp(x->name, y->name);
+}
+
+static size_t
+lz4_find_configs(const char *title_id, const char *game_name,
+                 lzc_lz4_config_t *out, size_t max) {
+  size_t count = 0;
+  char dir[1024];
+  (void)mkdirs(LZC_LZ4_IMPORT_DIR);
+  lz4_scan_config_dir(LZC_LZ4_IMPORT_DIR, "Import folder", title_id, game_name,
+                      out, &count, max);
+  for(size_t i = 0; i < LZC_STORAGE_TARGET_COUNT; i++) {
+    const lzc_storage_target_def_t *def = &LZC_STORAGE_TARGETS[i];
+    struct stat st;
+    if(stat(def->root, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
+    for(size_t k = 0; k < sizeof(LZ4_CONFIG_SUBDIRS) / sizeof(LZ4_CONFIG_SUBDIRS[0]); k++) {
+      const char *sub = LZ4_CONFIG_SUBDIRS[k];
+      snprintf(dir, sizeof(dir), "%s%s%s", def->root, sub[0] ? "/" : "", sub);
+      lz4_scan_config_dir(dir, def->name, title_id, game_name, out, &count, max);
+    }
+    lz4_scan_config_dir(def->target_root, def->name, title_id, game_name, out,
+                        &count, max);
+  }
+  qsort(out, count, sizeof(out[0]), cmp_lz4_config);
+  return count;
+}
+
+static int
+lz4_configs_request(const http_request_t *req) {
+  char title_id[64];
+  char game_name[256] = "";
+  json_buf_t b = {0};
+  if(!websrv_get_query_arg(req, "titleId", title_id, sizeof(title_id)) ||
+     !valid_title_id(title_id)) {
+    return serve_error(req, 400, "bad titleId");
+  }
+  (void)websrv_get_query_arg(req, "name", game_name, sizeof(game_name));
+  lzc_lz4_config_t *configs = calloc(LZC_LZ4_CONFIG_MAX, sizeof(*configs));
+  if(!configs) return serve_error(req, 500, "out of memory");
+  size_t count = lz4_find_configs(title_id, game_name, configs,
+                                  LZC_LZ4_CONFIG_MAX);
+  int bad = json_append(&b, "{\"importDir\":") != 0 ||
+            json_string(&b, LZC_LZ4_IMPORT_DIR) != 0 ||
+            json_append(&b, ",\"configs\":[") != 0;
+  for(size_t i = 0; !bad && i < count; i++) {
+    bad = (i && json_append(&b, ",") != 0) ||
+          json_append(&b, "{\"path\":") != 0 ||
+          json_string(&b, configs[i].path) != 0 ||
+          json_append(&b, ",\"name\":") != 0 ||
+          json_string(&b, configs[i].name) != 0 ||
+          json_append(&b, ",\"where\":") != 0 ||
+          json_string(&b, configs[i].where) != 0 ||
+          json_appendf(&b, ",\"size\":%llu,\"match\":%s}",
+                       (unsigned long long)configs[i].size,
+                       configs[i].match ? "true" : "false") != 0;
+  }
+  free(configs);
+  if(bad || json_append(&b, "]}") != 0) {
+    free(b.data);
+    return serve_error(req, 500, "out of memory");
+  }
+  return serve_owned(req, 200, b.data, b.len);
+}
+
+/* Bring the include_from / exclude_from lists an imported TOML names along
+ * from the folder it came from. */
+static void
+lz4_profile_import_lists(const char *src_toml, const char *dir,
+                         const char *profile_path) {
+  char src_dir[1024];
+  char perr[256] = {0};
+  snprintf(src_dir, sizeof(src_dir), "%s", src_toml);
+  char *slash = strrchr(src_dir, '/');
+  if(!slash) return;
+  *slash = 0;
+  ap_tval_t *root = ap_toml_parse_file(profile_path, perr, sizeof(perr));
+  const ap_tval_t *rules = root ? ap_toml_get(root, "rule") : NULL;
+  for(size_t i = 0; rules && rules->type == AP_TV_ARRAY && i < rules->count; i++) {
+    static const char *const keys[] = { "include_from", "exclude_from" };
+    for(size_t k = 0; k < 2; k++) {
+      const ap_tval_t *v = ap_toml_get(rules->items[i], keys[k]);
+      size_t count = v && v->type == AP_TV_ARRAY ? v->count : (v ? 1 : 0);
+      for(size_t j = 0; j < count; j++) {
+        const ap_tval_t *item = v->type == AP_TV_ARRAY ? v->items[j] : v;
+        char from[1100];
+        char to[1100];
+        char err[256] = {0};
+        struct stat st;
+        if(item->type != AP_TV_STRING || !lz4_profile_file_name_ok(item->s) ||
+           snprintf(from, sizeof(from), "%s/%s", src_dir, item->s) >= (int)sizeof(from) ||
+           snprintf(to, sizeof(to), "%s/%s", dir, item->s) >= (int)sizeof(to) ||
+           stat(from, &st) != 0 || !S_ISREG(st.st_mode)) {
+          continue;
+        }
+        if(copy_file_contents(from, to, err, sizeof(err)) != 0) {
+          lzc_log("lz4 profile list import failed file=%s err=%s", from, err);
+        }
+      }
+    }
+  }
+  ap_toml_free(root);
+}
+
 static int
 lz4_profile_request(const http_request_t *req) {
   char title_id[64];
@@ -12335,20 +12547,40 @@ lz4_profile_request(const http_request_t *req) {
     lzc_log("lz4 profile removed title=%s", title_id);
     artifact_cache_invalidate();
   } else if(!strcmp(req->method, "POST")) {
-    if(!req->body || req->body_size == 0) {
+    /* action=import copies a TOML found on the console (see
+     * /api/lzc/lz4/configs) instead of taking an uploaded body. */
+    char src_path[1024] = "";
+    int importing = !strcmp(action_arg, "import");
+    if(importing) {
+      struct stat sst;
+      if(!websrv_get_query_arg(req, "path", src_path, sizeof(src_path)) ||
+         !lz4_config_path_ok(src_path) || stat(src_path, &sst) != 0 ||
+         !S_ISREG(sst.st_mode) || (uint64_t)sst.st_size > LZC_LZ4_CONFIG_MAX_BYTES) {
+        return serve_error(req, 400, "bad config path");
+      }
+      snprintf(file_arg, sizeof(file_arg), "%s", "profile.toml");
+    } else if(!req->body || req->body_size == 0) {
       return serve_error(req, 400, "profile upload is empty");
     }
     if(mkdirs(dir) != 0) return serve_error(req, 500, "create profile folder failed");
     snprintf(path, sizeof(path), "%s/%s", dir, file_arg);
     snprintf(tmp, sizeof(tmp), "%s/.%s.tmp", dir, file_arg);
-    int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-    if(fd < 0) return serve_error(req, 500, "write profile failed");
-    if(write_all_fd(fd, req->body, req->body_size) != 0 || fsync(fd) != 0) {
+    if(importing) {
+      char cerr[256] = {0};
+      if(copy_file_contents(src_path, tmp, cerr, sizeof(cerr)) != 0) {
+        unlink(tmp);
+        return serve_error(req, 500, cerr[0] ? cerr : "read config failed");
+      }
+    } else {
+      int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+      if(fd < 0) return serve_error(req, 500, "write profile failed");
+      if(write_all_fd(fd, req->body, req->body_size) != 0 || fsync(fd) != 0) {
+        close(fd);
+        unlink(tmp);
+        return serve_error(req, 500, "write profile failed");
+      }
       close(fd);
-      unlink(tmp);
-      return serve_error(req, 500, "write profile failed");
     }
-    close(fd);
     if(!strcmp(file_arg, "profile.toml")) {
       char perr[256] = {0};
       ap_tval_t *root = ap_toml_parse_file(tmp, perr, sizeof(perr));
@@ -12364,8 +12596,13 @@ lz4_profile_request(const http_request_t *req) {
       unlink(tmp);
       return serve_error(req, 500, "publish profile failed");
     }
-    lzc_log("lz4 profile saved title=%s file=%s size=%llu", title_id, file_arg,
-           (unsigned long long)req->body_size);
+    if(importing) {
+      lz4_profile_import_lists(src_path, dir, path);
+      lzc_log("lz4 profile imported title=%s from=%s", title_id, src_path);
+    } else {
+      lzc_log("lz4 profile saved title=%s file=%s size=%llu", title_id, file_arg,
+             (unsigned long long)req->body_size);
+    }
     artifact_cache_invalidate();
   } else if(strcmp(req->method, "GET")) {
     return serve_error(req, 405, "method not allowed");
@@ -13817,6 +14054,9 @@ lzc_api_request(const http_request_t *req, const char *url) {
 	  }
 	  if(!strcmp(req->path, "/api/lzc/lz4/profile")) {
 	    return lz4_profile_request(req);
+	  }
+	  if(!strcmp(req->path, "/api/lzc/lz4/configs")) {
+	    return lz4_configs_request(req);
 	  }
 	  return serve_error(req, 404, "not found");
 	}
