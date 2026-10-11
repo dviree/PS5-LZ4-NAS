@@ -340,16 +340,21 @@ export function DeletePage({game, depth, covered, hide, onBack, onStart}) {
 
 // ---------------------------------------------------------------- history
 
+// The app's JS engine has no Date objects (only Date.now()): `new Date()`
+// throws and froze the page, so show how long ago instead.
 function when(seconds) {
   if (!seconds) return '';
-  const date = new Date(seconds * 1000);
-  return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')} ` +
-    `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  const ago = Math.max(0, Math.floor(Date.now() / 1000 - seconds));
+  if (ago < 60) return 'Just now';
+  if (ago < 3600) return `${Math.floor(ago / 60)} min ago`;
+  if (ago < 86400) return `${Math.floor(ago / 3600)} h ago`;
+  const days = Math.floor(ago / 86400);
+  return days === 1 ? 'Yesterday' : `${days} days ago`;
 }
 
 export function HistoryPage({history, depth, covered, hide, onBack}) {
   return (
-    <Page title="History">
+    <Page title="History" depth={depth} covered={covered} hide={hide} onBack={onBack}>
       <View className="gap-3 mt-4">
         {history.length ? history.map((op, index) => (
           <View key={op.id} focusable autoFocus={index === 0}
@@ -389,9 +394,7 @@ export function AboutPage({version, depth, covered, hide, onBack}) {
           </Text>
         </View>
         <View className="flex-row items-center gap-6 p-5 rounded-[18px] border border-line bg-panel w-[760px]">
-          <View className="p-[6px] rounded-[12px] bg-snow">
-            <Image source={donateQr} className="w-[132px] h-[132px]" />
-          </View>
+          <Image source={donateQr} className="w-[88px] h-[88px]" />
           <View className="flex-1 gap-2">
             <Text className="font-heavy text-[20px] text-snow">Buy Me a Coffee</Text>
             <Text className="font-inter text-[14px] text-soft">

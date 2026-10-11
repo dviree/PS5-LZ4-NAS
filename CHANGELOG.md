@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.2 - 2026-10-11
+
+Release notes: [RELEASE_NOTES_1.4.2.md](RELEASE_NOTES_1.4.2.md).
+
+- Fix the PS5 app freezing when History is opened (#1). The page formatted
+  job times with `Date` objects, which the app's JS engine doesn't have, and
+  the page had lost its back handling. Times now show as "5 min ago".
+- A small Buy Me a Coffee QR code in the corner of the home screen, the same
+  design PS5VR uses. The About card uses the same code.
+
 ## 1.4.1 - 2026-10-11
 
 Release notes: [RELEASE_NOTES_1.4.1.md](RELEASE_NOTES_1.4.1.md).
