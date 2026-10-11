@@ -4,6 +4,7 @@ import {View, Text, Image, ScrollView, FocusScope} from '@ps5-react/core';
 import {api, iconUrl} from './api.js';
 import {ACTION_LABEL, formatBytes, kindLabel, readableError, opSummary, opTime, opTone, resultText, storageLabel} from './model.js';
 import {ActionRow, Choice, Dot, LevelScale, LOGO, PrimaryButton, SectionLabel} from './ui.jsx';
+import donateQr from './assets/donate-qr.png';
 
 export function Page({title, depth, covered, hide, onBack, children}) {
   return (
@@ -379,10 +380,25 @@ export function AboutPage({version, depth, covered, hide, onBack}) {
         <Image source={LOGO} className="w-[128px] h-[128px] rounded-[30px]" />
         <Text className="font-heavy text-[30px] text-snow">LZ4 Compression</Text>
         <Text className="font-inter text-[14px] text-muted">{version || ''}</Text>
-        <View className="mt-4 p-5 rounded-[18px] border border-line bg-panel w-[760px]">
+        <View className="mt-4 p-5 gap-2 rounded-[18px] border border-line bg-panel w-[760px]">
           <Text className="font-inter text-[12px] text-muted">
-            Built on Game Compressor by Juma Sayeh and the LZ4 workflow from Lazy_AMPR by Nazky. Packed games are read by drakmor's ampr_emu. Unofficial, and not affiliated with either project. Interface made with PS5 React, created by half144 and PS5 React contributors (github.com/half144/ps5-react).
+            Built on Game Compressor by Juma Sayeh and the LZ4 workflow from Lazy_AMPR by Nazky. Packed games are read by drakmor's ampr_emu. Unofficial, and not affiliated with either project.
           </Text>
+          <Text className="font-inter text-[12px] text-muted">
+            Interface made with PS5 React, created by half144 and PS5 React contributors (github.com/half144/ps5-react).
+          </Text>
+        </View>
+        <View className="flex-row items-center gap-6 p-5 rounded-[18px] border border-line bg-panel w-[760px]">
+          <View className="p-[6px] rounded-[12px] bg-snow">
+            <Image source={donateQr} className="w-[132px] h-[132px]" />
+          </View>
+          <View className="flex-1 gap-2">
+            <Text className="font-heavy text-[20px] text-snow">Buy Me a Coffee</Text>
+            <Text className="font-inter text-[14px] text-soft">
+              If LZ4 Compression saved you space, scan this with your phone. A star on GitHub helps too.
+            </Text>
+            <Text className="font-semi text-[13px] text-muted">buymeacoffee.com/theghostonline</Text>
+          </View>
         </View>
       </View>
     </Page>

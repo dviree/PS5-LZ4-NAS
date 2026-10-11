@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.1 - 2026-10-11
+
+Release notes: [RELEASE_NOTES_1.4.1.md](RELEASE_NOTES_1.4.1.md).
+
+- Buy Me a Coffee on the About page: a QR code in the PS5 app and a button on
+  the web page.
+- The PS5 app's About page cut the credits off mid-sentence; the PS5 React
+  attribution is shown in full again.
+
 ## 1.4.0 - 2026-10-11
 
 Release notes: [RELEASE_NOTES_1.4.0.md](RELEASE_NOTES_1.4.0.md).
