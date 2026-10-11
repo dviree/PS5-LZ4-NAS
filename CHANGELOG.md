@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.4.0 - 2026-10-11
+
+Release notes: [RELEASE_NOTES_1.4.0.md](RELEASE_NOTES_1.4.0.md).
 
 - Bundled LZ4 profiles: the tested community TOMLs (ASTRO BOT, EA Sports UFC
   6, and the Insomniac and Unity engine profiles from danthespal's
