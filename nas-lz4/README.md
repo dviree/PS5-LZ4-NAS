@@ -59,7 +59,7 @@ körs inne i containern som din användare, så filerna ägs av `nasuser`.
 | `./lz4-ps5.sh run 3` | Samma som `start`, men i förgrunden |
 | `./lz4-ps5.sh status` | Pågående jobb, steg och förlopp, kö och fel |
 | `./lz4-ps5.sh stop` | Stoppar jobbet; arbetet sparas |
-| `./lz4-ps5.sh start --resume` | Fortsätter en stoppad/avbruten kö efter senast klara steg |
+| `./lz4-ps5.sh start --resume` | Fortsätter en stoppad eller avbruten kö (även efter omstart av container/NAS) efter senast klara steg |
 | `./lz4-ps5.sh report` | Originalstorlek, LZ4-storlek och besparing per spel och totalt |
 | `./lz4-ps5.sh verify "Mitt spel-lz4"` | Verifierar ett färdigt resultat igen (alla block avkodas, CRC) |
 | `./lz4-ps5.sh clean <namn>` | Tar bort arbetsmappen för ett misslyckat spel |
@@ -120,7 +120,7 @@ skrivs aldrig över.
 Utrymme: allt stort hamnar på `/volume1`. Räkna med ungefär 3× spelets
 uppackade storlek ledigt under jobbet (extraktion + packar +
 återställningstest); verktyget kontrollerar det före varje steg och
-behåller 20 GB marginal.
+behåller 20 GB marginal (`PS5LZ4_FREE_MARGIN_GB` i `docker-compose.yml`).
 
 ## Verifierat på NAS:en ≠ spelbart på PS5
 

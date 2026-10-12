@@ -79,6 +79,10 @@ class JobError(Exception):
     """A step failed; the work folder is kept."""
 
 
+class Interrupted(JobError):
+    """Stopped from outside; the game stays queued and resumes."""
+
+
 class Skip(Exception):
     """The game can't be handled safely and is left alone."""
 
@@ -487,7 +491,10 @@ class Job:
             rc = _child.wait()
             _child = None
         if _stop_requested:
-            raise JobError("stopped by request; run again to resume")
+            raise Interrupted("stopped by request; run again to resume")
+        if rc < 0:
+            # Killed by a signal: container restart, NAS reboot, docker stop.
+            raise Interrupted(f"{step} interrupted by signal {-rc}; run again to resume")
         if rc != 0:
             tail = err_path.read_text(errors="replace").replace("\r", "\n").strip().splitlines()
             tail = [l for l in tail if not l.startswith("[progress]")][-6:]
@@ -823,12 +830,55 @@ def result_for(entry: Entry) -> dict:
         return {"status": "skipped", "detail": skip.get("reason", "")}
     st = read_json(entry.work / "state.json")
     if st:
-        if st.get("error"):
+        if st.get("error") and not str(st.get("step", "")).endswith("(interrupted)"):
             return {"status": "failed", "detail": st["error"]}
         return {"status": "partial", "detail": f"after {', '.join(st.get('done', [])) or 'start'}"}
     if entry.output.exists():
         return {"status": "exists", "detail": "output folder exists without a report"}
     return {"status": "pending", "detail": ""}
+
+
+def process_one(e: Entry, args) -> str:
+    """Handle one library entry: 'ok', 'failed' or 'interrupted'."""
+    res = result_for(e)
+    if res["status"] == "done":
+        print(f"[{now()}] {e.id}: already done ({res['detail']}), skipping", flush=True)
+        return "ok"
+    if res["status"] == "exists":
+        print(f"[{now()}] {e.id}: {e.output} exists without a report; not touching it", flush=True)
+        return "failed"
+    if e.duplicate_of and not args.force_image:
+        print(f"[{now()}] {e.id}: skipped, the folder {e.duplicate_of} has the same game "
+              "(use --force-image to pack the image)", flush=True)
+        return "ok"
+    job = Job(e, args.level, not args.no_restore_test, args.require_vhash)
+    try:
+        job.run()
+        (REPORTS / f"{e.id}.skipped.json").unlink(missing_ok=True)
+        return "ok"
+    except Skip as s:
+        job.log(f"SKIPPED: {s}")
+        write_json(REPORTS / f"{e.id}.skipped.json",
+                   {"id": e.id, "source": e.rel, "reason": str(s), "when": now()})
+        # Nothing useful in the work area of a skipped game.
+        remove_work_path(e.work)
+        return "ok"
+    except (JobError, OSError, ValueError, RuntimeError) as err:
+        job.state["error"] = str(err)
+        job.state["failed"] = now()
+        kind = "interrupted" if isinstance(err, Interrupted) else "failed"
+        job.state["step"] = str(job.state.get("step", "")).replace(" (running)", "") + f" ({kind})"
+        try:
+            job.save()
+        except OSError:
+            pass
+        if kind == "interrupted":
+            job.log(f"INTERRUPTED: {err}")
+            job.log(f"work kept; continue with: ps5lz4 start --resume")
+        else:
+            job.log(f"FAILED: {err}")
+            job.log(f"work folder kept for troubleshooting: {e.work}")
+        return kind
 
 
 def process(entries: list[Entry], args) -> int:
@@ -840,46 +890,16 @@ def process(entries: list[Entry], args) -> int:
         if queue is not None:
             queue["current"] = e.id
             write_json(QUEUE_PATH, queue)
-        res = result_for(e)
-        if res["status"] == "done":
-            print(f"[{now()}] {e.id}: already done ({res['detail']}), skipping", flush=True)
-            continue
-        if res["status"] == "exists":
-            print(f"[{now()}] {e.id}: {e.output} exists without a report; not touching it", flush=True)
-            failures += 1
-            continue
-        if e.duplicate_of and not args.force_image:
-            print(f"[{now()}] {e.id}: skipped, the folder {e.duplicate_of} has the same game "
-                  "(use --force-image to pack the image)", flush=True)
-            continue
-        job = Job(e, args.level, not args.no_restore_test, args.require_vhash)
-        try:
-            job.run()
-            (REPORTS / f"{e.id}.skipped.json").unlink(missing_ok=True)
-        except Skip as s:
-            job.log(f"SKIPPED: {s}")
-            write_json(REPORTS / f"{e.id}.skipped.json",
-                       {"id": e.id, "source": e.rel, "reason": str(s), "when": now()})
-            # Nothing useful in the work area of a skipped game.
-            remove_work_path(e.work)
-        except (JobError, OSError, ValueError, RuntimeError) as err:
-            failures += 1
-            job.state["error"] = str(err)
-            job.state["failed"] = now()
-            job.state["step"] = str(job.state.get("step", "")).replace(" (running)", "") + " (failed)"
-            try:
-                job.save()
-            except OSError:
-                pass
-            job.log(f"FAILED: {err}")
-            job.log(f"work folder kept for troubleshooting: {e.work}")
+        outcome = process_one(e, args)
+        failures += outcome != "ok"
         if queue is not None:
             queue["current"] = None
-            if not _stop_requested:
-                state = result_for(e)["status"]
-                queue.setdefault("failed" if state == "failed" else "finished", []).append(e.id)
+            if outcome != "interrupted" and not _stop_requested:
+                queue.setdefault("failed" if outcome == "failed" else "finished", []).append(e.id)
                 queue["remaining"] = [x for x in queue.get("remaining", []) if x != e.id]
             write_json(QUEUE_PATH, queue)
+        if outcome == "interrupted":
+            break
     return 1 if failures else 0
 
 
@@ -1054,7 +1074,10 @@ def cmd_status(_args) -> int:
     if WORK.is_dir():
         for w in sorted(WORK.iterdir()):
             st = read_json(w / "state.json", {}) or {}
-            line = f"  work/{w.name}: step={st.get('step', '?')} done={st.get('done', [])}"
+            step = str(st.get("step", "?"))
+            if not running and step.endswith("(running)"):
+                step = step.replace("(running)", "(interrupted; continue with: start --resume)")
+            line = f"  work/{w.name}: step={step} done={st.get('done', [])}"
             if st.get("error"):
                 line += f"\n      error: {st['error']}"
             print(line)
