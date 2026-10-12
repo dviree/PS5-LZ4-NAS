@@ -5,6 +5,8 @@ lz4-compression.elf
 app
 assets-app
 tests
+# nas-lz4/Dockerfile builds the host packer from tests/host.
+!tests/host
 tools/art
 *.md
 !nas/README.md

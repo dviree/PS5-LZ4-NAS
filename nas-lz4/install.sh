@@ -17,6 +17,7 @@ NAS_USER="${NAS_USER:-sureahad}"
 IMAGE="${IMAGE:-ps5-lz4:local}"
 CONTAINER="${CONTAINER:-ps5-lz4}"
 LEVEL="${LEVEL:-9}"
+FREE_MARGIN_GB="${FREE_MARGIN_GB:-20}"
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 CHECK_ONLY=0
@@ -148,6 +149,7 @@ services:
       PS5LZ4_HOST_LIBRARY: "$LIBRARY"
       PS5LZ4_HOST_OUTPUT: "$OUTPUT"
       PS5LZ4_LEVEL: "$LEVEL"
+      PS5LZ4_FREE_MARGIN_GB: "$FREE_MARGIN_GB"
       TZ: "$TZ_NAME"
     volumes:
       - "$LIBRARY:/library:ro"
@@ -173,7 +175,7 @@ if [ -n "$COMPOSE" ]; then
 else
   docker run -d --name "$CONTAINER" --restart unless-stopped --init --network none \
     -e PS5LZ4_HOST_LIBRARY="$LIBRARY" -e PS5LZ4_HOST_OUTPUT="$OUTPUT" \
-    -e PS5LZ4_LEVEL="$LEVEL" -e TZ="$TZ_NAME" \
+    -e PS5LZ4_LEVEL="$LEVEL" -e PS5LZ4_FREE_MARGIN_GB="$FREE_MARGIN_GB" -e TZ="$TZ_NAME" \
     -v "$LIBRARY:/library:ro" -v "$OUTPUT:/output" -v "$BASE/state:/state" \
     -v "$BASE/logs:/state/logs" -v "$BASE/reports:/state/reports" \
     "$IMAGE" >/dev/null
