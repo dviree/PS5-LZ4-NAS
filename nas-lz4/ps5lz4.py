@@ -736,6 +736,7 @@ class Job:
         e = self.e
         if e.output.exists():
             raise JobError(f"{e.output} already exists; it is never overwritten")
+        programs = ps5_permissions(pack)
         os.rename(pack, e.output)
         out_files, out_bytes = tree_bytes(e.output)
         src_files, src_bytes = tree_bytes(root)
@@ -771,6 +772,7 @@ class Job:
                 "restore_notes": st.get("restore_notes", []),
                 "format": f"AMPRPAK4 index, {st.get('pak_volumes')} AMPRDAT3 volumes",
                 "runtime": f"PackedStdio {RUNTIME_SHA256}",
+                "permissions": f"folders and {programs} program files 755, other files 644",
             },
             "verified_on_nas": True,
             "playable_on_ps5": "not tested: needs a console run (see README)",
@@ -805,6 +807,29 @@ class Job:
         self.log(f"DONE {human(report['source_bytes'])} -> {human(report['output_bytes'])} "
                  f"(saved {human(report['saved_bytes'])}, {report['saved_percent']}%) -> {report['output']}")
         return report
+
+
+PROGRAM_EXTS = (".prx", ".sprx", ".elf", ".self")
+
+
+def ps5_permissions(root: Path) -> int:
+    """Modes the PS5 accepts: the game must read everything and execute its
+    programs (APR-EMU in fakelib/ does not load without the execute bit).
+    Folders and programs 755, everything else 644. Returns program count."""
+    programs = 0
+    for dirpath, dirs, names in os.walk(root):
+        os.chmod(dirpath, 0o755)
+        for name in names:
+            p = os.path.join(dirpath, name)
+            if os.path.islink(p):
+                continue
+            low = name.lower()
+            if low == "eboot.bin" or low.endswith(PROGRAM_EXTS):
+                os.chmod(p, 0o755)
+                programs += 1
+            else:
+                os.chmod(p, 0o644)
+    return programs
 
 
 def files_equal(a: Path, b: Path, size: int = 8 << 20) -> bool:
