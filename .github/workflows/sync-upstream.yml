@@ -1,0 +1,47 @@
+# Keeps this fork in step with theghostonline/PS5-LZ4-Compression:
+# merges upstream main into main, then main into nas-build.
+# A merge conflict fails the run (GitHub emails you); nothing is forced.
+name: Sync with upstream
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency: sync-upstream
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge upstream main into main, and main into nas-build
+        env:
+          UPSTREAM: https://github.com/theghostonline/PS5-LZ4-Compression.git
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream "$UPSTREAM"
+          git fetch --no-tags upstream main
+          git fetch --no-tags origin
+          sync() {
+            local branch=$1 source=$2 label=$3
+            git checkout -q -B "$branch" "origin/$branch"
+            if git merge-base --is-ancestor "$source" HEAD; then
+              echo "$branch is up to date with $label"
+              return
+            fi
+            git merge --no-edit -m "Merge $label into $branch" "$source"
+            git push origin "$branch"
+          }
+          sync main upstream/main "upstream main"
+          if git show-ref --verify --quiet refs/remotes/origin/nas-build; then
+            sync nas-build main "main"
+          fi
