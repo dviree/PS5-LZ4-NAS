@@ -63,6 +63,7 @@ FREE_MARGIN = int(float(os.environ.get("PS5LZ4_FREE_MARGIN_GB", "20")) * 1024**3
 # Pinned APR-EMU PackedStdio runtime embedded in ampr_pack_cli.
 RUNTIME_SHA256 = "69e6c4d5e4f5fb83c9e01815db5861c4c75734acbf4595cafa50d4c218116d1a"
 RUNTIME_REL = "fakelib/libSceAmpr.sprx"
+RUNTIME_FILE = Path(os.environ.get("PS5LZ4_RUNTIME", "/opt/ps5lz4/libSceAmpr.sprx"))
 
 IMAGE_EXTS = {".exfat": "exfat", ".ffpfs": "ffpfs", ".ffpfsc": "ffpfsc"}
 TITLE_RE = re.compile(r"(PPSA|CUSA|PPSM)\d{5}", re.I)
@@ -239,6 +240,44 @@ def find_game_root(top: Path) -> Path | None:
     return None
 
 
+PROGRAM_MAGICS = (b"\x7fELF", b"\x4f\x15\x3d\x1d", b"\x54\x14\xf5\xee")
+DEEP_SCAN_MAX = 512 << 20
+
+
+def program_like(name: str) -> bool:
+    low = name.lower()
+    return low.endswith((".prx", ".sprx", ".elf", ".self", ".bin"))
+
+
+def deep_reason(rel: str) -> str:
+    return (f"{rel} imports libSceAmpr (deep scan, outside eboot.bin/sce_module: "
+            "test the packed game on the PS5 before deleting anything)")
+
+
+def deep_scan_folder(root: Path) -> str | None:
+    """Every program file in the game, not only eboot.bin and sce_module."""
+    for dirpath, dirs, names in os.walk(root):
+        dirs[:] = [d for d in dirs if d.lower() != "fakelib"]
+        for name in sorted(names):
+            if not program_like(name):
+                continue
+            p = Path(dirpath) / name
+            rel = p.relative_to(root).as_posix()
+            if rel.lower() == "eboot.bin" or rel.lower().startswith("sce_module/"):
+                continue
+            try:
+                if p.stat().st_size > DEEP_SCAN_MAX:
+                    continue
+                with open(p, "rb") as f:
+                    if f.read(4) not in PROGRAM_MAGICS:
+                        continue
+            except OSError:
+                continue
+            if stream_has(file_chunks(p), b"libSceAmpr"):
+                return rel
+    return None
+
+
 def ampr_status_folder(root: Path) -> tuple[str, str]:
     """('packed'|'compatible'|'incompatible', reason) for a game folder.
 
@@ -259,7 +298,16 @@ def ampr_status_folder(root: Path) -> tuple[str, str]:
             if f.is_file() and f.name.lower().endswith(".prx") and \
                     stream_has(file_chunks(f), b"libSceAmpr"):
                 return "compatible", f"sce_module/{f.name} imports libSceAmpr"
-    return "incompatible", "does not use AMPR (no libSceAmpr import, no APR-EMU)"
+    hit = deep_scan_folder(root)
+    if hit:
+        return "compatible", deep_reason(hit)
+    return "incompatible", ("does not use AMPR: no program file imports libSceAmpr "
+                            "(deep scan), so APR-EMU would never load")
+
+
+def _chain(first: bytes, rest):
+    yield first
+    yield from rest
 
 
 def exfat_inspect(image: Path) -> dict:
@@ -287,12 +335,28 @@ def exfat_inspect(image: Path) -> dict:
         elif get("eboot.bin") and stream_has(reader.read_file(get("eboot.bin")), b"libSceAmpr"):
             status = ("compatible", "eboot.bin imports libSceAmpr")
         else:
-            status = ("incompatible", "does not use AMPR (no libSceAmpr import, no APR-EMU)")
+            status = ("incompatible", "does not use AMPR: no program file imports libSceAmpr "
+                                      "(deep scan), so APR-EMU would never load")
             for key, entry in sorted(files.items()):
                 if key.startswith(prefix + "sce_module/") and key.endswith(".prx") and \
                         stream_has(reader.read_file(entry), b"libSceAmpr"):
                     status = ("compatible", f"{entry.rel_path} imports libSceAmpr")
                     break
+            else:
+                for key, entry in sorted(files.items()):
+                    rel = key[len(prefix):]
+                    if (not key.startswith(prefix) or not program_like(key)
+                            or rel == "eboot.bin" or rel.startswith(("sce_module/", "fakelib/"))
+                            or entry.length > DEEP_SCAN_MAX):
+                        continue
+                    chunks = reader.read_file(entry)
+                    first = next(chunks, b"")
+                    if first[:4] not in PROGRAM_MAGICS:
+                        continue
+                    if stream_has(_chain(first, chunks),
+                                  b"libSceAmpr"):
+                        status = ("compatible", deep_reason(entry.rel_path[len(prefix):]))
+                        break
         listing = {e.rel_path[len(prefix):]: e.length for e in files.values()}
         return {"title_id": title_id, "name": name, "logical_bytes": total,
                 "files": len(files), "status": status[0], "reason": status[1],
@@ -647,8 +711,8 @@ class Job:
         stats = json.loads(out.strip().splitlines()[-1])
         if stats.get("lz4", 0) <= 0:
             # Every file was left loose: LZ4 can't shrink this game's data.
-            raise Skip(f"nothing LZ4 can shrink: all {stats.get('files')} files stay loose "
-                       f"({stats.get('autoLoose')} sampled as incompressible)")
+            raise Skip(f"nothing to pack: the packing profile kept all {stats.get('files')} files "
+                       f"loose ({stats.get('autoLoose')} of them sampled as incompressible)")
         self.mark("pack", pack_stats=stats, pack_seconds=round(time.time() - t0))
         self.log(f"packed {stats['packed']} files into {stats['packs']} volumes "
                  f"({stats['lz4']} LZ4 + {stats['raw']} raw chunks), {stats['loose']} loose")
@@ -1156,8 +1220,58 @@ def cmd_verify(args) -> int:
         raise SystemExit(f"{target} has no ampr_assets.index")
     argv = [PACKER, "verify", str(target)] + ([args.source] if args.source else [])
     rc = subprocess.call(nice_prefix() + argv)
+    rt = find_runtime(target)
+    if rt is None or hashlib.sha256(rt.read_bytes()).hexdigest() != RUNTIME_SHA256:
+        print("APR-EMU is not the PackedStdio runtime; run: ps5lz4 apr --fix")
+        rc = rc or 3
     print("verify passed" if rc == 0 else f"verify FAILED (exit {rc})")
     return rc
+
+
+def find_runtime(game: Path) -> Path | None:
+    for d in game.iterdir():
+        if d.is_dir() and d.name.lower() == "fakelib":
+            for f in d.iterdir():
+                if f.is_file() and f.name.lower() == "libsceampr.sprx":
+                    return f
+    return None
+
+
+def cmd_apr(args) -> int:
+    """Check that every LZ4 game has the PackedStdio APR-EMU; --fix restores it."""
+    ensure_dirs()
+    games = sorted(p for p in OUTPUT.iterdir()
+                   if p.is_dir() and (p / "ampr_assets.index").is_file())
+    if not games:
+        print(f"no LZ4 games in {OUTPUT}")
+        return 0
+    if args.fix:
+        if not RUNTIME_FILE.is_file() or \
+                hashlib.sha256(RUNTIME_FILE.read_bytes()).hexdigest() != RUNTIME_SHA256:
+            raise SystemExit(f"pinned runtime missing or wrong at {RUNTIME_FILE}; reinstall ps5-lz4")
+    bad = 0
+    for g in games:
+        rt = find_runtime(g)
+        if rt is None:
+            state = "MISSING"
+        else:
+            sha = hashlib.sha256(rt.read_bytes()).hexdigest()
+            state = "ok" if sha == RUNTIME_SHA256 else f"WRONG ({sha[:12]}, not PackedStdio)"
+        if state != "ok":
+            bad += 1
+            if args.fix:
+                dst = rt or (g / RUNTIME_REL)
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                os.chmod(dst.parent, 0o755)
+                tmp = dst.with_name(dst.name + ".tmp")
+                shutil.copyfile(RUNTIME_FILE, tmp)
+                os.chmod(tmp, 0o755)
+                os.replace(tmp, dst)
+                state += " -> FIXED"
+        print(f"{state:<45} {g.name}")
+    if bad and not args.fix:
+        print(f"{bad} game(s) need the PackedStdio runtime; run: ps5lz4 apr --fix")
+    return 1 if bad and not args.fix else 0
 
 
 def cmd_clean(args) -> int:
@@ -1257,6 +1371,9 @@ def main() -> int:
     sp.add_argument("output", help="output folder name, e.g. MyGame-lz4")
     sp.add_argument("source", nargs="?", help="optional original folder to compare against")
     sp.set_defaults(func=cmd_verify)
+    sp = sub.add_parser("apr", help="check the APR-EMU runtime in every LZ4 game (--fix restores it)")
+    sp.add_argument("--fix", action="store_true")
+    sp.set_defaults(func=cmd_apr)
     sp = sub.add_parser("clean", help="delete the work folder of a failed game")
     sp.add_argument("ids", nargs="+")
     sp.set_defaults(func=cmd_clean)

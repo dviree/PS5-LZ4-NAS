@@ -25,6 +25,7 @@ RUN pip install --no-cache-dir "mkpfs==${MKPFS_VERSION}" \
 COPY --from=build /src/build/host/ampr_pack_cli /usr/local/bin/ampr_pack_cli
 COPY profiles /opt/ps5lz4/profiles
 COPY nas-lz4/ps5lz4.py /opt/ps5lz4/ps5lz4.py
+COPY third_party/ampr_emu/libSceAmpr.sprx /opt/ps5lz4/libSceAmpr.sprx
 RUN printf '#!/bin/sh\nexec python3 /opt/ps5lz4/ps5lz4.py "$@"\n' > /usr/local/bin/ps5lz4 \
  && chmod 755 /usr/local/bin/ps5lz4 /opt/ps5lz4/ps5lz4.py \
  && chmod -R a+rX /opt/ps5lz4
