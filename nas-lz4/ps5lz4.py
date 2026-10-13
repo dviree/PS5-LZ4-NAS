@@ -725,28 +725,13 @@ class Job:
         out = self.run_tool([PACKER, "verify", str(pack), str(root)], "verify")
         stats = json.loads(out.strip().splitlines()[-1])
         # The result must really be AMPR LZ4: manifest, data volumes, runtime.
-        magic = (pack / "ampr_assets.index").read_bytes()[:8]
-        if magic != b"AMPRPAK4":
-            raise JobError(f"ampr_assets.index has magic {magic!r}, expected AMPRPAK4")
+        problem = lz4_format_problem(pack)
+        if problem:
+            raise JobError(problem)
         paks = sorted(pack.glob("ampr_assets-*.pak"))
-        if not paks:
-            raise JobError("no .pak volumes")
-        for p in paks:
-            with open(p, "rb") as f:
-                if f.read(8) != b"AMPRDAT3":
-                    raise JobError(f"{p.name} is not an AMPRDAT3 volume")
-        runtime = pack / RUNTIME_REL
-        if not runtime.is_file():
-            raise JobError(f"{RUNTIME_REL} missing from the output")
-        sha = hashlib.sha256(runtime.read_bytes()).hexdigest()
-        if sha != RUNTIME_SHA256:
-            raise JobError(f"{RUNTIME_REL} is not the pinned PackedStdio runtime ({sha})")
-        for side in ("ampr_assets.index.crc", "ampr_assets.index.runtime", "ampr_emu.index"):
-            if not (pack / side).is_file():
-                raise JobError(f"{side} missing from the output")
-        self.mark("verify", verify_stats=stats, pak_volumes=len(paks), runtime_sha256=sha)
+        self.mark("verify", verify_stats=stats, pak_volumes=len(paks), runtime_sha256=RUNTIME_SHA256)
         self.log(f"verify passed: every chunk decoded, {stats['packed']} packed files match the source; "
-                 f"{len(paks)} AMPRDAT3 volumes, PackedStdio runtime {sha[:12]}")
+                 f"{len(paks)} AMPRDAT3 volumes, PackedStdio runtime {RUNTIME_SHA256[:12]}")
 
     def step_restore(self, root: Path, pack: Path) -> None:
         if self.done("restore") or not self.restore_test:
@@ -1145,6 +1130,93 @@ def cmd_scan(args) -> int:
     return 0
 
 
+def lz4_format_problem(game: Path) -> str | None:
+    """None when the folder is a complete AMPR LZ4 game, else what is wrong."""
+    index = game / "ampr_assets.index"
+    if not index.is_file():
+        return "no ampr_assets.index (not LZ4-packed)"
+    with open(index, "rb") as f:
+        magic = f.read(8)
+    if magic != b"AMPRPAK4":
+        return f"ampr_assets.index has magic {magic!r}, expected AMPRPAK4"
+    paks = sorted(game.glob("ampr_assets-*.pak"))
+    if not paks:
+        return "no .pak volumes"
+    for p in paks:
+        with open(p, "rb") as f:
+            if f.read(8) != b"AMPRDAT3":
+                return f"{p.name} is not an AMPRDAT3 volume"
+    runtime = find_runtime(game)
+    if runtime is None:
+        return f"{RUNTIME_REL} missing"
+    sha = hashlib.sha256(runtime.read_bytes()).hexdigest()
+    if sha != RUNTIME_SHA256:
+        return f"{RUNTIME_REL} is not the PackedStdio runtime ({sha[:12]}); run: apr --fix"
+    for side in ("ampr_assets.index.crc", "ampr_assets.index.runtime", "ampr_emu.index"):
+        if not (game / side).is_file():
+            return f"{side} missing"
+    return None
+
+
+def cmd_lz4(args) -> int:
+    """One line per game: LZ4 already, can become LZ4, or why not. --fix queues the rest."""
+    ensure_dirs()
+    entries = scan_library()
+    todo: list[Entry] = []
+    counts = {"LZ4": 0, "kan bli LZ4": 0, "inte LZ4": 0, "FEL": 0}
+    for e in entries:
+        res = result_for(e)
+        st = res["status"]
+        if e.duplicate_of and st != "done":
+            continue  # the folder copy of the same game is listed instead
+        if st == "done":
+            problem = lz4_format_problem(e.output) if e.output.is_dir() else "output folder missing"
+            verdict, why = ("LZ4", res["detail"]) if not problem else ("FEL", problem)
+        elif st == "skipped":
+            verdict, why = "inte LZ4", res["detail"]
+        elif st == "exists":
+            verdict, why = "FEL", res["detail"]
+        else:
+            try:
+                if e.kind == "folder":
+                    ok, why = ampr_status_folder(e.path)
+                elif e.kind == "exfat":
+                    meta = exfat_inspect(e.path)
+                    ok, why = meta["status"], meta["reason"]
+                else:
+                    ok, why = "compatible", "checked after extraction"
+            except Exception as err:
+                ok, why = "compatible", f"checked when packed ({err})"
+            if ok == "compatible":
+                verdict = "kan bli LZ4"
+                if st in ("partial", "failed"):
+                    why = f"{st}: {res['detail']}"
+                todo.append(e)
+            elif ok == "packed":
+                verdict = "LZ4"
+            else:
+                verdict = "inte LZ4"
+        counts[verdict] += 1
+        print(f"{verdict:12} {e.title_id or '-':9}  {e.rel}  ({why})")
+    for out in sorted(OUTPUT.glob("*-lz4")):
+        if out.is_dir() and not any(e.output == out for e in entries):
+            problem = lz4_format_problem(out)
+            counts["LZ4" if not problem else "FEL"] += 1
+            print(f"{'LZ4' if not problem else 'FEL':12} {'-':9}  {out.name}  "
+                  f"({'no library source' if not problem else problem})")
+    print("\n" + ", ".join(f"{k}: {v}" for k, v in counts.items()))
+    if not todo:
+        print("inget kvar att packa")
+        return 1 if counts["FEL"] else 0
+    if not args.fix:
+        print(f"packa de {len(todo)} som kan bli LZ4: ps5lz4 lz4 --fix")
+        return 0
+    start = argparse.Namespace(targets=[e.id for e in todo], all=False, resume=False,
+                               level=args.level, no_restore_test=args.no_restore_test,
+                               require_vhash=args.require_vhash, force_image=args.force_image)
+    return cmd_start(start)
+
+
 def cmd_status(_args) -> int:
     ensure_dirs()
     running = False
@@ -1360,6 +1432,10 @@ def main() -> int:
     sp.add_argument("--resume", action="store_true", help="continue the unfinished queue")
     job_opts(sp)
     sp.set_defaults(func=cmd_start)
+    sp = sub.add_parser("lz4", help="is each game LZ4? --fix packs every game that can be")
+    sp.add_argument("--fix", action="store_true", help="queue every game that can become LZ4")
+    job_opts(sp)
+    sp.set_defaults(func=cmd_lz4)
     sp = sub.add_parser("status", help="show the running job and the work area")
     sp.set_defaults(func=cmd_status)
     sp = sub.add_parser("stop", help="stop the running job (resumable)")
