@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.5.0 - 2026-10-14
+
+Release notes: [RELEASE_NOTES_1.5.0.md](RELEASE_NOTES_1.5.0.md).
+
+- In-app updates: the PS5 app checks the latest GitHub release when it opens
+  and offers to update. It downloads the app zip and the engine, checks both
+  against the SHA-256 GitHub lists, swaps them in and reopens. Errors say
+  which step failed and why. `Skip this version` hides a release. The web page
+  shows a `vX is out` link.
+- Game reports: each packed game's page shows how it runs for other people,
+  and `Report how it runs` sends yours as a prefilled GitHub issue (a QR code
+  to scan on the PS5, a link on the web page). A workflow counts the reports
+  into `compat/compat.json`, one vote per GitHub account per game.
+- The engine draws QR codes (`GET /api/lzc/qr`, Project Nayuki's MIT QR
+  library).
+- The LZ4 packer and the PS5 app are licensed GPL-3.0-or-later (`LICENSE`).
+
 ## 1.4.3 - 2026-10-14
 
 Release notes: [RELEASE_NOTES_1.4.3.md](RELEASE_NOTES_1.4.3.md).
