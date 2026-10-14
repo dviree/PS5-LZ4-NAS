@@ -1,4 +1,7 @@
 /*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) 2026 Husam Osman. Based on drakmor's ampr_pack.py (GPL-3.0).
+ *
  * LZ4 Compression - AMPR seekable LZ4 asset packs (AMPRPAK4 / AMPRDAT3).
  *
  * PS5-side port of drakmor's ampr_pack.py, run as one pipeline: build the
@@ -115,6 +118,24 @@ int ampr_pack_summary(const char *root, ampr_pack_stats_t *stats, char *err,
 
 /* Cheap check: root/ampr_assets.index exists. */
 int ampr_pack_tree_has_manifest(const char *root);
+
+/* Checks that root has the pinned PackedStdio runtime in fakelib/. Another
+ * tool's APR-EMU update can swap in a LooseStdio build, which can't read
+ * packs (the game starts to a black screen). Returns 0 when it is in place,
+ * 1 when it was missing or different (and, with repair, put back), -1 on
+ * error. old_sha gets the SHA-256 of the file it replaced ("" if none). */
+int ampr_pack_check_runtime(const char *root, int repair, char old_sha[65],
+                            char *err, size_t err_size);
+
+/* 1 for files that must stay on disk next to the packs: empty files, PlayGo
+ * chunk markers and the boot files Ghost of Yotei looks for. The packer keeps
+ * them loose. */
+int ampr_pack_keep_on_disk(const char *rel, uint64_t size);
+
+/* Counts packed keep-on-disk files that aren't on disk, and with repair
+ * writes them out of the packs (the manifest is unchanged). */
+int ampr_pack_restore_disk_files(const char *root, int repair, uint32_t *missing,
+                                 uint32_t *restored, char *err, size_t err_size);
 
 /* Embedded PackedStdio runtime (third_party/ampr_emu). */
 const unsigned char *ampr_pack_runtime_data(size_t *size);

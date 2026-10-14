@@ -38,7 +38,18 @@ jobs:
               echo "$branch is up to date with $label"
               return
             fi
-            git merge --no-edit -m "Merge $label into $branch" "$source"
+            if ! git merge --no-commit --no-ff "$source"; then
+              git merge --abort
+              echo "::error::merge conflict between $label and $branch"
+              exit 1
+            fi
+            # Keep this fork's own workflows. The token can't push workflow
+            # changes, and upstream's workflows (game reports, releases) are
+            # for the original project, not this fork.
+            added=$(git diff --cached --name-only --diff-filter=A -- .github/workflows)
+            if [ -n "$added" ]; then git rm -q -f -- $added; fi
+            git checkout HEAD -- .github/workflows
+            git commit -q --no-edit -m "Merge $label into $branch"
             git push origin "$branch"
           }
           sync main upstream/main "upstream main"

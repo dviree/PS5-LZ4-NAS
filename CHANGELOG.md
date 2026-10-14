@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.5.0 - 2026-10-14
+
+Release notes: [RELEASE_NOTES_1.5.0.md](RELEASE_NOTES_1.5.0.md).
+
+- In-app updates: the PS5 app checks the latest GitHub release when it opens
+  and offers to update. It downloads the app zip and the engine, checks both
+  against the SHA-256 GitHub lists, swaps them in and reopens. Errors say
+  which step failed and why. `Skip this version` hides a release. The web page
+  shows a `vX is out` link.
+- Game reports: each packed game's page shows how it runs for other people,
+  and `Report how it runs` sends yours as a prefilled GitHub issue (a QR code
+  to scan on the PS5, a link on the web page). A workflow counts the reports
+  into `compat/compat.json`, one vote per GitHub account per game.
+- The engine draws QR codes (`GET /api/lzc/qr`, Project Nayuki's MIT QR
+  library).
+- The LZ4 packer and the PS5 app are licensed GPL-3.0-or-later (`LICENSE`).
+
+## 1.4.3 - 2026-10-14
+
+Release notes: [RELEASE_NOTES_1.4.3.md](RELEASE_NOTES_1.4.3.md).
+
+- Ghost of Yotei starts instead of sitting on a black screen. The PS5 checks
+  some files outside the game (PlayGo's `pgc_*_dummy_file` markers,
+  `playgo.pgm`, the empty language placeholders) where the APR-EMU can't show
+  packed files, and Yotei also needs a few boot files on disk. The packer now
+  keeps all empty files, PlayGo markers and those Yotei files loose. Found by
+  edu-ruiz- on Reddit.
+- `Verify LZ4 Packs` repairs a packed folder: it puts those files back on disk
+  from the packs (for games packed by older versions or other tools), puts
+  back the PackedStdio APR-EMU if another tool swapped it, and fixes file
+  permissions.
+- Games packed from a dump or an `.exfat` image with 0666 files kept those
+  permissions, so `eboot.bin` and the modules weren't executable and the game
+  crashed with SIGBUS / CE-108255-1 (007 First Light). Everything the engine
+  writes is now 0777, and packing fixes the permissions of the whole folder.
+  Found by OmgWhatIsThisss.
+
 ## 1.4.2 - 2026-10-11
 
 Release notes: [RELEASE_NOTES_1.4.2.md](RELEASE_NOTES_1.4.2.md).

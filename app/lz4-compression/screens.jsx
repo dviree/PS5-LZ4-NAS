@@ -2,6 +2,7 @@
 import {memo, useCallback, useState} from 'react';
 import {View, Text, Image, ScrollView, FocusScope, useIsFocused} from '@ps5-react/core';
 import {iconUrl} from './api.js';
+import {REPORT_CHOICES, compatSummary} from './compat.js';
 import donateQr from './assets/donate-qr.png';
 import {
   ACTION_DESC, ACTION_ICON, ACTION_LABEL, GROUPS, badgeText, gameId, gameSize, kindLabel, opSummary,
@@ -168,7 +169,7 @@ function ProgressCard({progress, onCancel}) {
   );
 }
 
-export function GamePage({game, job, covered, hide, depth, onBack, onAction, onCancel, onCancelQueued, version}) {
+export function GamePage({game, job, covered, hide, depth, onBack, onAction, onCancel, onCancelQueued, version, compat, reported}) {
   if (!game) return null;
   const status = statusOf(game);
   const progress = progressFor(game, job);
@@ -186,6 +187,12 @@ export function GamePage({game, job, covered, hide, depth, onBack, onAction, onC
   if (game.amprPresent) specs.push(['APR-EMU', game.amprVersion || 'Present']);
   if (game.lz4Packed) specs.push(['LZ4 packs', String(game.lz4PackCount || 0)]);
   else if (game.lz4Supported) specs.push(['LZ4 profile', profileText(game)]);
+  if (game.lz4Packed || game.lz4Supported) {
+    const community = compatSummary(compat && compat[game.titleId]);
+    specs.push(['Community', community ? community.text : 'No reports yet', community ? community.tone : undefined]);
+  }
+  const mine = REPORT_CHOICES.find(choice => choice.status === reported);
+  const descOf = id => (id === 'report-compat' && mine ? `You said: ${mine.label}` : ACTION_DESC[id]);
   const groups = GROUPS.map(([key, label, ids]) => [key, label, ids.filter(id => actions.includes(id))])
     .filter(([, , ids]) => ids.length);
   return (
@@ -223,7 +230,7 @@ export function GamePage({game, job, covered, hide, depth, onBack, onAction, onC
                     <View key={key} className="gap-3">
                       <SectionLabel>{label}</SectionLabel>
                       {ids.map(id => (
-                        <OptionCard key={id} id={id} title={ACTION_LABEL[id]} desc={ACTION_DESC[id]}
+                        <OptionCard key={id} id={id} title={ACTION_LABEL[id]} desc={descOf(id)}
                           icon={ACTION_ICON[id]} danger={id === 'delete-game-data'} onOpen={onAction} />
                       ))}
                     </View>

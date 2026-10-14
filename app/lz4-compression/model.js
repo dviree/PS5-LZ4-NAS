@@ -23,6 +23,7 @@ export const ACTION_LABEL = {
   'move-to-internal': 'Move to Internal',
   'copy-to-usb': 'Copy to USB',
   'copy-to-internal': 'Copy to Internal',
+  'report-compat': 'Report how it runs',
 };
 
 export const ACTION_DESC = {
@@ -31,7 +32,7 @@ export const ACTION_DESC = {
   'make-image': 'Build a plain .exfat or .ffpfs image from this folder.',
   'validate-only': 'Read every block and report problems without changing anything.',
   'validate-repair': 'Read every block and repair what it can.',
-  'lz4-verify': 'Check every LZ4 pack block and the packed file list.',
+  'lz4-verify': 'Check every LZ4 pack block and put back files the game needs on disk.',
   'read-speed-test': 'Read the game for a minute and measure the speed.',
   'uncompress': 'Turn the compressed image back into an image or a folder.',
   'lz4-unpack': 'Put the normal loose files back from the LZ4 packs.',
@@ -44,6 +45,7 @@ export const ACTION_DESC = {
   'copy-to': 'Copy the game to internal storage or a USB drive.',
   'move-to': 'Move the game to internal storage or a USB drive.',
   'delete-game-data': 'Permanently delete this copy of the game.',
+  'report-compat': 'Tell others if it works after packing.',
 };
 
 export const ACTION_ICON = {
@@ -51,12 +53,13 @@ export const ACTION_ICON = {
   'validate-repair': 'shield', 'lz4-verify': 'shield', 'read-speed-test': 'gauge', 'uncompress': 'expand',
   'lz4-unpack': 'expand', 'extract-image': 'folder', 'set-read-only': 'lock', 'refresh-mount': 'mount',
   'restore-ampr-original': 'undo', 'build-ampr-index': 'list', 'update-ampr': 'download',
-  'copy-to': 'copy', 'move-to': 'move', 'delete-game-data': 'trash',
+  'copy-to': 'copy', 'move-to': 'move', 'delete-game-data': 'trash', 'report-compat': 'check',
 };
 
 export const GROUPS = [
   ['compress', 'Compress', ['compress', 'lz4-pack', 'make-image']],
   ['check', 'Check', ['validate-only', 'validate-repair', 'lz4-verify', 'read-speed-test']],
+  ['community', 'Community', ['report-compat']],
   ['restore', 'Restore', ['uncompress', 'lz4-unpack', 'extract-image', 'set-read-only', 'refresh-mount']],
   ['ampr', 'APR-EMU', ['update-ampr', 'restore-ampr-original', 'build-ampr-index']],
   ['storage', 'Copy and move', ['copy-to', 'move-to']],
@@ -67,6 +70,7 @@ export const GROUPS = [
 export const ACTION_PAGES = {
   'compress': 'compress', 'make-image': 'compress', 'lz4-pack': 'lz4', 'lz4-unpack': 'lz4',
   'uncompress': 'uncompress', 'copy-to': 'move', 'move-to': 'move', 'delete-game-data': 'delete',
+  'report-compat': 'report',
 };
 
 const kindOf = game => String((game && game.sourceKind) || '').toLowerCase();
@@ -120,6 +124,7 @@ export function secondaryActions(game) {
   if (packed) {
     if (primary !== 'lz4-verify') ids.push('lz4-verify');
     ids.push('lz4-unpack');
+    ids.push('report-compat');
   }
   if (kind === 'folder') {
     ids.push('make-image');
@@ -299,6 +304,7 @@ export function opSummary(op) {
     parts.push(`${formatBytes(op.compressionSourceSize)} → ${formatBytes(op.compressedSize)}`);
   }
   if (op.badBlocksFound > 0) parts.push(`${op.badBlocksFound} bad blocks`);
+  if (op.action === 'lz4-verify' && op.repairSummary) parts.push(op.repairSummary);
   return parts.join('  ·  ');
 }
 

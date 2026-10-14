@@ -225,6 +225,28 @@ shutdown_request(const http_request_t *req) {
   return rc;
 }
 
+/* POST /api/control/relaunch?titleId=PPSA99420: reopen the app once it has
+ * closed (the in-app updater calls this right before it exits). */
+static int
+relaunch_request(const http_request_t *req) {
+  char title_id[16];
+  if(!websrv_get_query_arg(req, "titleId", title_id, sizeof(title_id)) ||
+     strlen(title_id) != 9) {
+    return websrv_send_error_json(req->fd, 400, "bad titleId");
+  }
+  for(int i = 0; i < 9; i++) {
+    char c = title_id[i];
+    if(i < 4 ? (c < 'A' || c > 'Z') : (c < '0' || c > '9')) {
+      return websrv_send_error_json(req->fd, 400, "bad titleId");
+    }
+  }
+  if(lzc_relaunch_after_close(title_id) != 0) {
+    return websrv_send_error_json(req->fd, 409, "a relaunch is already waiting");
+  }
+  static const char body[] = "{\"ok\":true,\"relaunch\":true}";
+  return websrv_send(req->fd, 200, "application/json", body, sizeof(body) - 1);
+}
+
 static int
 handoff_shutdown_request(const http_request_t *req) {
   char token[64];
@@ -281,6 +303,9 @@ dispatch_request(const http_request_t *req) {
   if(!strcmp(req->method, "POST")) {
     if(!strcmp(req->path, "/api/control/shutdown")) {
       return shutdown_request(req);
+    }
+    if(!strcmp(req->path, "/api/control/relaunch")) {
+      return relaunch_request(req);
     }
     if(!strcmp(req->path, "/api/lzc/job/cancel") ||
 	       !strcmp(req->path, "/api/lzc/queue/cancel") ||

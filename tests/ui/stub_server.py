@@ -103,7 +103,22 @@ class H(BaseHTTPRequestHandler):
             return self.send_json(profile_status(q.get('titleId')))
         if path in ('/api/lzc/lz4-pack', '/api/lzc/lz4-unpack', '/api/lzc/lz4-verify'):
             return self.send_json({'ok': True, 'id': 'op-%d' % len(STATE['requests'])})
+        if path == '/api/lzc/qr':
+            qr = os.environ.get('LZC_QR_BIN')
+            if qr and os.path.exists(qr):
+                import subprocess
+                png = subprocess.run([qr, q.get('text', ''), q.get('scale', '6')], capture_output=True).stdout
+                if png: return self.send_body(200, 'image/png', png)
+            return self.send_body(200, 'image/png', icon_png('QR', 256))
         if path.startswith('/api/'): return self.send_json({'ok': True})
+        # Test files for the PS5 app's updater and game reports (LZC_FAKE_DIR).
+        if path.startswith('/fake/') and os.environ.get('LZC_FAKE_DIR'):
+            name = os.path.basename(path)
+            try:
+                data = open(os.path.join(os.environ['LZC_FAKE_DIR'], name), 'rb').read()
+            except OSError:
+                return self.send_body(404, 'text/plain', b'nope')
+            return self.send_body(200, 'application/json' if name.endswith('.json') else 'application/octet-stream', data)
         if path == '/__state': return self.send_json(STATE)
         if path == '/__set':
             STATE.update(json.loads(body or b'{}')); return self.send_json({'ok': True})

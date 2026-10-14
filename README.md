@@ -375,6 +375,25 @@ Keep LLVM 18 out of `PATH` (the build finds it on its own); the host tools
 need Apple's clang. Copy `dist/PPSA99420` to `/data/homebrew/PPSA99420` and
 ShadowMount+ adds the tile.
 
+### Updates
+
+A few seconds after it opens, the app checks the latest GitHub release. When
+there's a newer one it offers to update: it downloads the app zip and
+`lz4-compression.elf` (checked against the SHA-256 GitHub lists for each
+file), swaps them into the app's folder and Payload Manager's
+`lz4-compression` folder (the old files are kept until the next update), then
+reopens. `Skip this version` hides that release. The web page shows a small
+`vX is out` link instead.
+
+### Game reports
+
+Each packed game's page shows how it runs for other people (`Community`), and
+`Report how it runs` adds yours: pick an answer and scan the QR code with your
+phone, which opens a prefilled "Game report" issue on GitHub. On the web page
+the `Report how it runs` chip opens the same form. A workflow counts the
+reports into [`compat/compat.json`](compat/compat.json) (one vote per GitHub
+account per game, the newest counts), which the app and the web page read.
+
 ## Deploy
 
 Copy the built ELF to your PS5 payload folder. A typical Payload Manager path is:
@@ -518,6 +537,11 @@ by Nazky, Deckerr97, Pippo, Drakmor and williamtcastro. Packed games are read
 by Drakmor's [ampr_emu](https://github.com/drakmor/ampr_emu). Third-party
 components and their licenses are listed in `THIRD_PARTY_NOTICES.md`; original
 copyright notices are kept in the source files.
+
+The LZ4 packer (`src/ampr_pack*.c`, `src/ampr_pack*.h`, a port of Drakmor's
+GPL-3.0 `ampr_pack.py`) and the PS5 app (`app/lz4-compression`, built on the
+GPL PS5 React) are licensed under the GNU GPL v3 or later, see `LICENSE`.
+Code that comes from PS5 Game Compressor stays under its authors' terms.
 
 ## Disclaimer
 

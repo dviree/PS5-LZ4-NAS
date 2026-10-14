@@ -1,4 +1,7 @@
 /*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) 2026 Husam Osman. Based on drakmor's ampr_pack.py (GPL-3.0).
+ *
  * LZ4 Compression - minimal TOML reader for AMPR pack profiles.
  *
  * Supports the subset that ampr_pack.py and ampr_pack_profile.py emit: tables, dotted table names, arrays of tables, basic and literal
