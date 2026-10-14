@@ -209,3 +209,40 @@ lzc_icon_thumb_path(const char *title_id,
   cleanup_old_title_thumbs(title_id, out_path);
   return 0;
 }
+
+/* ------------------------------------------------------------- QR codes */
+
+#include "../third_party/qrcodegen/qrcodegen.h"
+
+unsigned char *
+lzc_qr_png(const char *text, int scale, int *out_len) {
+  uint8_t qr[qrcodegen_BUFFER_LEN_MAX];
+  uint8_t tmp[qrcodegen_BUFFER_LEN_MAX];
+  if(out_len) *out_len = 0;
+  if(!text || !text[0] || !out_len) return NULL;
+  if(!qrcodegen_encodeText(text, tmp, qr, qrcodegen_Ecc_MEDIUM,
+                           qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX,
+                           qrcodegen_Mask_AUTO, true)) {
+    return NULL;
+  }
+  if(scale < 1) scale = 1;
+  if(scale > 16) scale = 16;
+  int size = qrcodegen_getSize(qr);
+  int border = 4;
+  int dim = (size + 2 * border) * scale;
+  unsigned char *px = malloc((size_t)dim * (size_t)dim);
+  if(!px) return NULL;
+  memset(px, 255, (size_t)dim * (size_t)dim);
+  for(int y = 0; y < size; y++) {
+    for(int x = 0; x < size; x++) {
+      if(!qrcodegen_getModule(qr, x, y)) continue;
+      for(int dy = 0; dy < scale; dy++) {
+        memset(px + (size_t)((y + border) * scale + dy) * (size_t)dim +
+               (size_t)(x + border) * (size_t)scale, 0, (size_t)scale);
+      }
+    }
+  }
+  unsigned char *png = stbi_write_png_to_mem(px, dim, dim, dim, 1, out_len);
+  free(px);
+  return png;
+}

@@ -14406,6 +14406,30 @@ lzc_api_icon_request(const http_request_t *req) {
   return rc;
 }
 
+/* GET /api/lzc/qr?text=...&scale=N: a QR code PNG, so the PS5 app can show
+ * a link (a prefilled game report) for a phone to scan. */
+static int
+lzc_api_qr_request(const http_request_t *req) {
+  char text[1200];
+  char scale_arg[16];
+  int scale = 8;
+  if(!websrv_get_query_arg(req, "text", text, sizeof(text)) || !text[0]) {
+    return websrv_send_error_json(req->fd, 400, "missing text");
+  }
+  if(websrv_get_query_arg(req, "scale", scale_arg, sizeof(scale_arg))) {
+    scale = atoi(scale_arg);
+  }
+  int len = 0;
+  unsigned char *png = lzc_qr_png(text, scale, &len);
+  if(!png || len <= 0) {
+    free(png);
+    return websrv_send_error_json(req->fd, 400, "text too long for a QR code");
+  }
+  int rc = websrv_send(req->fd, 200, "image/png", (const char *)png, (size_t)len);
+  free(png);
+  return rc;
+}
+
 void
 lzc_api_recover_on_startup(void) {
   lzc_image_mount_cleanup_stale();
@@ -14493,6 +14517,9 @@ lzc_api_request(const http_request_t *req, const char *url) {
 	  }
 	  if(!strcmp(req->path, "/api/lzc/lz4-verify")) {
 	    return enqueue_lz4_action(req, LZC_ACTION_LZ4_VERIFY);
+	  }
+	  if(!strcmp(req->path, "/api/lzc/qr")) {
+	    return lzc_api_qr_request(req);
 	  }
 	  if(!strcmp(req->path, "/api/lzc/lz4/profile")) {
 	    return lz4_profile_request(req);

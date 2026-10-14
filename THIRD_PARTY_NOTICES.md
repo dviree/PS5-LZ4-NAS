@@ -53,6 +53,7 @@ attribution term. The built app folder carries the framework's own `notices/`
 | Bundled LZ4 profiles (`astrobot.toml`, `ufc6-PPSA23566.toml`, `insomniac.toml`, `unity.toml`), written and tested by danthespal and posted with [MkPFS.CSharp](https://github.com/danthespal/MkPFS.CSharp) | `profiles/` | GPL-3.0 |
 | ampr_emu 0.4.2.1 PackedStdio runtime (binary, SHA-256 pinned), by Drakmor; source at [drakmor/ampr_emu](https://github.com/drakmor/ampr_emu) | `third_party/ampr_emu/` | GPL-3.0 |
 | miniz (tinfl), by Rich Geldreich | `src/miniz*` | MIT |
+| QR Code generator library 1.8.0, Copyright (c) Project Nayuki | `third_party/qrcodegen/` | MIT |
 | stb_image, stb_image_resize2, stb_image_write, by Sean Barrett | `src/stb_*.h` | Public domain or MIT |
 | `gen-asset-module.py`, Copyright (C) 2024 John Törnblom | repo root | GPL-3.0 |
 | Inter typeface, used to draw the logo and home-screen art (the font itself is not included) | `assets-app/`, `assets/lz4-logo.png`, `tools/art/` | SIL Open Font License 1.1 |

@@ -1,9 +1,12 @@
 // Full-screen action pages, history, about, and the splash / done overlays.
 import {useEffect, useRef, useState} from 'react';
-import {View, Text, Image, ScrollView, FocusScope} from '@ps5-react/core';
-import {api, iconUrl} from './api.js';
+import {View, Text, Image, ScrollView, FocusScope, BackHandler} from '@ps5-react/core';
+import {api, ENGINE, iconUrl, relaunchAfterClose, restartEngine} from './api.js';
+import {autoUpdateForTest, installUpdate, skipVersion} from './update.js';
+import {APP_VERSION} from './version.js';
+import {REPORT_CHOICES, reportUrl} from './compat.js';
 import {ACTION_LABEL, formatBytes, kindLabel, readableError, opSummary, opTime, opTone, resultText, storageLabel} from './model.js';
-import {ActionRow, Choice, Dot, LevelScale, LOGO, PrimaryButton, SectionLabel} from './ui.jsx';
+import {ActionRow, Choice, Dot, LevelScale, LOGO, PrimaryButton, ProgressBar, SectionLabel} from './ui.jsx';
 import donateQr from './assets/donate-qr.png';
 
 export function Page({title, depth, covered, hide, onBack, children}) {
@@ -486,5 +489,145 @@ export function Toast({toast}) {
       <Text className="font-semi text-[14px] text-snow">{toast.title}</Text>
       {toast.text ? <Text className="font-inter text-[12px] text-soft mt-1" numberOfLines={3}>{toast.text}</Text> : null}
     </View>
+  );
+}
+
+// ---------------------------------------------------------------- update
+
+const RESTART_DELAY_MS = 2000;
+
+// Shown once the app finds a newer release: download, swap the app folder and
+// the engine, then reopen.
+export function UpdateOverlay({update, jobBusy, onClose}) {
+  const [progress, setProgress] = useState(null);
+  const progressState = useRef('');
+  const [error, setError] = useState('');
+  const state = progress ? progress.state : '';
+
+  useEffect(() => {
+    if (state !== 'done') return undefined;
+    const id = setTimeout(async () => {
+      // The engine reopens the app; older engines can't, so fall back to
+      // PS5 React's relauncher (needs an ELF loader on 9021).
+      const engineWill = await relaunchAfterClose('PPSA99420');
+      console.log(`lz4: closing to restart (${engineWill ? 'engine' : 'relauncher'} reopens the app)`);
+      if (engineWill) BackHandler.exitApp();
+      else BackHandler.exitApp({relaunch: true});
+    }, RESTART_DELAY_MS);
+    return () => clearTimeout(id);
+  }, [state]);
+
+  const install = async () => {
+    if (jobBusy) {
+      setError('A job is running. Finish or cancel it, then update.');
+      return;
+    }
+    setError('');
+    setProgress({state: 'downloading', written: 0, total: update.app.size});
+    try {
+      console.log(`lz4: updating to v${update.version}`);
+      const engineReplaced = await installUpdate(update, next => {
+        if (next.state !== (progressState.current || '')) console.log(`lz4: update ${next.state}`);
+        progressState.current = next.state;
+        setProgress(next);
+      });
+      console.log(`lz4: update installed, engine ${engineReplaced ? 'replaced' : 'unchanged'}`);
+      if (engineReplaced) {
+        try {
+          const running = await restartEngine();
+          console.log(`lz4: engine restarted: ${running}`);
+        } catch (err) {
+          throw new Error(`App updated, but ${err.message}. Start it from Payload Manager.`);
+        }
+      }
+      setProgress({state: 'done'});
+    } catch (err) {
+      setProgress(null);
+      setError(err && err.message ? err.message : String(err));
+      console.log(`lz4: update failed: ${err && err.message ? err.message : err}`);
+    }
+  };
+  const close = () => {
+    if (!progress) onClose();
+    return true;
+  };
+  useEffect(() => {
+    if (autoUpdateForTest()) install();
+  }, []);
+
+  const percent = state === 'downloading' && progress.total ? Math.round(progress.written / progress.total * 100)
+    : state ? 100 : 0;
+  const label = error ? 'UPDATE FAILED' : state === 'done' ? 'UPDATED' : state ? 'UPDATING' : 'UPDATE AVAILABLE';
+  const status = state === 'downloading' ? `${percent}%  ·  ${formatBytes(progress.written)} / ${formatBytes(progress.total)}`
+    : state === 'installing' ? 'Installing'
+    : state === 'done' ? 'Restarting' : '';
+  return (
+    <FocusScope autoFocus trap onBack={close} onAction={() => true}>
+      <View className="absolute inset-0 bg-ink/90 items-center justify-center">
+        <View className="w-[1040px] flex-row items-center gap-10 p-10 rounded-[28px] bg-panel border border-line animate-in zoom-in-95 fade-in duration-300">
+          <Image source={LOGO} className="w-[150px] h-[150px] rounded-[34px]" />
+          <View className="flex-1 gap-4">
+            <View className="gap-1">
+              <Text className="font-semi text-[13px] text-muted tracking-[2px]">{label}</Text>
+              <Text className="font-heavy text-[40px] text-snow">{`v${update.version}`}</Text>
+              <Text className="font-semi text-[15px] text-soft">{`v${APP_VERSION}  →  v${update.version}`}</Text>
+            </View>
+            {error && !state ? <Text className="font-inter text-[14px] text-bad" numberOfLines={4}>{error}</Text> : null}
+            {state ? (
+              <View className="gap-3">
+                <ProgressBar percent={state === 'installing' ? null : percent} />
+                <Text className="font-inter text-[13px] text-soft">{status}</Text>
+              </View>
+            ) : (
+              <View className="flex-row gap-4">
+                <PrimaryButton label={error ? 'Try again' : 'Update'} onPress={install} autoFocus />
+                <PrimaryButton label="Later" onPress={onClose} />
+                {error ? null : <PrimaryButton label="Skip this version" onPress={() => { skipVersion(update.version); onClose(); }} />}
+              </View>
+            )}
+          </View>
+        </View>
+      </View>
+    </FocusScope>
+  );
+}
+
+// ---------------------------------------------------------------- game reports
+
+// How a game runs after packing, sent as a GitHub "Game report" from a phone.
+export function ReportPage({game, reported, depth, covered, hide, onBack, onReported}) {
+  const [status, setStatus] = useState(reported || '');
+  const [qr, setQr] = useState('');
+  const pick = choice => {
+    setStatus(choice);
+    setQr(`${ENGINE}/api/lzc/qr?scale=6&text=${encodeURIComponent(reportUrl(game, choice))}`);
+  };
+  const done = () => {
+    if (status) onReported(game.titleId, status);
+    onBack();
+  };
+  return (
+    <Page title="How does it run?" depth={depth} covered={covered} hide={hide} onBack={onBack}>
+      <View className="flex-row gap-10 mt-4">
+        <View className="gap-3">
+          {REPORT_CHOICES.map((choice, index) => (
+            <Choice key={choice.status} wide title={choice.label} selected={status === choice.status}
+              autoFocus={status ? status === choice.status : index === 0} onPress={() => pick(choice.status)} />
+          ))}
+        </View>
+        {qr ? (
+          <View className="items-center gap-4 p-6 rounded-[22px] bg-panel border border-line">
+            <View className="p-3 rounded-[16px] bg-snow">
+              <Image source={{uri: qr}} className="w-[300px] h-[300px]" />
+            </View>
+            <Text className="font-semi text-[15px] text-snow">Scan with your phone to send it</Text>
+            <Text className="font-inter text-[13px] text-muted w-[340px] text-center">
+              It opens a prefilled report on GitHub. Reports show up on every game's page in the app.
+            </Text>
+            <PrimaryButton label="Done" onPress={done} />
+          </View>
+        ) : null}
+      </View>
+    </Page>
   );
 }

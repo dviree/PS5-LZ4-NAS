@@ -368,6 +368,25 @@ Keep LLVM 18 out of `PATH` (the build finds it on its own); the host tools
 need Apple's clang. Copy `dist/PPSA99420` to `/data/homebrew/PPSA99420` and
 ShadowMount+ adds the tile.
 
+### Updates
+
+A few seconds after it opens, the app checks the latest GitHub release. When
+there's a newer one it offers to update: it downloads the app zip and
+`lz4-compression.elf` (checked against the SHA-256 GitHub lists for each
+file), swaps them into the app's folder and Payload Manager's
+`lz4-compression` folder (the old files are kept until the next update), then
+reopens. `Skip this version` hides that release. The web page shows a small
+`vX is out` link instead.
+
+### Game reports
+
+Each packed game's page shows how it runs for other people (`Community`), and
+`Report how it runs` adds yours: pick an answer and scan the QR code with your
+phone, which opens a prefilled "Game report" issue on GitHub. On the web page
+the `Report how it runs` chip opens the same form. A workflow counts the
+reports into [`compat/compat.json`](compat/compat.json) (one vote per GitHub
+account per game, the newest counts), which the app and the web page read.
+
 ## Deploy
 
 Copy the built ELF to your PS5 payload folder. A typical Payload Manager path is:
