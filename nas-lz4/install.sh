@@ -145,6 +145,10 @@ services:
     restart: unless-stopped
     init: true
     network_mode: none
+    labels:
+      # The image is built locally; Watchtower can't pull it and must not
+      # restart the container in the middle of a job.
+      com.centurylinklabs.watchtower.enable: "false"
     environment:
       PS5LZ4_HOST_LIBRARY: "$LIBRARY"
       PS5LZ4_HOST_OUTPUT: "$OUTPUT"
@@ -174,6 +178,7 @@ if [ -n "$COMPOSE" ]; then
   (cd "$BASE" && $COMPOSE -p ps5-lz4 up -d)
 else
   docker run -d --name "$CONTAINER" --restart unless-stopped --init --network none \
+    --label com.centurylinklabs.watchtower.enable=false \
     -e PS5LZ4_HOST_LIBRARY="$LIBRARY" -e PS5LZ4_HOST_OUTPUT="$OUTPUT" \
     -e PS5LZ4_LEVEL="$LEVEL" -e PS5LZ4_FREE_MARGIN_GB="$FREE_MARGIN_GB" -e TZ="$TZ_NAME" \
     -v "$LIBRARY:/library:ro" -v "$OUTPUT:/output" -v "$BASE/state:/state" \
