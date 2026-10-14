@@ -1,0 +1,43 @@
+# Builds the NAS container image from nas-build and publishes it to
+# ghcr.io/<owner>/ps5-lz4 (:latest and :sha-<commit>), so Watchtower on the
+# NAS can update it. Runs after every push to nas-build and after each
+# upstream sync; a commit that is already published is not rebuilt.
+name: Build NAS image
+
+on:
+  push:
+    branches: [nas-build]
+  workflow_run:
+    workflows: ["Sync with upstream"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency: build-image
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: nas-build
+
+      - name: Log in to ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and push unless this commit is already published
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ps5-lz4"
+          tag="sha-$(git rev-parse --short=12 HEAD)"
+          if docker manifest inspect "$image:$tag" >/dev/null 2>&1; then
+            echo "$image:$tag is already published"
+            exit 0
+          fi
+          docker build -f nas-lz4/Dockerfile -t "$image:$tag" -t "$image:latest" .
+          docker push "$image:$tag"
+          docker push "$image:latest"

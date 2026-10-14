@@ -46,6 +46,17 @@ gammal `/volume1/games/ps5-lz4/.work/` lämnas orörd; verktyget använder
 Standardvärden går att ändra med miljövariabler, t.ex.
 `NAS_USER=sureahad LIBRARY=/volume1/games/roms/ps5 OUTPUT=/volume1/games/ps5-lz4 bash src/nas-lz4/install.sh`.
 
+## Uppdateringar och Watchtower
+
+GitHub bygger imagen `ghcr.io/dviree/ps5-lz4:latest` efter varje ändring,
+också när forken hämtar nytt från originalprojektet. Installationen hämtar
+den, och Watchtower håller den uppdaterad. Går den inte att hämta byggs
+imagen på NAS:en i stället, och då lämnar Watchtower containern ifred.
+
+- Med `WATCHTOWER_LIFECYCLE_HOOKS=true` på Watchtower-containern väntar
+  Watchtower med uppdateringen tills inget spel packas.
+- Startar containern om fortsätter en ofärdig kö efter senast klara steg.
+
 ## Kommandon
 
 Kör från `/volume2/docker/ps5-lz4/` med `sudo` (Docker kräver root). Jobben
