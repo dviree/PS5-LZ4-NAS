@@ -14,7 +14,8 @@ LIBRARY="${LIBRARY:-/volume1/games/roms/ps5}"
 OUTPUT="${OUTPUT:-/volume1/games/ps5-lz4}"
 BASE="${BASE:-/volume2/docker/ps5-lz4}"
 NAS_USER="${NAS_USER:-nasuser}"
-IMAGE="${IMAGE:-ps5-lz4:local}"
+IMAGE="${IMAGE:-ghcr.io/dviree/ps5-lz4:latest}"   # Watchtower keeps it updated
+LOCAL_IMAGE="ps5-lz4:local"                       # fallback: built on the NAS
 CONTAINER="${CONTAINER:-ps5-lz4}"
 LEVEL="${LEVEL:-9}"
 FREE_MARGIN_GB="${FREE_MARGIN_GB:-20}"
@@ -146,10 +147,14 @@ services:
     init: true
     network_mode: none
     labels:
-      # The image is built locally; Watchtower can't pull it and must not
-      # restart the container in the middle of a job.
+      # Watchtower updates the published image (false for a local build).
       com.centurylinklabs.watchtower.enable: "false"
+      # With lifecycle hooks on, Watchtower waits while a game is packed.
+      com.centurylinklabs.watchtower.lifecycle.pre-update: "/usr/local/bin/ps5lz4-busy"
+      com.centurylinklabs.watchtower.lifecycle.pre-update-timeout: "1"
     environment:
+      PUID: "$PUID"
+      PGID: "$PGID"
       PS5LZ4_HOST_LIBRARY: "$LIBRARY"
       PS5LZ4_HOST_OUTPUT: "$OUTPUT"
       PS5LZ4_LEVEL: "$LEVEL"
@@ -165,12 +170,22 @@ EOF
 
 install -m 755 "$REPO/nas-lz4/lz4-ps5.sh" "$BASE/lz4-ps5.sh"
 
-say "Building $IMAGE (log: $BASE/logs/build.log)"
-if ! docker build -t "$IMAGE" -f "$REPO/nas-lz4/Dockerfile" "$REPO" > "$BASE/logs/build.log" 2>&1; then
-  tail -20 "$BASE/logs/build.log"
-  die "docker build failed; see $BASE/logs/build.log"
+WATCHTOWER=false
+if [ "$IMAGE" != "$LOCAL_IMAGE" ] && say "Pulling $IMAGE" && docker pull -q "$IMAGE" > "$BASE/logs/build.log" 2>&1; then
+  ok "image pulled; Watchtower will keep it updated"
+  WATCHTOWER=true
+else
+  [ "$IMAGE" != "$LOCAL_IMAGE" ] && warn "could not pull $IMAGE ($(tail -1 "$BASE/logs/build.log")); building it here instead"
+  IMAGE="$LOCAL_IMAGE"
+  say "Building $IMAGE (log: $BASE/logs/build.log)"
+  if ! docker build -t "$IMAGE" -f "$REPO/nas-lz4/Dockerfile" "$REPO" > "$BASE/logs/build.log" 2>&1; then
+    tail -20 "$BASE/logs/build.log"
+    die "docker build failed; see $BASE/logs/build.log"
+  fi
+  ok "image built (Watchtower leaves it alone)"
 fi
-ok "image built"
+sed -i "s|^IMAGE=.*|IMAGE=$IMAGE|" "$BASE/.env"
+sed -i "s|^    image: .*|    image: $IMAGE|; s|watchtower.enable: \".*\"|watchtower.enable: \"$WATCHTOWER\"|" "$BASE/docker-compose.yml"
 
 say "Starting container $CONTAINER"
 if [ -n "$existing" ]; then docker rm -f "$CONTAINER" >/dev/null; fi
@@ -178,7 +193,9 @@ if [ -n "$COMPOSE" ]; then
   (cd "$BASE" && $COMPOSE -p ps5-lz4 up -d)
 else
   docker run -d --name "$CONTAINER" --restart unless-stopped --init --network none \
-    --label com.centurylinklabs.watchtower.enable=false \
+    --label com.centurylinklabs.watchtower.enable="$WATCHTOWER" \
+    --label com.centurylinklabs.watchtower.lifecycle.pre-update=/usr/local/bin/ps5lz4-busy \
+    -e PUID="$PUID" -e PGID="$PGID" \
     -e PS5LZ4_HOST_LIBRARY="$LIBRARY" -e PS5LZ4_HOST_OUTPUT="$OUTPUT" \
     -e PS5LZ4_LEVEL="$LEVEL" -e PS5LZ4_FREE_MARGIN_GB="$FREE_MARGIN_GB" -e TZ="$TZ_NAME" \
     -v "$LIBRARY:/library:ro" -v "$OUTPUT:/output" -v "$BASE/state:/state" \
