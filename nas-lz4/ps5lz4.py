@@ -445,19 +445,25 @@ def scan_library() -> list[Entry]:
         for p in children:
             if p.name.startswith("."):
                 continue
-            if p.is_dir():
-                if (p / "eboot.bin").is_file():
-                    e = Entry(p, "folder")
-                    pj = p / "sce_sys" / "param.json"
-                    if pj.is_file():
-                        tid, name = parse_param_json(pj.read_bytes())
-                        e.title_id = tid.upper() or e.title_id
-                        e.name = name
-                    entries.append(e)
-                elif depth < 3:
-                    walk(p, depth + 1)
-            elif p.is_file() and p.suffix.lower() in IMAGE_EXTS:
-                entries.append(Entry(p, IMAGE_EXTS[p.suffix.lower()]))
+            try:
+                if p.is_dir():
+                    if (p / "eboot.bin").is_file():
+                        e = Entry(p, "folder")
+                        pj = p / "sce_sys" / "param.json"
+                        if pj.is_file():
+                            tid, name = parse_param_json(pj.read_bytes())
+                            e.title_id = tid.upper() or e.title_id
+                            e.name = name
+                        entries.append(e)
+                    elif depth < 3:
+                        walk(p, depth + 1)
+                elif p.is_file() and p.suffix.lower() in IMAGE_EXTS:
+                    entries.append(Entry(p, IMAGE_EXTS[p.suffix.lower()]))
+            except PermissionError:
+                # One unreadable game must not stop the rest of the library.
+                print(f"cannot read {p} as uid {os.getuid()}: fix with "
+                      f"chown -R <NAS user> \"{HOST_LIBRARY}/{p.relative_to(LIBRARY)}\"",
+                      file=sys.stderr)
 
     walk(LIBRARY, 0)
     # An already-extracted folder wins over an image of the same game.
