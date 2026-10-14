@@ -230,14 +230,15 @@ def file_chunks(path: Path, size: int = 4 << 20):
 
 
 def find_game_root(top: Path) -> Path | None:
-    """The folder holding eboot.bin: top itself or up to two levels down."""
-    if (top / "eboot.bin").is_file():
-        return top
-    for depth in (1, 2):
-        for p in sorted(top.glob("/".join(["*"] * depth))):
-            if p.is_dir() and (p / "eboot.bin").is_file():
-                return p
-    return None
+    """The shallowest folder holding eboot.bin (any letter case, any depth),
+    the same rule exfat_inspect uses on the image directory."""
+    hits = []
+    for dirpath, _dirs, names in os.walk(top):
+        if any(n.lower() == "eboot.bin" for n in names):
+            hits.append(Path(dirpath))
+    if not hits:
+        return None
+    return min(hits, key=lambda d: (len(d.relative_to(top).parts), str(d)))
 
 
 PROGRAM_MAGICS = (b"\x7fELF", b"\x4f\x15\x3d\x1d", b"\x54\x14\xf5\xee")
