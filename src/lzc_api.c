@@ -4916,10 +4916,39 @@ remove_tree_lzc(const char *path) {
   return rc;
 }
 
+/* Game folders need rwx for everyone: a dump or an .exfat copy with 0666
+ * files has a non-executable eboot.bin and modules, and the game crashes
+ * (SIGBUS). Counts what it had to change. */
+static int
+fix_tree_modes_lzc(const char *path, uint32_t *fixed) {
+  struct stat st;
+  if(lstat(path, &st) != 0) return errno == ENOENT ? 0 : -1;
+  if(!S_ISDIR(st.st_mode) && !S_ISREG(st.st_mode)) return 0;
+  if((st.st_mode & 0777) != 0777) {
+    if(chmod(path, 0777) != 0) return -1;
+    if(fixed) (*fixed)++;
+  }
+  if(!S_ISDIR(st.st_mode)) return 0;
+  DIR *d = opendir(path);
+  if(!d) return -1;
+  struct dirent *ent;
+  int rc = 0;
+  while(rc == 0 && (ent = readdir(d))) {
+    if(!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, "..")) continue;
+    char child[1024];
+    join_path(child, sizeof(child), path, ent->d_name);
+    rc = fix_tree_modes_lzc(child, fixed);
+  }
+  closedir(d);
+  return rc;
+}
+
 static int
 preserve_mode_time(const char *path, const struct stat *st) {
   if(!path || !st) return -1;
-  chmod(path, st->st_mode & 0777);
+  /* Game files need rwx for everyone; an .exfat image mounts them as 0666
+   * and a non-executable eboot.bin crashes the game. */
+  chmod(path, 0777);
   struct timeval times[2];
   times[0].tv_sec = st->st_atime;
   times[0].tv_usec = 0;
@@ -5078,7 +5107,7 @@ copy_regular_file_lzc(const char *src, const char *dst,
     goto done;
   }
   if(lzc_cancel_requested(err, err_size)) goto done;
-  out = open(dst, O_WRONLY | O_CREAT | O_EXCL, st->st_mode & 0777);
+  out = open(dst, O_WRONLY | O_CREAT | O_EXCL, 0777);
   if(out < 0) {
     snprintf(err, err_size, "create target: %s", strerror(errno));
     goto done;
@@ -5141,7 +5170,7 @@ copy_tree_lzc(const char *src, const char *dst, uint64_t *copied,
 
   if(S_ISDIR(st.st_mode)) {
     if(lzc_cancel_requested(err, err_size)) return -1;
-    if(mkdir(dst, st.st_mode & 0777) != 0) {
+    if(mkdir(dst, 0777) != 0) {
       snprintf(err, err_size, "create target folder: %s", strerror(errno));
       return -1;
     }
@@ -11076,6 +11105,7 @@ lzc_lz4_prepare_copy_target(lzc_operation_t *op, const lzc_game_t *game,
              strerror(errno));
     return -1;
   }
+  (void)chmod(temp, 0777);
   job_set_target(target);
   return 0;
 }
@@ -11191,6 +11221,12 @@ run_lz4_pack_op(lzc_operation_t *op) {
       lzc_log("lz4-pack failed title=%s err=%s", op->title_id, op->error);
       return -1;
     }
+    {
+      uint32_t fixed = 0;
+      if(fix_tree_modes_lzc(game.source_path, &fixed) == 0 && fixed) {
+        lzc_log("lz4-pack fixed modes title=%s count=%u", op->title_id, fixed);
+      }
+    }
     uint64_t after = source_size_bytes_exact(game.source_path, LZC_SOURCE_FOLDER);
     lzc_size_cache_store(game.source_path, after);
     lzc_lz4_store_sizes(op, game.source_size, after);
@@ -11216,6 +11252,12 @@ run_lz4_pack_op(lzc_operation_t *op) {
                strerror(errno));
       remove_tree_lzc(temp);
       return -1;
+    }
+    {
+      uint32_t fixed = 0;
+      if(fix_tree_modes_lzc(target, &fixed) == 0 && fixed) {
+        lzc_log("lz4-pack fixed modes title=%s count=%u", op->title_id, fixed);
+      }
     }
     uint64_t after = source_size_bytes_exact(target, LZC_SOURCE_FOLDER);
     lzc_size_cache_store(target, after);
@@ -11356,6 +11398,8 @@ run_lz4_verify_op(lzc_operation_t *op) {
   ampr_pack_stats_t st;
   ampr_pack_callbacks_t cb;
   lzc_lz4_job_t job = { op };
+  int runtime_fixed = 0;
+  uint32_t disk_missing = 0, disk_restored = 0, modes_fixed = 0;
 
   memset(&st, 0, sizeof(st));
   cb = lzc_lz4_callbacks(&job);
@@ -11374,6 +11418,86 @@ run_lz4_verify_op(lzc_operation_t *op) {
   }
   lzc_lz4_store_stats(op, &st);
   lzc_lz4_store_sizes(op, st.logical_bytes + st.loose_bytes, game.source_size);
+  {
+    /* Good packs are useless without the runtime that reads them. Folders
+     * get it put back (an atomic rename, so a running game keeps its copy
+     * until the next launch); images are mounted read-only here. */
+    char old_sha[65] = {0};
+    int repair = game.source_kind == LZC_SOURCE_FOLDER;
+    int rc;
+    lzc_checkpoint("lz4-verify runtime");
+    rc = ampr_pack_check_runtime(root, repair, old_sha, err, sizeof(err));
+    if(rc < 0) {
+      snprintf(op->error, sizeof(op->error), "%s", err);
+      lzc_log("lz4-verify failed title=%s err=%s", op->title_id, op->error);
+      return -1;
+    }
+    if(rc > 0 && !repair) {
+      snprintf(op->error, sizeof(op->error), "%s",
+               "the packs are fine, but fakelib/libSceAmpr.sprx isn't the "
+               "PackedStdio APR-EMU that reads them, so the game will start "
+               "to a black screen");
+      lzc_log("lz4-verify runtime mismatch title=%s old=%s", op->title_id,
+             old_sha[0] ? old_sha : "(missing)");
+      return -1;
+    }
+    if(rc > 0) {
+      lzc_log("lz4-verify restored runtime title=%s old=%s new=%s",
+             op->title_id, old_sha[0] ? old_sha : "(missing)",
+             ampr_pack_runtime_sha256());
+    }
+    runtime_fixed = rc > 0;
+  }
+  {
+    /* Files the PS5 has to find on disk (PlayGo markers, empty language
+     * placeholders, Ghost of Yotei's boot files) but that older packs hold
+     * only inside the packs. */
+    int repair = game.source_kind == LZC_SOURCE_FOLDER;
+    lzc_checkpoint("lz4-verify disk files");
+    if(ampr_pack_restore_disk_files(root, repair, &disk_missing, &disk_restored,
+                                    err, sizeof(err)) != 0) {
+      snprintf(op->error, sizeof(op->error), "%s", err);
+      lzc_log("lz4-verify failed title=%s err=%s", op->title_id, op->error);
+      return -1;
+    }
+    if(disk_missing && !repair) {
+      snprintf(op->error, sizeof(op->error),
+               "the packs are fine, but %u file%s the PS5 needs on disk %s only "
+               "inside them, so the game can start to a black screen. Repack it "
+               "with this version to fix that",
+               disk_missing, disk_missing == 1 ? "" : "s",
+               disk_missing == 1 ? "is" : "are");
+      lzc_log("lz4-verify disk files missing title=%s count=%u", op->title_id,
+             disk_missing);
+      return -1;
+    }
+    if(disk_restored) {
+      lzc_log("lz4-verify restored disk files title=%s count=%u", op->title_id,
+             disk_restored);
+    }
+    if(repair && fix_tree_modes_lzc(game.source_path, &modes_fixed) == 0 &&
+       modes_fixed) {
+      lzc_log("lz4-verify fixed modes title=%s count=%u", op->title_id,
+             modes_fixed);
+    }
+  }
+  if(runtime_fixed || disk_restored || modes_fixed) {
+    char files[96] = "", modes[96] = "";
+    if(disk_restored) {
+      snprintf(files, sizeof(files), "%u file%s put back on disk", disk_restored,
+               disk_restored == 1 ? "" : "s");
+    }
+    if(modes_fixed) {
+      snprintf(modes, sizeof(modes), "permissions fixed on %u item%s", modes_fixed,
+               modes_fixed == 1 ? "" : "s");
+    }
+    snprintf(op->repair_summary, sizeof(op->repair_summary), "%s%s%s%s%s",
+             runtime_fixed ? "PackedStdio APR-EMU restored" : "",
+             runtime_fixed && (disk_restored || modes_fixed) ? ", " : "", files,
+             disk_restored && modes_fixed ? ", " : "", modes);
+    snprintf(op->result, sizeof(op->result), "%s", "repaired");
+    return 0;
+  }
   snprintf(op->result, sizeof(op->result), "%s", "success");
   lzc_log("lz4-verify complete title=%s files=%llu bytes=%llu packs=%u",
          op->title_id, (unsigned long long)st.files_packed,

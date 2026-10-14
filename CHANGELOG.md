@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.4.3 - 2026-10-14
+
+Release notes: [RELEASE_NOTES_1.4.3.md](RELEASE_NOTES_1.4.3.md).
+
+- Ghost of Yotei starts instead of sitting on a black screen. The PS5 checks
+  some files outside the game (PlayGo's `pgc_*_dummy_file` markers,
+  `playgo.pgm`, the empty language placeholders) where the APR-EMU can't show
+  packed files, and Yotei also needs a few boot files on disk. The packer now
+  keeps all empty files, PlayGo markers and those Yotei files loose. Found by
+  edu-ruiz- on Reddit.
+- `Verify LZ4 Packs` repairs a packed folder: it puts those files back on disk
+  from the packs (for games packed by older versions or other tools), puts
+  back the PackedStdio APR-EMU if another tool swapped it, and fixes file
+  permissions.
+- Games packed from a dump or an `.exfat` image with 0666 files kept those
+  permissions, so `eboot.bin` and the modules weren't executable and the game
+  crashed with SIGBUS / CE-108255-1 (007 First Light). Everything the engine
+  writes is now 0777, and packing fixes the permissions of the whole folder.
+  Found by OmgWhatIsThisss.
+
 ## 1.4.2 - 2026-10-11
 
 Release notes: [RELEASE_NOTES_1.4.2.md](RELEASE_NOTES_1.4.2.md).

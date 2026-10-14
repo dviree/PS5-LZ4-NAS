@@ -7633,6 +7633,9 @@
       if (action === 'update-ampr' && result === 'updated') {
         return t('result.amprUpdated');
       }
+      if (action === 'lz4-verify' && result === 'repaired') {
+        return op.repairSummary || operationStatusLabel(result);
+      }
       if (opLooksLikeMountFailure(op)) return t('result.verifiedNotMounted');
       const repairText = repairedBlocksText(op, job);
       const localizedResult = operationStatusLabel(result);

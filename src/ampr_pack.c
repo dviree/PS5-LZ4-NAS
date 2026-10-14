@@ -192,13 +192,15 @@ mkdirs_p(const char *path, mode_t mode) {
   for(char *p = tmp + 1; *p; p++) {
     if(*p != '/') continue;
     *p = 0;
-    if(stat(tmp, &st) != 0 && mkdir(tmp, mode) != 0 && errno != EEXIST) {
-      return -1;
+    if(stat(tmp, &st) != 0) {
+      if(mkdir(tmp, mode) != 0 && errno != EEXIST) return -1;
+      (void)chmod(tmp, mode);
     }
     *p = '/';
   }
   if(stat(tmp, &st) == 0) return S_ISDIR(st.st_mode) ? 0 : (errno = ENOTDIR, -1);
   if(mkdir(tmp, mode) != 0 && errno != EEXIST) return -1;
+  (void)chmod(tmp, mode);
   return 0;
 }
 
@@ -322,6 +324,7 @@ write_file_atomic(const char *path, const void *data, size_t size,
   snprintf(tmp, sizeof(tmp), "%s.lzc-lz4.tmp", path);
   int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, mode);
   if(fd < 0) return -1;
+  (void)fchmod(fd, mode);
   if(write_all(fd, data, size) != 0 || fsync(fd) != 0) {
     int e = errno;
     close(fd);
@@ -1394,6 +1397,34 @@ assign_lanes(ap_ctx_t *c) {
   return 0;
 }
 
+/* Files the PS5 looks at outside the game process, where the APR-EMU can't
+ * show packed files, so they must stay on disk: empty files (PlayGo language
+ * placeholders), PlayGo's chunk markers, and the Sucker Punch boot files
+ * Ghost of Yotei needs to get past a black screen (found by a Reddit user,
+ * confirmed on PPSA26344 02.002.000). */
+static const char *const k_keep_on_disk[] = {
+  "cache_ps5/pgc_*_dummy_file",
+  "cache_ps5/playgo.pgm",
+  "cache_ps5/load_menu_catalog.log",
+  "cache_ps5/all_shaders.texmeshman",
+  "cache_ps5/game.sprig.packman",
+  "cache_ps5/game.sprig.texmeshman",
+  "cache_ps5/pulse.sprig.texmeshman",
+  "sounds/scream/_generated/buss_config.bus",
+  "sounds/scream/_generated/distance_model.dml",
+  "sounds/scream/_generated/group_mix.gmx",
+};
+
+int
+ampr_pack_keep_on_disk(const char *rel, uint64_t size) {
+  if(size == 0) return 1;
+  while(rel && *rel == '/') rel++;
+  for(size_t i = 0; rel && i < sizeof(k_keep_on_disk) / sizeof(k_keep_on_disk[0]); i++) {
+    if(ap_fnmatch(k_keep_on_disk[i], rel)) return 1;
+  }
+  return 0;
+}
+
 static int
 plan_files(ap_ctx_t *c) {
   char glob[256];
@@ -1417,7 +1448,10 @@ plan_files(ap_ctx_t *c) {
       it->rule = sel;
     }
     it->action = it->rule->action;
-    if(ap_glob_matches(it->rel, &c->cfg.force_loose)) it->action = AP_ACTION_LOOSE;
+    if(ap_glob_matches(it->rel, &c->cfg.force_loose) ||
+       ampr_pack_keep_on_disk(it->rel, it->size)) {
+      it->action = AP_ACTION_LOOSE;
+    }
     if(!strcmp(it->rel, c->cfg.index_name) || !strcmp(it->rel, idx_crc) ||
        !strcmp(it->rel, idx_rt) || ap_glob_matches(it->rel, &pack_glob)) {
       it->action = AP_ACTION_LOOSE;
@@ -1465,6 +1499,7 @@ plan_files(ap_ctx_t *c) {
   if(c->cfg.required_packed.count) {
     for(size_t i = 0; i < c->item_count; i++) {
       if(c->items[i].action == AP_ACTION_LOOSE &&
+         !ampr_pack_keep_on_disk(c->items[i].rel, c->items[i].size) &&
          ap_glob_matches(c->items[i].rel, &c->cfg.required_packed)) {
         ctx_err(c, "required_packed matched a file that would remain loose: %s",
                 c->items[i].rel);
@@ -1567,7 +1602,8 @@ new_volume(ap_ctx_t *c, int group, uint32_t lane, uint32_t flags) {
     ctx_err(c, "could not prepare pack volume");
     return NULL;
   }
-  w->fd = open(w->temp_path, O_RDWR | O_CREAT | O_TRUNC, 0666);
+  w->fd = open(w->temp_path, O_RDWR | O_CREAT | O_TRUNC, 0777);
+  if(w->fd >= 0) (void)fchmod(w->fd, 0777);
   if(w->fd < 0) {
     ctx_err(c, "create %s: %s", w->name, strerror(errno));
     free(w->buf);
@@ -2212,7 +2248,8 @@ write_manifest_files(ap_ctx_t *c) {
   put_le32(h + 116, crc32_buf(0, h, sizeof(h)));
 
   snprintf(tmp, sizeof(tmp), "%s.lzc-lz4.tmp", c->index_path);
-  fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0777);
+  if(fd >= 0) (void)fchmod(fd, 0777);
   if(fd < 0) {
     ctx_err(c, "create %s: %s", c->cfg.index_name, strerror(errno));
     goto done;
@@ -2249,7 +2286,8 @@ write_manifest_files(ap_ctx_t *c) {
   put_le64(ch + 32, c->chunk_total);
   put_le32(ch + 40, pcs.crc);
   put_le32(ch + 44, crc32_buf(0, ch, sizeof(ch)));
-  fd = open(crc_tmp, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  fd = open(crc_tmp, O_WRONLY | O_CREAT | O_TRUNC, 0777);
+  if(fd >= 0) (void)fchmod(fd, 0777);
   if(fd < 0) goto werr;
   fd_sink_t fs2 = { fd, 0 };
   if(write_all(fd, ch, sizeof(ch)) != 0) goto werr;
@@ -2277,7 +2315,8 @@ write_manifest_files(ap_ctx_t *c) {
     put_le32(rt + 52, c->cfg.rt_latency_reserve_workers);
     put_le32(rt + 56, crc32_buf(0, rt, sizeof(rt)));
     snprintf(rt_tmp, sizeof(rt_tmp), "%s.lzc-lz4.tmp", c->runtime_path);
-    fd = open(rt_tmp, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    fd = open(rt_tmp, O_WRONLY | O_CREAT | O_TRUNC, 0777);
+    if(fd >= 0) (void)fchmod(fd, 0777);
     if(fd < 0 || write_all(fd, rt, sizeof(rt)) != 0 || fsync(fd) != 0) goto werr;
     close(fd);
     fd = -1;
@@ -2918,12 +2957,16 @@ copy_file(const char *src, const char *dst, const struct stat *sst,
     ap_err(err, err_size, "open %s: %s", src, strerror(errno));
     return -1;
   }
-  int out = open(dst, O_WRONLY | O_CREAT | O_EXCL, (sst->st_mode & 0777) | 0600);
+  /* Always 0777: a copy from an .exfat image comes in as 0666, and a
+   * non-executable eboot.bin or module crashes the game (SIGBUS). */
+  (void)sst;
+  int out = open(dst, O_WRONLY | O_CREAT | O_EXCL, 0777);
   if(out < 0) {
     ap_err(err, err_size, "create %s: %s", dst, strerror(errno));
     close(in);
     return -1;
   }
+  (void)fchmod(out, 0777);
   uint32_t crc = 0;
   uint64_t n_total = 0;
   for(;;) {
@@ -3125,7 +3168,7 @@ rollback_in_place(ap_ctx_t *c) {
   unlink_published(c);
   if(c->index_written && join2(path, sizeof(path), c->src, "ampr_emu.index") == 0) {
     if(c->had_index) {
-      (void)write_file_atomic(path, c->backup_index, c->backup_index_size, 0666);
+      (void)write_file_atomic(path, c->backup_index, c->backup_index_size, 0777);
     } else {
       unlink(path);
     }
@@ -3259,6 +3302,75 @@ install_runtime(ap_ctx_t *c) {
   return 0;
 }
 
+/* Case-insensitive entry lookup in dir; 0 and the real name in out if found. */
+static int
+find_entry_ci(const char *dir, const char *name, char *out, size_t out_size) {
+  DIR *d = opendir(dir);
+  struct dirent *ent;
+  int rc = -1;
+  if(!d) return -1;
+  while((ent = readdir(d)) != NULL) {
+    if(strcasecmp(ent->d_name, name)) continue;
+    snprintf(out, out_size, "%s", ent->d_name);
+    rc = 0;
+    if(!strcmp(ent->d_name, name)) break;
+  }
+  closedir(d);
+  return rc;
+}
+
+int
+ampr_pack_check_runtime(const char *root, int repair, char old_sha[65],
+                        char *err, size_t err_size) {
+  size_t want_size = 0;
+  const unsigned char *want = ampr_pack_runtime_data(&want_size);
+  char dir_name[256] = "fakelib";
+  char file_name[256] = "libSceAmpr.sprx";
+  char dir[1024];
+  char path[1280];
+  unsigned char *have = NULL;
+  size_t have_size = 0;
+  int found = 0;
+
+  if(old_sha) old_sha[0] = 0;
+  if(err && err_size) err[0] = 0;
+  if(!want || !want_size) return 0;
+  (void)find_entry_ci(root, "fakelib", dir_name, sizeof(dir_name));
+  snprintf(dir, sizeof(dir), "%s/%s", root, dir_name);
+  if(find_entry_ci(dir, "libSceAmpr.sprx", file_name, sizeof(file_name)) == 0) {
+    found = 1;
+  }
+  snprintf(path, sizeof(path), "%s/%s", dir, file_name);
+  if(found) {
+    if(read_file_alloc(path, &have, &have_size, 64 * MIB) != 0) {
+      snprintf(err, err_size, "read %s/%s: %s", dir_name, file_name,
+               strerror(errno));
+      return -1;
+    }
+    if(have_size == want_size && !memcmp(have, want, want_size)) {
+      free(have);
+      return 0;
+    }
+    if(old_sha) {
+      ap_sha256_t s;
+      unsigned char d[32];
+      sha256_init(&s);
+      sha256_update(&s, have, have_size);
+      sha256_final(&s, d);
+      for(int i = 0; i < 32; i++) snprintf(old_sha + i * 2, 3, "%02x", d[i]);
+    }
+    free(have);
+  }
+  if(!repair) return 1;
+  if(mkdirs_parent(path) != 0 ||
+     write_file_atomic(path, want, want_size, 0777) != 0) {
+    snprintf(err, err_size, "install LZ4 runtime: %s", strerror(errno));
+    return -1;
+  }
+  (void)chmod(path, 0777);
+  return 1;
+}
+
 static int
 write_index(ap_ctx_t *c) {
   char path[1024];
@@ -3277,7 +3389,7 @@ write_index(ap_ctx_t *c) {
       c->had_index = 1;
     }
   }
-  if(write_file_atomic(path, c->idx, c->idx_size, 0666) != 0) {
+  if(write_file_atomic(path, c->idx, c->idx_size, 0777) != 0) {
     ctx_err(c, "write ampr_emu.index: %s", strerror(errno));
     return -1;
   }
@@ -3639,11 +3751,12 @@ ampr_pack_unpack(const char *packed_root, const char *output_root,
       goto done;
     }
     snprintf(tmp, sizeof(tmp), "%s.lzc-lz4.tmp", dst);
-    int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0777);
     if(fd < 0) {
       ap_err(err, err_size, "create %s: %s", rel, strerror(errno));
       goto done;
     }
+    (void)fchmod(fd, 0777);
     /* Decode into a large buffer: small writes are slow on the PS5's /data. */
     size_t buffered = 0;
     for(uint32_t k = 0; k < count; k++) {
@@ -3717,6 +3830,99 @@ done:
   manifest_free(&m);
   windows_free(&win);
   free(raw);
+  free(buf);
+  return rc;
+}
+
+/* Packs made before the keep-on-disk rule (or by other tools) can hold files
+ * the PS5 needs to find on disk. Writes them next to the packs; the manifest
+ * is left alone, so the game still reads its packed copy. */
+int
+ampr_pack_restore_disk_files(const char *root, int repair, uint32_t *missing,
+                             uint32_t *restored, char *err, size_t err_size) {
+  ap_manifest_t m;
+  ap_windows_t win = { 0 };
+  unsigned char *buf = NULL;
+  int rc = -1;
+  memset(&m, 0, sizeof(m));
+  if(missing) *missing = 0;
+  if(restored) *restored = 0;
+  if(manifest_load(&m, root, 0, err, err_size) != 0) goto done;
+  if(windows_init(&win, m.pack_count) != 0) {
+    ap_err(err, err_size, "out of memory");
+    goto done;
+  }
+  for(uint64_t f = 0; f < m.file_count; f++) {
+    if(file_record_check(&m, f, err, err_size) != 0) goto done;
+    const unsigned char *fr = m.files + f * FILE_RECORD_SIZE;
+    uint64_t size = get_le64(fr + 8);
+    uint32_t flags = get_le32(fr + 40);
+    const char *rel = manifest_string(&m, get_le32(fr + 32), get_le32(fr + 36)) + 6;
+    char dst[1024], tmp[1100];
+    struct stat st;
+    if(!(flags & FILE_FLAG_PACKED) || !ampr_pack_keep_on_disk(rel, size)) continue;
+    if(join2(dst, sizeof(dst), root, rel) != 0) {
+      ap_err(err, err_size, "path too long: %s", rel);
+      goto done;
+    }
+    if(lstat(dst, &st) == 0 && S_ISREG(st.st_mode) && (uint64_t)st.st_size == size) {
+      continue;
+    }
+    if(missing) (*missing)++;
+    if(!repair) continue;
+    uint32_t first = get_le32(fr + 24);
+    uint32_t count = get_le32(fr + 28);
+    uint32_t shift = fr[44];
+    if(!buf && !(buf = malloc(AP_IO_BUFFER))) {
+      ap_err(err, err_size, "out of memory");
+      goto done;
+    }
+    if(mkdirs_parent(dst) != 0) {
+      ap_err(err, err_size, "create folder for %s: %s", rel, strerror(errno));
+      goto done;
+    }
+    snprintf(tmp, sizeof(tmp), "%s.lzc-lz4.tmp", dst);
+    int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC, 0777);
+    if(fd < 0) {
+      ap_err(err, err_size, "create %s: %s", rel, strerror(errno));
+      goto done;
+    }
+    (void)fchmod(fd, 0777);
+    size_t buffered = 0;
+    int bad = 0;
+    for(uint32_t k = 0; k < count && !bad; k++) {
+      uint32_t rs = chunk_raw_size(size, shift, k);
+      if(buffered + rs > AP_IO_BUFFER) {
+        bad = write_all(fd, buf, buffered) != 0;
+        buffered = 0;
+      }
+      if(!bad && read_chunk(&m, &win, (uint64_t)first + k, rs, buf + buffered,
+                            err, err_size) != 0) {
+        close(fd);
+        unlink(tmp);
+        ap_err(err, err_size, "restore %s", rel);
+        goto done;
+      }
+      buffered += rs;
+    }
+    if(!bad) bad = (buffered && write_all(fd, buf, buffered) != 0) || fsync(fd) != 0;
+    if(close(fd) != 0) bad = 1;
+    if(bad || rename(tmp, dst) != 0) {
+      ap_err(err, err_size, "restore %s: %s", rel, strerror(errno));
+      unlink(tmp);
+      goto done;
+    }
+    (void)chmod(dst, 0777);
+    struct timeval tv[2];
+    tv[0].tv_sec = tv[1].tv_sec = (time_t)get_le64(fr + 16);
+    tv[0].tv_usec = tv[1].tv_usec = 0;
+    (void)utimes(dst, tv);
+    if(restored) (*restored)++;
+  }
+  rc = 0;
+done:
+  manifest_free(&m);
+  windows_free(&win);
   free(buf);
   return rc;
 }
