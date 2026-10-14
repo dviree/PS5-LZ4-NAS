@@ -1317,7 +1317,7 @@ def find_runtime(game: Path) -> Path | None:
 
 
 def cmd_apr(args) -> int:
-    """Check that every LZ4 game has the PackedStdio APR-EMU; --fix restores it."""
+    """Check every LZ4 game: PackedStdio APR-EMU and on-disk boot files; --fix repairs both."""
     ensure_dirs()
     games = sorted(p for p in OUTPUT.iterdir()
                    if p.is_dir() and (p / "ampr_assets.index").is_file())
@@ -1347,9 +1347,22 @@ def cmd_apr(args) -> int:
                 os.chmod(tmp, 0o755)
                 os.replace(tmp, dst)
                 state += " -> FIXED"
+        # Files the PS5 looks for on disk (PlayGo markers, empty files, some
+        # boot files) must exist next to the packs; packs made before
+        # upstream 1.4.3 may hold them only inside. --fix writes them out.
+        out = subprocess.run([PACKER, "disk-files", str(g)] + (["--repair"] if args.fix else []),
+                             capture_output=True, text=True)
+        m = re.search(r"missing=(\d+) restored=(\d+)", out.stdout)
+        if m and int(m.group(1)):
+            bad += 1
+            state += f"; {m.group(1)} disk file(s) only in packs"
+            if args.fix:
+                state += f" -> {m.group(2)} restored"
+        elif not m:
+            state += f"; disk-file check failed: {(out.stderr or out.stdout).strip()[-120:]}"
         print(f"{state:<45} {g.name}")
     if bad and not args.fix:
-        print(f"{bad} game(s) need the PackedStdio runtime; run: ps5lz4 apr --fix")
+        print(f"{bad} game(s) need repair; run: ps5lz4 apr --fix")
     return 1 if bad and not args.fix else 0
 
 
