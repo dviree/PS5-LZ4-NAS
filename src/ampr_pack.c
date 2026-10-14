@@ -1,4 +1,7 @@
 /*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) 2026 Husam Osman. Based on drakmor's ampr_pack.py (GPL-3.0).
+ *
  * LZ4 Compression - AMPR seekable LZ4 asset packs.
  *
  * C port of drakmor's ampr_pack.py "pack", "verify --root", "unpack" and

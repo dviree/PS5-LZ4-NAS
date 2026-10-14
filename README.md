@@ -512,6 +512,11 @@ by Drakmor's [ampr_emu](https://github.com/drakmor/ampr_emu). Third-party
 components and their licenses are listed in `THIRD_PARTY_NOTICES.md`; original
 copyright notices are kept in the source files.
 
+The LZ4 packer (`src/ampr_pack*.c`, `src/ampr_pack*.h`, a port of Drakmor's
+GPL-3.0 `ampr_pack.py`) and the PS5 app (`app/lz4-compression`, built on the
+GPL PS5 React) are licensed under the GNU GPL v3 or later, see `LICENSE`.
+Code that comes from PS5 Game Compressor stays under its authors' terms.
+
 ## Disclaimer
 
 This is homebrew software for experimental PS5 workflows. Use it at your own
