@@ -96,7 +96,10 @@ main(int argc, char **argv) {
             "          [--no-auto-loose] [--verify-loose]\n"
             "       %s verify <packed> [source]\n"
             "       %s unpack <packed> <out|--in-place>\n"
-            "       %s probe <root>\n", argv[0], argv[0], argv[0], argv[0]);
+            "       %s disk-files <packed> [--repair]\n"
+            "       %s probe <root>\n"
+            "       %s runtime <root> [--repair]\n", argv[0], argv[0], argv[0],
+            argv[0], argv[0], argv[0]);
     return 2;
   }
   if(!strcmp(argv[1], "pack") && argc >= 4) {
@@ -167,6 +170,29 @@ main(int argc, char **argv) {
     printf("packed=%d ", ok);
     print_stats(&st);
     return ok ? 0 : 1;
+  }
+  if(!strcmp(argv[1], "runtime")) {
+    char old_sha[65];
+    int repair = argc > 3 && !strcmp(argv[3], "--repair");
+    int rc = ampr_pack_check_runtime(argv[2], repair, old_sha, err, sizeof(err));
+    if(rc < 0) {
+      fprintf(stderr, "runtime check failed: %s\n", err);
+      return 1;
+    }
+    printf("runtime=%s old=%s\n", rc ? (repair ? "restored" : "wrong") : "ok",
+           old_sha[0] ? old_sha : "-");
+    return rc && !repair ? 1 : 0;
+  }
+  if(!strcmp(argv[1], "disk-files")) {
+    uint32_t missing = 0, restored = 0;
+    int repair = argc > 3 && !strcmp(argv[3], "--repair");
+    if(ampr_pack_restore_disk_files(argv[2], repair, &missing, &restored, err,
+                                    sizeof(err)) != 0) {
+      fprintf(stderr, "disk files failed: %s\n", err);
+      return 1;
+    }
+    printf("disk-files missing=%u restored=%u\n", missing, restored);
+    return missing && !repair ? 1 : 0;
   }
   fprintf(stderr, "bad command\n");
   return 2;

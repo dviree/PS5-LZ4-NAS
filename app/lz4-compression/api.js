@@ -5,11 +5,37 @@ export const ENGINE = 'http://127.0.0.1:5920';
 const PAYLOAD_MANAGER = 'http://127.0.0.1:8084';
 export const ENGINE_ELF = '/data/pldmgr/payloads/lz4-compression/lz4-compression.elf';
 
+// An abort signal that fires after ms (the transport retries a refused
+// connection for minutes, which is too long while an engine restarts).
+function timeoutSignal(ms) {
+  const listeners = new Set();
+  const signal = {
+    aborted: false,
+    addEventListener: (type, fn) => { if (type === 'abort') listeners.add(fn); },
+    removeEventListener: (type, fn) => listeners.delete(fn),
+  };
+  const id = setTimeout(() => {
+    signal.aborted = true;
+    for (const fn of [...listeners]) fn();
+  }, ms);
+  return {signal, clear: () => clearTimeout(id)};
+}
+
 async function call(path, options = {}) {
-  const response = await Http.request(ENGINE + path, {
-    method: options.method || 'GET',
-    maxBytes: options.maxBytes || 4 * 1024 * 1024,
-  });
+  const timer = options.timeoutMs ? timeoutSignal(options.timeoutMs) : null;
+  let response;
+  try {
+    response = await Http.request(ENGINE + path, {
+      method: options.method || 'GET',
+      maxBytes: options.maxBytes || 4 * 1024 * 1024,
+      ...(timer ? {signal: timer.signal} : {}),
+    });
+  } catch (err) {
+    if (timer && timer.signal.aborted) throw new Error(`no answer from the engine within ${options.timeoutMs / 1000} s`);
+    throw err;
+  } finally {
+    if (timer) timer.clear();
+  }
   let data = {};
   try {
     const text = await response.text();
@@ -102,7 +128,44 @@ export const api = {
 };
 
 // Asks Payload Manager to load the engine when it isn't running yet.
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+// After an update: load the new engine through Payload Manager while the old
+// one still runs; it stops the old one and takes over (the engine's handoff).
+// Waits until a different engine process answers and returns its version.
+export async function restartEngine() {
+  let before = null;
+  try {
+    before = await call('/api/status', {timeoutMs: 3000});
+  } catch (err) {
+    // Not running: loading it just starts it.
+  }
+  if (!(await startEngine())) throw new Error('Payload Manager refused to load the new engine');
+  let last = 'no answer';
+  for (let i = 0; i < 30; i++) {
+    await sleep(1000);
+    try {
+      const now = await call('/api/status', {timeoutMs: 2000});
+      if (!before || now.pid !== before.pid) return now.version || '';
+      last = `the old engine (${before.version || 'pid ' + before.pid}) is still running`;
+    } catch (err) {
+      last = err.message;
+    }
+  }
+  throw new Error(`the new engine didn't take over: ${last}`);
+}
+
+// Ask the engine to open the app again once it has closed.
+export async function relaunchAfterClose(titleId) {
+  try {
+    await call('/api/control/relaunch?titleId=' + encodeURIComponent(titleId), {method: 'POST', timeoutMs: 3000});
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
 export async function startEngine() {
   const response = await Http.request(`${PAYLOAD_MANAGER}/loadpayload:${ENGINE_ELF}`, {method: 'GET', maxBytes: 65536});
-  return response.ok;
+  return response.ok && (await response.text()).trim() !== 'Invalid payload name';
 }

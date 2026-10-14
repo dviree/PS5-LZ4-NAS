@@ -41,6 +41,7 @@ C_SRCS += src/ampr_pack.c
 C_SRCS += src/ampr_pack_profile.c
 C_SRCS += src/ampr_pack_toml.c
 C_SRCS += src/ampr_pack_runtime.c
+C_SRCS += third_party/qrcodegen/qrcodegen.c
 
 ASSETS := $(wildcard assets/*)
 GEN_SRCS := $(patsubst assets/%,gen/assets/%,$(ASSETS:=.c))

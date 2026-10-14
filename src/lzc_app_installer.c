@@ -464,3 +464,91 @@ lzc_launcher_start(void) {
   }
   return 0;
 }
+
+/* ------------------------------------------------------------- relaunch */
+
+typedef struct {
+  uint32_t structsize, user_id, app_opt;
+  uint64_t crash_report;
+  uint32_t check_flag;
+} lzc_launch_ctx_t;
+
+typedef int (*user_service_get_foreground_fn)(int *);
+int sceLncUtilGetAppId(const char *title_id);
+int sceSystemServiceGetAppIdOfRunningBigApp(void);
+int sceSystemServiceLaunchApp(const char *title_id, char **argv,
+                              lzc_launch_ctx_t *ctx);
+
+static char g_relaunch_title[16];
+static pthread_mutex_t g_relaunch_lock = PTHREAD_MUTEX_INITIALIZER;
+static int g_relaunch_busy = 0;
+
+static void *
+relaunch_thread(void *arg) {
+  (void)arg;
+  char title[16];
+  pthread_mutex_lock(&g_relaunch_lock);
+  snprintf(title, sizeof(title), "%s", g_relaunch_title);
+  pthread_mutex_unlock(&g_relaunch_lock);
+
+  int waited = 0;
+  while(sceLncUtilGetAppId(title) >= 0 && waited < 30000) {
+    usleep(100 * 1000);
+    waited += 100;
+  }
+  if(sceLncUtilGetAppId(title) >= 0) {
+    lzc_log("relaunch %s: still running after 30 s, giving up", title);
+  } else if(sceSystemServiceGetAppIdOfRunningBigApp() > 0) {
+    lzc_log("relaunch %s: another app is running, not launching", title);
+  } else {
+    usleep(500 * 1000);
+    user_service_initialize_fn init = NULL;
+    user_service_get_foreground_fn foreground = NULL;
+    int prio = 256;
+    (void)resolve_module_symbol(LZC_USER_SERVICE_MODULE, LZC_USER_SERVICE_PATH,
+                                "sceUserServiceInitialize", (void **)&init);
+    (void)resolve_module_symbol(LZC_USER_SERVICE_MODULE, LZC_USER_SERVICE_PATH,
+                                "sceUserServiceGetForegroundUser",
+                                (void **)&foreground);
+    if(init) (void)init(&prio);
+    lzc_launch_ctx_t ctx;
+    int user = 0;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.structsize = sizeof(ctx);
+    int user_rc = foreground ? foreground(&user) : -1;
+    if(user_rc != 0) {
+      lzc_log("relaunch %s: no foreground user rc=0x%08x", title,
+             (unsigned)user_rc);
+    } else {
+      ctx.user_id = (uint32_t)user;
+      int rc = sceSystemServiceLaunchApp(title, NULL, &ctx);
+      lzc_log("relaunch %s rc=0x%08x", title, (unsigned)rc);
+    }
+  }
+  pthread_mutex_lock(&g_relaunch_lock);
+  g_relaunch_busy = 0;
+  pthread_mutex_unlock(&g_relaunch_lock);
+  return NULL;
+}
+
+int
+lzc_relaunch_after_close(const char *title_id) {
+  pthread_t thread;
+  if(!title_id || strlen(title_id) != 9) return -1;
+  pthread_mutex_lock(&g_relaunch_lock);
+  if(g_relaunch_busy) {
+    pthread_mutex_unlock(&g_relaunch_lock);
+    return -1;
+  }
+  snprintf(g_relaunch_title, sizeof(g_relaunch_title), "%s", title_id);
+  g_relaunch_busy = 1;
+  pthread_mutex_unlock(&g_relaunch_lock);
+  if(pthread_create(&thread, NULL, relaunch_thread, NULL) != 0) {
+    pthread_mutex_lock(&g_relaunch_lock);
+    g_relaunch_busy = 0;
+    pthread_mutex_unlock(&g_relaunch_lock);
+    return -1;
+  }
+  pthread_detach(thread);
+  return 0;
+}
