@@ -31,7 +31,7 @@ export const ACTION_DESC = {
   'make-image': 'Build a plain .exfat or .ffpfs image from this folder.',
   'validate-only': 'Read every block and report problems without changing anything.',
   'validate-repair': 'Read every block and repair what it can.',
-  'lz4-verify': 'Check every LZ4 pack block and the packed file list.',
+  'lz4-verify': 'Check every LZ4 pack block and put back files the game needs on disk.',
   'read-speed-test': 'Read the game for a minute and measure the speed.',
   'uncompress': 'Turn the compressed image back into an image or a folder.',
   'lz4-unpack': 'Put the normal loose files back from the LZ4 packs.',
@@ -299,6 +299,7 @@ export function opSummary(op) {
     parts.push(`${formatBytes(op.compressionSourceSize)} → ${formatBytes(op.compressedSize)}`);
   }
   if (op.badBlocksFound > 0) parts.push(`${op.badBlocksFound} bad blocks`);
+  if (op.action === 'lz4-verify' && op.repairSummary) parts.push(op.repairSummary);
   return parts.join('  ·  ');
 }
 

@@ -87,7 +87,7 @@
     'options.desc.make-image': 'Build a plain .exfat or .ffpfs image from this folder.',
     'options.desc.validate-only': 'Read every block and report problems without changing anything.',
     'options.desc.validate-repair': 'Read every block and repair what it can.',
-    'options.desc.lz4-verify': 'Check every LZ4 pack block and the packed file list.',
+    'options.desc.lz4-verify': 'Check every LZ4 pack block and put back files the game needs on disk.',
     'options.desc.uncompress': 'Turn the compressed image back into an image or a folder.',
     'options.desc.lz4-unpack': 'Put the normal loose files back from the LZ4 packs.',
     'options.desc.extract-image': 'Copy the mounted image out to a normal folder.',
