@@ -87,7 +87,7 @@ export const api = {
   run(action, game) {
     const routes = {
       'validate-only': 'validate-only', 'validate-repair': 'validate-repair',
-      'lz4-verify': 'lz4-verify', 'build-ampr-index': 'build-ampr-index',
+      'lz4-verify': 'lz4-verify', 'verify-game': 'lz4-verify', 'build-ampr-index': 'build-ampr-index',
       'set-read-only': 'set-read-only', 'extract-image': 'extract-image',
       'refresh-mount': 'refresh-mount', 'read-speed-test': 'read-speed-test',
       'restore-ampr-original': 'restore-ampr-original',
