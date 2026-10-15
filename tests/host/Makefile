@@ -1,12 +1,15 @@
 # Host build of the AMPR LZ4 packer for testing against drakmor's
 # ampr_pack.py (verify/inspect/list). Run from the repository root:
 #   make -f tests/host/Makefile
+# and the boot-files check with
+#   make -f tests/host/Makefile boot-test
 # No PS5 SDK is needed.
 
 CC ?= cc
 PYTHON ?= python3
 OUT := build/host
 BIN := $(OUT)/ampr_pack_cli
+BOOT_TEST := $(OUT)/boot_files_test
 
 SRCS := tests/host/ampr_pack_cli.c src/ampr_pack.c src/ampr_pack_profile.c \
   src/ampr_pack_toml.c src/ampr_pack_runtime.c src/ampr_index.c \
@@ -27,7 +30,14 @@ $(GEN): third_party/ampr_emu/libSceAmpr.sprx tools/gen_binary_c.py
 $(BIN): $(SRCS) $(GEN) src/*.h
 	$(CC) $(CFLAGS) -o $@ $(SRCS) $(GEN)
 
+$(BOOT_TEST): tests/host/boot_files_test.c src/lzc_boot_files.c src/lzc_boot_files.h
+	mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -o $@ tests/host/boot_files_test.c src/lzc_boot_files.c
+
+boot-test: $(BOOT_TEST)
+	$(BOOT_TEST)
+
 clean:
 	rm -rf $(OUT)
 
-.PHONY: all clean
+.PHONY: all boot-test clean
