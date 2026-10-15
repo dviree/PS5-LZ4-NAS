@@ -1169,7 +1169,9 @@ def lz4_format_problem(game: Path) -> str | None:
     sha = hashlib.sha256(runtime.read_bytes()).hexdigest()
     if sha != RUNTIME_SHA256:
         return f"{RUNTIME_REL} is not the PackedStdio runtime ({sha[:12]}); run: apr --fix"
-    for side in ("ampr_assets.index.crc", "ampr_assets.index.runtime", "ampr_emu.index"):
+    # ampr_assets.index.runtime is optional: profiles without a [runtime]
+    # section (e.g. Insomniac) leave APR-EMU on its default cache settings.
+    for side in ("ampr_assets.index.crc", "ampr_emu.index"):
         if not (game / side).is_file():
             return f"{side} missing"
     return None
@@ -1350,6 +1352,7 @@ def cmd_community(args) -> int:
     params = [("template", "compat.yml"), ("title", f"[Game report] {name}: {form}"),
               ("title_id", rep.get("title_id") or e.title_id), ("game", name), ("status", form),
               ("level", str((rep.get("codec") or "").split()[-1])), ("source", source),
+              ("firmware", os.environ.get("PS5LZ4_FIRMWARE", "")),
               ("app_version", f"ps5-lz4 NAS {VERSION}")]
     from urllib.parse import quote
     url = f"https://github.com/{COMPAT_REPO}/issues/new?" + "&".join(
