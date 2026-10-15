@@ -111,7 +111,9 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
     <div class="filters">
       <input id="s-ftp" placeholder="PS5 address, e.g. 192.168.1.50:2121" onchange="saveAddress()">
       <input id="s-dest" placeholder="Folder on the PS5, e.g. /mnt/usb0/homebrew" onchange="saveAddress()">
+      <button onclick="saveAddress()">Save</button>
     </div>
+    <div class="why good" id="s-saved"></div>
   </div>
   <div class="card"><h2>2. Pair for wake-up (Remote Play, like Chiaki)</h2>
     <div class="mut">Pairing lets this page wake the PS5 from rest mode, by itself before a transfer or with
@@ -156,6 +158,7 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
       <button onclick="ftpGo(document.getElementById('ftp-path').value)">Go</button>
     </div>
     <div class="filters" id="ftp-quick"></div>
+    <div class="mut" id="ftp-addr"></div>
     <div class="mut" id="ftp-msg"></div>
     <table id="ftp-list" style="min-width:0"></table>
   </div>
@@ -237,7 +240,9 @@ async function saveAddress() {
   if (!r.ok) { const j = await r.json().catch(() => ({})); alert('Not saved: ' + (j.error || r.status)); return; }
   data.settings.ps5_ftp = document.getElementById('s-ftp').value.trim();
   data.settings.ps5_dest = document.getElementById('s-dest').value.trim();
-  ps5State();
+  const ok = document.getElementById('s-saved');
+  ok.textContent = 'Saved ✓ ' + data.settings.ps5_ftp; setTimeout(() => { ok.textContent = ''; }, 4000);
+  ftpLoaded = false; ps5State();
 }
 function push(id, name) {
   const s = data.settings || {};
@@ -457,6 +462,10 @@ async function ftpGo(path) {
   const dest = (data && data.settings && data.settings.ps5_dest) || '';
   document.getElementById('ftp-quick').innerHTML = ['/', '/data', '/mnt/usb0', '/mnt/ext0', dest].filter((x, i, a) => x && a.indexOf(x) === i)
     .map(x => `<button class="sm" data-p="${esc(x)}" onclick="ftpGo(this.dataset.p)">${esc(x)}</button>`).join('');
+  const ftp = (data && data.settings && data.settings.ps5_ftp) || '';
+  document.getElementById('ftp-addr').innerHTML = ftp
+    ? `PS5: <b>${esc(ftp)}</b> · <a href="#" onclick="tab('ps5');return false">change</a>`
+    : `<span class="bad">No PS5 address yet:</span> <a href="#" onclick="tab('ps5');return false">set it on the Remote tab</a>`;
   msg.textContent = 'Loading…';
   try {
     const r = await fetch('/api/ftp/list?path=' + encodeURIComponent(path), {cache: 'no-store'});
