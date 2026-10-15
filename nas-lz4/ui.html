@@ -85,8 +85,8 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
     <div class="mut">Straight over FTP to the PS5's ftpsrv (port 2121), not through a mount. Every file's size is checked and
     program files are compared byte for byte. An interrupted transfer continues where it stopped when you press again.</div>
     <div class="filters">
-      <input id="s-ftp" placeholder="PS5 FTP, e.g. 192.168.50.90:2121">
-      <input id="s-dest" placeholder="Folder on the PS5, e.g. /mnt/usb0/homebrew">
+      <input id="s-ftp" placeholder="PS5 FTP, e.g. 192.168.50.90:2121" onchange="saveAddress()">
+      <input id="s-dest" placeholder="Folder on the PS5, e.g. /mnt/usb0/homebrew" onchange="saveAddress()">
     </div>
     <h2 style="margin-top:14px">Pair with the PS5 (Remote Play, like Chiaki)</h2>
     <div class="mut">Pairing lets this page wake the PS5 from rest mode when you press <b>Send to PS5</b>.
@@ -187,6 +187,16 @@ async function saveSettings() {
   settingsFilled = false; load();
 }
 let settingsFilled = false;
+// The address and folder are saved as soon as they are changed.
+async function saveAddress() {
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'settings', ps5_ftp: document.getElementById('s-ftp').value.trim(),
+      ps5_dest: document.getElementById('s-dest').value.trim()})});
+  if (!r.ok) { const j = await r.json().catch(() => ({})); alert('Not saved: ' + (j.error || r.status)); return; }
+  data.settings.ps5_ftp = document.getElementById('s-ftp').value.trim();
+  data.settings.ps5_dest = document.getElementById('s-dest').value.trim();
+  ps5State();
+}
 function push(id, name) {
   const s = data.settings || {};
   if (!s.ps5_ftp) { alert('Enter the PS5 FTP address under "Send to PS5" first.'); return; }
@@ -456,7 +466,8 @@ async function pair() {
   const btn = event.target; btn.disabled = true; btn.textContent = 'Pairing…';
   try {
     const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({action: 'pair', pin, account_id: acc})});
+      body: JSON.stringify({action: 'pair', pin, account_id: acc,
+        ps5_ftp: document.getElementById('s-ftp').value.trim(), ps5_dest: document.getElementById('s-dest').value.trim()})});
     const j = await r.json().catch(() => ({}));
     alert(r.ok ? `Paired with ${j.nickname || 'the PS5'}. It can now be woken from rest mode.` : 'Pairing failed: ' + (j.error || r.status));
     if (r.ok) { document.getElementById('p-pin').value = ''; settingsFilled = false; load(); }
