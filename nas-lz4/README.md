@@ -93,7 +93,8 @@ that container alone.
 - **Community tab:** every game reported by other players, with search,
   filters and sorting.
 - **Remote tab:** the PS5 address, pairing and wake-up (see below).
-- **FTP tab:** browse the PS5's drives over ftpsrv (`/data`, `/mnt/usb0`,
+- **FTP tab:** browse the PS5's drives over ftpsrv, game folders with their
+  icon (`sce_sys/icon0.png`, cached in `state/icons/`) (`/data`, `/mnt/usb0`,
   `/mnt/ext0`, ...) and download files as they are on disk (SELF decryption
   off), and delete files or folders (only inside `/data`, `/mnt/usbN` and
   `/mnt/extN`, at least two folders down; a folder needs its name typed to

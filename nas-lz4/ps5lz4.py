@@ -2002,6 +2002,71 @@ def ps5_ftp_apr(path: str) -> dict:
             pass
 
 
+ICON_CACHE = STATE / "icons"
+_icon_lock = __import__("threading").Lock()
+_icon_missing: dict[str, float] = {}
+
+
+def ps5_ftp_icon(path: str) -> bytes | None:
+    """sce_sys/icon0.png of a game folder on the PS5, cached in state/icons.
+    One FTP connection at a time, so a long folder list doesn't flood ftpsrv."""
+    import ftplib
+    path = ps5_ftp_path(path)
+    cached = ICON_CACHE / (hashlib.sha1(path.encode()).hexdigest() + ".png")
+    if cached.is_file():
+        return cached.read_bytes()
+    if time.time() - _icon_missing.get(path, 0) < 600:
+        return None
+    with _icon_lock:
+        if cached.is_file():
+            return cached.read_bytes()
+        try:
+            f = ps5_ftp_connect()
+        except ValueError:
+            return None
+        buf = bytearray()
+        try:
+            for name in ("sce_sys/icon0.png", "sce_sys/ICON0.PNG"):
+                try:
+                    f.retrbinary(f"RETR {path}/{name}", buf.extend)
+                    break
+                except ftplib.error_perm:
+                    buf.clear()
+        except ftplib.all_errors:
+            buf.clear()
+        finally:
+            try:
+                f.quit()
+            except Exception:
+                pass
+        if not buf.startswith(b"\x89PNG") or len(buf) > 8 << 20:
+            _icon_missing[path] = time.time()
+            return None
+        ICON_CACHE.mkdir(parents=True, exist_ok=True)
+        tmp = cached.with_suffix(".tmp")
+        tmp.write_bytes(bytes(buf))
+        os.replace(tmp, cached)
+        return bytes(buf)
+
+
+def nas_icon(game_id: str) -> bytes | None:
+    """sce_sys/icon0.png from a game's LZ4 folder, or its source folder."""
+    cands = [OUTPUT / game_id, OUTPUT / f"{game_id}-lz4"]
+    for e in scan_library():
+        if e.id == game_id:
+            cands = [e.output, e.path] + cands
+            break
+    for d in cands:
+        for name in ("sce_sys/icon0.png", "sce_sys/ICON0.PNG"):
+            p = d / name
+            try:
+                if p.is_file() and p.stat().st_size < 8 << 20:
+                    return p.read_bytes()
+            except OSError:
+                pass
+    return None
+
+
 # Deleting is allowed only inside these, and never the drive or its top folders.
 FTP_DELETE_ROOTS = re.compile(r"^/(data|mnt/(usb|ext)\d+)/[^/]+/.+")
 
@@ -2615,6 +2680,26 @@ def cmd_ui(args) -> int:
                     return self.send(200, json.dumps(ps5_ftp_list(path), ensure_ascii=False).encode())
                 except Exception as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
+            if self.path.startswith("/api/ftp/icon?") or self.path.startswith("/api/icon?"):
+                from urllib.parse import parse_qs, urlparse
+                q = parse_qs(urlparse(self.path).query)
+                try:
+                    if self.path.startswith("/api/icon?"):
+                        gid = (q.get("id") or [""])[0]
+                        png = None if not gid or "/" in gid or gid.startswith(".") else nas_icon(gid)
+                    else:
+                        png = ps5_ftp_icon((q.get("path") or [""])[0])
+                except Exception:
+                    png = None
+                if not png:
+                    return self.send(404, b'{"error":"no icon"}')
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Cache-Control", "max-age=86400")
+                self.send_header("Content-Length", str(len(png)))
+                self.end_headers()
+                self.wfile.write(png)
+                return
             if self.path.startswith("/api/ftp/apr?"):
                 from urllib.parse import parse_qs, urlparse
                 path = (parse_qs(urlparse(self.path).query).get("path") or ["/"])[0]
