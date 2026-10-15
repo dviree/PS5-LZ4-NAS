@@ -195,7 +195,10 @@ game, then `status` and `report`. Test it on the PS5 before `start --all`.
 5. **Restore test:** everything is unpacked to a temporary folder and every
    file compared byte for byte with the source. Only `ampr_emu.index` and
    `fakelib/libSceAmpr.sprx` may differ (they are added or replaced on
-   purpose).
+   purpose). It has two parts, and the web page shows progress, data left
+   and time left for each: *unpacking* (writes the whole game once) and
+   *comparing with the original* (reads every file twice, about as long
+   again). For a 180 GB game on hard disks, plan for one to two hours.
 6. **Publish:** the result moves to `/volume1/games/ps5-lz4/<name>-lz4/`, the
    report is written to `reports/<name>.json` and `summary.tsv`, and the work
    folder is deleted. A short log per game stays in `logs/<name>.log`.
@@ -205,6 +208,19 @@ If a step fails the work folder stays in
 shows the error). Running the same game again continues after the last
 finished step; a step that was interrupted is redone. An existing result is
 never overwritten.
+
+Progress from SSH: the job runs as `ps5lz4.py run --from-queue` in the
+`ps5-lz4` container. The compare step reads in that process itself (the
+packer runs as a separate program), so its `read_bytes` grows by about twice
+the game's size during the compare:
+
+```sh
+for P in $(docker top ps5-lz4 -eo pid | tail -n +2); do
+  echo "$P $(grep read_bytes /proc/$P/io | awk '{printf "%.1f GB", $2/1073741824}') $(tr '\0' ' ' < /proc/$P/cmdline | cut -c1-60)"
+done
+```
+
+Run it twice a minute apart; the difference is the read speed.
 
 Space: everything large goes to the output volume. Plan for about 3× the
 game's unpacked size free during a job (extraction + packs + restore test).
