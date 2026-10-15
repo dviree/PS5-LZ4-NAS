@@ -94,6 +94,14 @@ select{font:inherit;padding:5px 8px;border-radius:8px;border:1px solid var(--lin
 .kv div{overflow-wrap:anywhere}.acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
 .err{background:var(--badbg);color:var(--bad);border-radius:10px;padding:10px 12px}
 footer{opacity:.8}
+.pg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-top:6px}
+.pg{display:flex;gap:12px;padding:12px;border:1px solid var(--line);border-radius:14px;background:var(--bg);transition:opacity .2s}
+.pg.busy-del{opacity:.4;pointer-events:none}
+.pg-ico{width:72px;height:72px;border-radius:14px;object-fit:cover;flex:none;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.pg-ico.fi{display:grid;place-items:center;font-size:34px;background:var(--chip);box-shadow:none}
+.pg-body{flex:1;min-width:0}.pg-body .gname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pg-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center}
+button.danger{background:var(--badbg);color:var(--bad)}
 #fab{position:fixed;right:18px;bottom:18px;z-index:20;width:62px;height:62px;border-radius:99px;background:var(--card);box-shadow:0 6px 24px rgba(0,0,0,.22);display:grid;place-items:center;cursor:pointer;border:1px solid var(--line);animation:rise .2s}
 #fab .ring{width:50px;height:50px;border-radius:99px;display:grid;place-items:center;transition:background .5s}
 #fab .ring span{width:40px;height:40px;border-radius:99px;background:var(--card);display:grid;place-items:center;font-size:12px;font-weight:800;font-variant-numeric:tabular-nums}
@@ -172,6 +180,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;whi
 <nav class="tabs">
   <button id="t-mine" class="on" onclick="tab('mine')">My games</button>
   <button id="t-act" onclick="tab('act')">Activity<span class="badge" id="act-n" hidden></span></button>
+  <button id="t-pg" onclick="tab('pg')">PS5 games</button>
   <button id="t-comm" onclick="tab('comm')">Community</button>
   <button id="t-ps5" onclick="tab('ps5')">Remote</button>
   <button id="t-ftp" onclick="tab('ftp')">FTP</button>
@@ -334,6 +343,20 @@ button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;whi
     <div class="mut" id="ftp-addr"></div>
     <div class="mut" id="ftp-msg"></div>
     <table id="ftp-list" style="min-width:0"></table>
+  </div>
+</main>
+<main id="p-pg" hidden>
+  <div class="card">
+    <div class="dhead"><h2 style="margin:0">Games on the PS5</h2><span class="sp"></span>
+      <button class="sm" onclick="measureAll()">Measure sizes</button>
+      <button class="sm" onclick="loadPg()">Refresh</button></div>
+    <div class="mut" id="pg-sub">Game folders in <code>homebrew</code> and <code>etaHEN/games</code> on every drive, read over FTP.</div>
+    <div class="filters">
+      <input id="pg-q" placeholder="Search name or Title ID" oninput="renderPg()">
+      <select id="pg-d" onchange="renderPg()"><option value="">All drives</option></select>
+      <select id="pg-s" onchange="renderPg()"><option value="name">Name</option><option value="size">Largest first</option><option value="drive">Drive</option></select>
+    </div>
+    <div id="pg-list" class="pg-grid"></div>
   </div>
 </main>
 <main id="p-comm" hidden>
@@ -935,14 +958,89 @@ function fab(d, tf, tq, pqs, nameOf) {
   rows.push(`<button class="sm" style="margin-top:10px;width:100%;justify-content:center" onclick="tab('act');document.getElementById('fabpop').hidden=true">Open Activity</button>`);
   pop.innerHTML = rows.join('');
 }
+let pgData = null;
+async function loadPg() {
+  const el = document.getElementById('pg-list');
+  el.innerHTML = '<div class="mut">Reading the PS5…</div>';
+  try {
+    const r = await fetch('/api/ps5/games', {cache: 'no-store'}), j = await r.json();
+    if (!r.ok) { el.innerHTML = `<div class="bad">${esc(j.error || r.status)}</div>`; return; }
+    pgData = j;
+    const drives = [...new Set(j.games.map(g => g.drive))];
+    document.getElementById('pg-d').innerHTML = '<option value="">All drives</option>' + drives.map(d => `<option value="${esc(d)}">${esc(driveName(d))}</option>`).join('');
+    renderPg();
+  } catch (e) { el.innerHTML = `<div class="bad">${esc(String(e))}</div>`; }
+}
+function driveName(d) { return d === '/data' ? 'Internal SSD' : d.replace('/mnt/usb', 'USB ').replace('/mnt/ext', 'Extended '); }
+function renderPg() {
+  if (!pgData) return;
+  const q = document.getElementById('pg-q').value.trim().toLowerCase(), dv = document.getElementById('pg-d').value, sort = document.getElementById('pg-s').value;
+  let gs = pgData.games.filter(g => (!dv || g.drive === dv) && (!q || (g.name + ' ' + g.title_id + ' ' + g.folder).toLowerCase().includes(q)));
+  gs.sort(sort === 'size' ? (a, b) => (b.size || 0) - (a.size || 0) : sort === 'drive' ? (a, b) => a.drive.localeCompare(b.drive) || a.name.localeCompare(b.name) : (a, b) => a.name.localeCompare(b.name));
+  const total = pgData.games.reduce((n, g) => n + (g.size || 0), 0), measured = pgData.games.filter(g => g.size != null).length;
+  document.getElementById('pg-sub').innerHTML = `${pgData.games.length} games` + (measured ? ` · ${gbd(total)} measured (${measured} of ${pgData.games.length})` : '') +
+    ` · read ${esc((pgData.listed || '').slice(11, 16))}`;
+  document.getElementById('pg-list').innerHTML = gs.length ? gs.map((g, i) => `<div class="pg">
+      <img class="pg-ico" alt="" loading="lazy" src="/api/ftp/icon?path=${encodeURIComponent(g.path)}" onerror="this.outerHTML='<div class=&quot;pg-ico fi&quot;>🎮</div>'">
+      <div class="pg-body">
+        <div class="gname">${esc(g.name)}</div>
+        <div class="why">${esc(g.title_id || '–')}${g.version ? ' · version ' + esc(g.version) : ''}</div>
+        <div class="chips">
+          <span class="chip">${esc(driveName(g.drive))}</span>
+          ${g.lz4 ? '<span class="chip ok">LZ4</span>' : '<span class="chip">not LZ4</span>'}
+          ${g.size != null ? `<span class="chip">${gbd(g.size)}</span>` : ''}
+          ${g.on_nas && g.on_nas.length ? '<span class="chip">🗄 also on NAS</span>' : ''}
+          ${g.duplicates.length ? `<span class="chip bad" title="${esc(g.duplicates.join('\n'))}">same Title ID ×${g.duplicates.length + 1}</span>` : ''}
+        </div>
+        <div class="why" id="pg-m-${i}"></div>
+        <div class="pg-acts">
+          <button class="sm" data-p="${esc(g.path)}" onclick="tab('ftp');ftpGo(this.dataset.p)">Open</button>
+          ${g.size == null ? `<button class="sm" data-p="${esc(g.path)}" data-i="${i}" onclick="measureGame(this.dataset.p, this.dataset.i)">Size</button>` : ''}
+          ${g.lz4 ? `<button class="sm" data-p="${esc(g.path)}" data-i="${i}" onclick="aprCheck(this.dataset.p, document.getElementById('pg-m-' + this.dataset.i))">APR-EMU</button>` : ''}
+          <span class="sp"></span>
+          <button class="sm danger" data-p="${esc(g.path)}" data-n="${esc(g.name)}" onclick="deletePg(this.dataset.p, this.dataset.n)">🗑 Delete</button>
+        </div>
+      </div></div>`).join('') : '<div class="mut">No games found.</div>';
+}
+async function measureGame(path, i) {
+  const el = document.getElementById('pg-m-' + i);
+  el.textContent = 'Measuring…';
+  const r = await fetch('/api/ftp/du?path=' + encodeURIComponent(path), {cache: 'no-store'}), j = await r.json().catch(() => ({}));
+  if (!r.ok) { el.innerHTML = `<span class="bad">${esc(j.error || r.status)}</span>`; return; }
+  const g = pgData.games.find(x => x.path === path); if (g) g.size = j.bytes;
+  renderPg();
+}
+async function measureAll() {
+  for (const g of (pgData || {games: []}).games.filter(x => x.size == null)) {
+    document.getElementById('pg-sub').textContent = 'Measuring ' + g.name + '…';
+    const r = await fetch('/api/ftp/du?path=' + encodeURIComponent(g.path), {cache: 'no-store'}), j = await r.json().catch(() => ({}));
+    if (r.ok) g.size = j.bytes;
+  }
+  renderPg();
+}
+async function deletePg(path, name) {
+  const sending = data && data.transfer && data.transfer.dest && ('/' + data.transfer.dest.split('/').slice(1).join('/') + '/').startsWith(path + '/');
+  if (!confirm(`Delete ${name} from the PS5?\n\n${path}\n\n` + (sending ? 'It is being sent right now: that transfer is stopped first.\n\n' : '') +
+      "Everything in the folder is deleted. This can't be undone" + (pgData.games.find(g => g.path === path && g.on_nas && g.on_nas.length) ? ' (the LZ4 copy on the NAS stays; you can send it again).' : '.'))) return;
+  const card = [...document.querySelectorAll('.pg')].find(c => c.querySelector(`[data-p="${CSS.escape(path)}"]`));
+  if (card) card.classList.add('busy-del');
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'ftp_delete', path})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { alert('Not deleted: ' + (j.error || r.status)); if (card) card.classList.remove('busy-del'); return; }
+  pgData.games = pgData.games.filter(g => g.path !== path);
+  pgData.games.forEach(g => { g.duplicates = g.duplicates.filter(p => p !== path); });
+  renderPg(); setTimeout(load, 500);
+}
 let comm = null;
 function tab(t) {
-  for (const k of ['mine', 'act', 'ps5', 'comm', 'ftp']) {
+  for (const k of ['mine', 'act', 'pg', 'ps5', 'comm', 'ftp']) {
     document.getElementById('p-' + k).hidden = t !== k;
     document.getElementById('t-' + k).classList.toggle('on', t === k);
   }
   try { localStorage.setItem('tab', t); } catch (e) {}
   if (t === 'comm') loadComm();
+  if (t === 'pg' && !pgData) loadPg();
   if (t === 'ps5' && !window._drives) { window._drives = 1; loadDrives(); }
   if (t === 'ftp' && !ftpLoaded) ftpGo(ftpPath);
 }
@@ -1055,8 +1153,8 @@ async function ps5State() {
 load(); setInterval(load, 5000);
 setInterval(() => { if (!document.getElementById('p-comm').hidden) loadComm(); }, 60000); ps5State(); setInterval(ps5State, 15000);
 try {
-  const saved = {'#community': 'comm', '#remote': 'ps5', '#ftp': 'ftp', '#activity': 'act'}[location.hash] || localStorage.getItem('tab');
-  if (['comm', 'ps5', 'ftp', 'act'].includes(saved)) tab(saved);
+  const saved = {'#community': 'comm', '#remote': 'ps5', '#ftp': 'ftp', '#activity': 'act', '#games': 'pg'}[location.hash] || localStorage.getItem('tab');
+  if (['comm', 'ps5', 'ftp', 'act', 'pg'].includes(saved)) tab(saved);
 } catch (e) {}
 </script>
 <footer class="mut" style="text-align:center;padding:16px;font-size:12px">ps5-lz4 ·

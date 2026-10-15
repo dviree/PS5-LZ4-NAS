@@ -100,6 +100,11 @@ that container alone.
 - **Community tab:** every game reported by other players, fetched live from
   the GitHub reports every 5 minutes (or **Refresh now**), with search,
   filters and sorting.
+- **PS5 games tab:** every game folder on the PS5 (`homebrew` and
+  `etaHEN/games` on the internal SSD, USB and extended storage) with its
+  icon, name, Title ID, version, drive, LZ4 or not, size (Measure), and a
+  warning when two folders have the same Title ID (ShadowMountPlus mounts
+  one). Buttons: Delete (one OK), Open in the FTP tab, APR-EMU check.
 - **Remote tab:** the PS5 address, pairing and wake-up (see below), and the
   PS5's drives (internal SSD, USB, extended storage) with what ps5-lz4 sent
   there, how many game folders they hold, **Measure** (adds up the files)
