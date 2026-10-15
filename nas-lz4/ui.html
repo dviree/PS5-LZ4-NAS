@@ -86,8 +86,17 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
       <input id="s-ftp" placeholder="PS5 FTP, t.ex. 192.168.50.90:2121">
       <input id="s-dest" placeholder="Mål på PS5:an, t.ex. /mnt/usb0/homebrew">
     </div>
-    <div class="mut">Väcka PS5:an från viloläge (som Chiaki): ange Remote Play-nyckeln, <code>rp_regist_key</code> i Chiakis
-    inställningar (8 hextecken, t.ex. <code>1a2b3c4d</code>). Då väcks konsolen automatiskt när du trycker <b>Överför till PS5</b>.</div>
+    <h2 style="margin-top:14px">Koppla PS5:an (Remote Play, som Chiaki)</h2>
+    <div class="mut">Kopplingen gör att sidan kan väcka PS5:an från viloläge när du trycker <b>Överför till PS5</b>.
+    Öppna <i>Inställningar › System › Fjärrspel › Länka enhet</i> på PS5:an och skriv in PIN-koden som visas, och kontots
+    PSN-konto-ID. Med fake sign-in på en jailbreakad PS5 är det ID:t som aktiveringsverktyget satte (base64 som i Chiaki,
+    decimalt eller 0x-hex). <span id="paired"></span></div>
+    <div class="filters">
+      <input id="p-acc" placeholder="PSN-konto-ID" autocomplete="off">
+      <input id="p-pin" placeholder="PIN (8 siffror)" inputmode="numeric" autocomplete="off" style="max-width:180px">
+      <button class="pri" onclick="pair()">Koppla</button>
+    </div>
+    <div class="mut">Redan kopplad i Chiaki? Du kan i stället skriva in <code>rp_regist_key</code> därifrån (8 hextecken).</div>
     <div class="filters">
       <input id="s-key" placeholder="Remote Play-nyckel (rp_regist_key)" autocomplete="off">
       <button onclick="saveSettings()">Spara</button>
@@ -159,7 +168,7 @@ async function saveSettings() {
   const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action: 'settings', ps5_ftp: document.getElementById('s-ftp').value,
       ps5_dest: document.getElementById('s-dest').value,
-      ps5_wake_key: document.getElementById('s-key').value})});
+      ps5_wake_key: document.getElementById('s-key').value.trim() || (data.settings.ps5_wake_key ? 'set' : '')})});
   const j = await r.json().catch(() => ({}));
   alert(r.ok ? 'Sparat.' : 'Gick inte: ' + (j.error || r.status));
   settingsFilled = false; load();
@@ -185,7 +194,12 @@ function render() {
   if (!settingsFilled && d.settings) {
     document.getElementById('s-ftp').value = d.settings.ps5_ftp || '';
     document.getElementById('s-dest').value = d.settings.ps5_dest || '';
-    document.getElementById('s-key').value = d.settings.ps5_wake_key || '';
+    const kf = document.getElementById('s-key');
+    kf.value = '';
+    kf.placeholder = d.settings.ps5_wake_key ? 'Remote Play-nyckel sparad (lämna tomt för att behålla)' : 'Remote Play-nyckel (rp_regist_key)';
+    const pd = d.settings.paired || {};
+    document.getElementById('paired').innerHTML = pd.ps5_paired
+      ? `<span class="good">Kopplad till ${esc(pd.ps5_nickname || 'PS5')} (${esc(pd.ps5_paired)}).</span>` : '';
     settingsFilled = true;
   }
   const xf = document.getElementById('xfer'), tf = d.transfer;
@@ -420,6 +434,18 @@ async function load() {
   }
 }
 try { document.getElementById('fw').value = localStorage.getItem('fw') || ''; } catch (e) {}
+async function pair() {
+  const acc = document.getElementById('p-acc').value.trim(), pin = document.getElementById('p-pin').value.trim();
+  if (!acc || !/^\d{8}$/.test(pin)) { alert('Fyll i konto-ID och PIN-koden (8 siffror) från PS5:an.'); return; }
+  const btn = event.target; btn.disabled = true; btn.textContent = 'Kopplar…';
+  try {
+    const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action: 'pair', pin, account_id: acc})});
+    const j = await r.json().catch(() => ({}));
+    alert(r.ok ? `Kopplad till ${j.nickname || 'PS5:an'}. Den kan nu väckas från viloläge.` : 'Kopplingen misslyckades: ' + (j.error || r.status));
+    if (r.ok) { document.getElementById('p-pin').value = ''; settingsFilled = false; load(); }
+  } finally { btn.disabled = false; btn.textContent = 'Koppla'; }
+}
 async function ps5State() {
   try {
     const r = await (await fetch('/api/ps5', {cache: 'no-store'})).json();
@@ -431,5 +457,8 @@ async function ps5State() {
 load(); setInterval(load, 5000); ps5State(); setInterval(ps5State, 15000);
 try { if (location.hash === '#community' || localStorage.getItem('tab') === 'comm') tab('comm'); } catch (e) {}
 </script>
+<footer class="mut" style="text-align:center;padding:16px;font-size:12px">ps5-lz4 ·
+  <a href="https://github.com/dviree/PS5-LZ4-NAS" target="_blank" rel="noopener">källkod</a> (GPL-3.0; Remote Play-kopplingen
+  är porterad från <a href="https://github.com/streetpea/chiaki-ng" target="_blank" rel="noopener">chiaki-ng</a>, AGPL-3.0)</footer>
 </body>
 </html>

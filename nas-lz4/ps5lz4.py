@@ -1562,8 +1562,18 @@ def save_settings(new: dict) -> dict:
     if key and not re.fullmatch(r"[0-9A-Fa-f]{1,8}", key):
         raise ValueError("the Remote Play key is up to 8 hex characters (rp_regist_key in Chiaki)")
     s.update(ps5_ftp=ftp, ps5_dest=dest, ps5_wake_key=key)
-    write_json(SETTINGS_PATH, s)
+    stored = read_json(SETTINGS_PATH, {}) or {}
+    stored.update(s)  # keeps the pairing details (RP key, MAC, name)
+    write_settings(stored)
     return s
+
+
+def write_settings(data: dict) -> None:
+    write_json(SETTINGS_PATH, data)
+    try:
+        os.chmod(SETTINGS_PATH, 0o600)  # Remote Play keys
+    except OSError:
+        pass
 
 
 # Remote Play discovery, the way Chiaki wakes a PS5 from rest mode: a UDP
@@ -1622,6 +1632,35 @@ def ftp_open(host: str, port: int, timeout: float = 3) -> bool:
             return True
     except OSError:
         return False
+
+
+def ps5_pair(pin: str, account_id: str) -> dict:
+    """Remote Play pairing like Chiaki (ps5regist.py, AGPL); stores the keys."""
+    sys.path.insert(0, str(Path(__file__).parent))
+    import ps5regist
+    host = get_settings()["ps5_ftp"].partition(":")[0]
+    if not host:
+        raise ValueError("set the PS5 address first")
+    try:
+        res = ps5regist.register(host, pin, account_id)
+    except ps5regist.RegistError as err:
+        raise ValueError(str(err))
+    except OSError as err:
+        raise ValueError(f"no connection to the PS5 at {host}: {err}")
+    stored = read_json(SETTINGS_PATH, {}) or {}
+    stored.update(ps5_wake_key=res["regist_key"], ps5_rp_key=res["rp_key"], ps5_mac=res["mac"],
+                  ps5_nickname=res["nickname"], ps5_paired=now())
+    write_settings(stored)
+    return {"nickname": res["nickname"], "mac": res["mac"], "paired": stored["ps5_paired"]}
+
+
+def cmd_pair(args) -> int:
+    try:
+        res = ps5_pair(args.pin, args.account_id)
+    except ValueError as err:
+        raise SystemExit(f"pairing failed: {err}")
+    print(f"paired with {res['nickname'] or 'the PS5'} ({res['mac']}); it can now be woken from rest mode")
+    return 0
 
 
 def cmd_wake(_args) -> int:
@@ -1975,7 +2014,8 @@ def dashboard_data() -> dict:
             "level": int(os.environ.get("PS5LZ4_LEVEL", "9")), "runtime": "PackedStdio 0.4.2.1",
             "compat_updated": (read_json(COMPAT_FILE, {}) or {}).get("updated"),
             "requests": {"pending": pending, "pending_list": pending_list, "recent": done_req[::-1]}, "version": VERSION,
-            "settings": {**get_settings(), "ps5_wake_key": "set" if get_settings()["ps5_wake_key"] else ""},
+            "settings": {**get_settings(), "ps5_wake_key": "set" if get_settings()["ps5_wake_key"] else "",
+                         "paired": {k: (read_json(SETTINGS_PATH, {}) or {}).get(k) for k in ("ps5_nickname", "ps5_paired")}},
             "transfer": transfer_running(),
             "transfers": {f.stem: read_json(f, {}) for f in TRANSFERS.glob("*.json")} if TRANSFERS.is_dir() else {}}
 
@@ -2113,6 +2153,13 @@ def cmd_ui(args) -> int:
                 req = json.loads(self.rfile.read(min(n, 4096)) or b"{}")
             except ValueError:
                 return self.send(400, b'{"error":"bad request"}')
+            if req.get("action") == "pair":
+                try:
+                    res = ps5_pair(str(req.get("pin") or ""), str(req.get("account_id") or ""))
+                except ValueError as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+                cache["at"] = 0
+                return self.send(200, json.dumps(res).encode())
             if req.get("action") == "wake":
                 cfg = get_settings()
                 host = cfg["ps5_ftp"].partition(":")[0]
@@ -2221,6 +2268,10 @@ def main() -> int:
     sp.add_argument("game", help="LZ4 folder name, library name or title ID")
     sp.add_argument("--force", action="store_true", help="copy even if the PS5 has another copy of the title")
     sp.set_defaults(func=cmd_push)
+    sp = sub.add_parser("pair", help="pair with the PS5 for Remote Play wake-up, like Chiaki (PIN from the PS5)")
+    sp.add_argument("pin", help="8-digit PIN: PS5 Settings > System > Remote Play > Link Device")
+    sp.add_argument("account_id", help="PSN account ID: base64 like Chiaki, decimal, or 0x-hex")
+    sp.set_defaults(func=cmd_pair)
     sp = sub.add_parser("wake", help="wake the PS5 from rest mode (Remote Play key, like Chiaki)")
     sp.set_defaults(func=cmd_wake)
     sp = sub.add_parser("dashboard", help="everything the web page shows, as JSON")
