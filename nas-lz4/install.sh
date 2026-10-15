@@ -20,6 +20,10 @@ CONTAINER="${CONTAINER:-ps5-lz4}"
 LEVEL="${LEVEL:-9}"
 FREE_MARGIN_GB="${FREE_MARGIN_GB:-20}"
 UI_PORT="${UI_PORT:-5921}"                         # web page: http://<NAS>:$UI_PORT
+# yes: the web page can delete original games from the library (the packing
+# container then mounts the library writable; packing itself never writes there).
+DELETE_ORIGINALS="${DELETE_ORIGINALS:-no}"
+LIB_MODE=":ro"; [ "$DELETE_ORIGINALS" = yes ] && LIB_MODE=""
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 CHECK_ONLY=0
@@ -168,9 +172,10 @@ services:
       PS5LZ4_HOST_STATE: "$BASE/state"
       PS5LZ4_LEVEL: "$LEVEL"
       PS5LZ4_FREE_MARGIN_GB: "$FREE_MARGIN_GB"
+      PS5LZ4_DELETE_ORIGINALS: "$DELETE_ORIGINALS"
       TZ: "$TZ_NAME"
     volumes:
-      - "$LIBRARY:/library:ro"
+      - "$LIBRARY:/library$LIB_MODE"
       - "$OUTPUT:/output"
       - "$BASE/state:/state"
       - "$BASE/logs:/state/logs"
@@ -198,6 +203,7 @@ services:
       PS5LZ4_HOST_OUTPUT: "$OUTPUT"
       PS5LZ4_HOST_STATE: "$BASE/state"
       PS5LZ4_LEVEL: "$LEVEL"
+      PS5LZ4_DELETE_ORIGINALS: "$DELETE_ORIGINALS"
       TZ: "$TZ_NAME"
     volumes:
       - "$LIBRARY:/library:ro"

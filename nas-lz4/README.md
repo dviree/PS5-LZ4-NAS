@@ -177,6 +177,24 @@ If you have already paired in Chiaki, you can enter its `rp_regist_key`
 page. The pairing code is a port of chiaki-ng's registration
 (`ps5regist.py`, AGPL-3.0).
 
+## Deleting originals
+
+By default the library is mounted read-only, so nothing can change or delete
+an original game. To be able to delete originals from the web page (the
+**🗑 Delete original on NAS** button in a game's sheet), reinstall with
+`DELETE_ORIGINALS=yes`:
+
+```sh
+cd /volume2/docker/ps5-lz4
+rm -rf src && curl -fL https://github.com/dviree/PS5-LZ4-NAS/archive/refs/heads/main.tar.gz | tar xz && mv PS5-LZ4-NAS-main src
+DELETE_ORIGINALS=yes bash src/nas-lz4/install.sh
+```
+
+Then only the packing container (`ps5-lz4`) gets the library writable; the
+web page container still sees it read-only, and packing never writes to it.
+Each delete asks first and says whether an LZ4 copy remains. Reinstall
+without the variable to turn it off again.
+
 ## Commands
 
 Run from `/volume2/docker/ps5-lz4/` with `sudo` (Docker needs root). Jobs run
