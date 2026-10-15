@@ -211,9 +211,14 @@ running) and can:
   `state/engine`) and copies it over FTP to
   `/data/pldmgr/payloads/lz4-compression/lz4-compression.elf`, where the
   Payload Manager loads it, overwriting the file that was there.
-- **Start it now**: sends the ELF to an ELF loader on the PS5 (port 9021,
-  then 9020) so it runs without a restart. Without a loader running, start
-  LZ4 Compression from the Payload Manager instead.
+- **Start it now**: asks Payload Manager (port 8084) to load the installed
+  engine; the new engine takes over from one that already runs (the engine's
+  handoff), so no restart is needed. Without Payload Manager answering, and
+  with no engine running, the ELF is sent to an ELF loader (port 9021, then
+  9020). The card shows the version and process of the engine that runs.
+- The install also writes `/data/LZ4Compression/update-feed` with this
+  repository's release feed. The LZ4 Compression app updates the engine from
+  that feed (its `update.js`), so it no longer puts the original engine back.
 - **Restore the original**: shown only when an earlier version left a
   `lz4-compression.elf.orig` on the PS5; puts that file back.
 

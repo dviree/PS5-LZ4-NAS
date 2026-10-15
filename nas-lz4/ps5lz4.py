@@ -2373,6 +2373,10 @@ ENGINE_REPO = os.environ.get("PS5LZ4_ENGINE_REPO", "dviree/PS5-LZ4-NAS")
 ENGINE_PATH = "/data/pldmgr/payloads/lz4-compression/lz4-compression.elf"
 ENGINE_DIR = STATE / "engine"
 # ELF loaders: elfldr / etaHEN on 9021, the exploit stage's loader on 9020.
+PLDMGR_PORT = int(os.environ.get("PS5LZ4_PLDMGR_PORT", "8084"))  # Payload Manager's loadpayload
+# The LZ4 Compression app updates the engine from this feed (its update.js);
+# pointed at ENGINE_REPO so the app doesn't put the original engine back.
+APP_FEED_PATH = "/data/LZ4Compression/update-feed"
 ELFLDR_PORTS = [int(p) for p in os.environ.get("PS5LZ4_ELFLDR_PORTS", "9021,9020").split(",") if p.strip()]
 
 
@@ -2403,6 +2407,12 @@ def engine_status() -> dict:
             return err.code
         except Exception:
             return None
+    try:
+        with urllib.request.urlopen(f"http://{host}:{LZC_PORT}/api/status", timeout=3) as r:
+            info = json.load(r)
+        out.update(running_version=info.get("version"), pid=info.get("pid"), uptime=info.get("uptime"))
+    except Exception:
+        pass
     ka = get("/api/lzc/keep-awake?seconds=0")
     if ka == 200:
         out.update(state="connected", keep_awake=True)
@@ -2461,6 +2471,13 @@ def engine_install() -> dict:
         with elf.open("rb") as src:
             f.storbinary(f"STOR {ENGINE_PATH}", src, blocksize=1 << 20)
         try:
+            import io
+            ps5_ftp_mkdirs(f, APP_FEED_PATH.rsplit("/", 1)[0])
+            feed = f"https://api.github.com/repos/{ENGINE_REPO}/releases/latest\n".encode()
+            f.storbinary(f"STOR {APP_FEED_PATH}", io.BytesIO(feed))
+        except ftplib.all_errors as err:
+            print(f"[{now()}] could not point the app's updater at {ENGINE_REPO}: {err}", flush=True)
+        try:
             got = f.size(ENGINE_PATH)
         except ftplib.all_errors:
             got = None
@@ -2503,30 +2520,42 @@ def engine_restore() -> dict:
 
 
 def engine_start() -> dict:
-    """Run the engine now by sending the ELF to an ELF loader on the PS5 (ports 9021, 9020)."""
+    """Run the installed engine now: through Payload Manager (port 8084), where a
+    new engine takes over from one that already runs, else by sending the ELF
+    to an ELF loader (ports 9021, 9020) when no engine runs."""
     import socket
-    if engine_status()["state"] in ("connected", "original"):
-        raise ValueError("the engine already runs on the PS5 (port 5920 is taken); a newly installed file "
-                         "runs after the PS5 restarts or LZ4 Compression is started again from the Payload Manager")
-    elf, tag = engine_fetch()
+    import urllib.request
     host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
     if not host:
         raise ValueError("set the PS5 address first")
+    before = engine_status()
     tried = []
+    try:
+        with urllib.request.urlopen(f"http://{host}:{PLDMGR_PORT}/loadpayload:{ENGINE_PATH}", timeout=10) as r:
+            body = r.read(65536).decode(errors="replace").strip()
+        if "Invalid payload name" in body:
+            tried.append(f"Payload Manager ({PLDMGR_PORT}): it doesn't know {ENGINE_PATH}")
+        else:
+            print(f"[{now()}] engine loaded through Payload Manager on {host}:{PLDMGR_PORT}", flush=True)
+            return {"sent": True, "via": f"Payload Manager ({PLDMGR_PORT})", "before_pid": before.get("pid")}
+    except Exception as err:
+        tried.append(f"Payload Manager ({PLDMGR_PORT}): {getattr(err, 'reason', None) or err}")
+    if before["state"] in ("connected", "original"):
+        raise ValueError("the old engine still runs and Payload Manager could not load the new one ("
+                         + "; ".join(tried) + "). Start LZ4 Compression from the Payload Manager on the PS5, "
+                         "or restart the PS5.")
+    elf, tag = engine_fetch()
     for port in ELFLDR_PORTS:
         try:
-            with socket.create_connection((host, port), timeout=10) as s:
-                s.sendall(elf.read_bytes())
+            with socket.create_connection((host, port), timeout=10) as sk:
+                sk.sendall(elf.read_bytes())
         except OSError as err:
-            tried.append(f"{port}: {getattr(err, 'strerror', None) or err}")
+            tried.append(f"ELF loader {port}: {getattr(err, 'strerror', None) or err}")
             continue
         print(f"[{now()}] engine {tag} sent to the ELF loader on {host}:{port}", flush=True)
-        return {"tag": tag, "sent": True, "port": port}
-    raise ValueError("no ELF loader is running on the PS5 (" + "; ".join(tried) + "). The engine is installed: "
-                     "start LZ4 Compression from the Payload Manager on the PS5, or restart the PS5 if the "
-                     "Payload Manager starts it by itself. Or load an ELF loader (elfldr) first and try again.")
-    return {"tag": tag, "sent": True}
-
+        return {"tag": tag, "sent": True, "via": f"ELF loader ({port})"}
+    raise ValueError("nothing on the PS5 could start it (" + "; ".join(tried) + "). The engine is installed: "
+                     "start LZ4 Compression from the Payload Manager on the PS5, or restart the PS5.")
 
 ENGINE_AUTO = ENGINE_DIR / "auto.json"  # {"on": bool}: update the engine on the PS5 by itself
 ENGINE_CHECK_EVERY = int(os.environ.get("PS5LZ4_ENGINE_CHECK", str(6 * 3600)))

@@ -292,7 +292,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;whi
     <div class="mut" id="eng-info"></div>
     <div class="filters" id="eng-acts">
       <button class="two" onclick="engAct('engine_install', 'Download the newest engine from GitHub and install it in the Payload Manager on the PS5? It overwrites the engine file there.')">Install ELF on PS5<small>download from GitHub, overwrite the old one over FTP</small></button>
-      <button class="two" onclick="engAct('engine_start')">Start it now<small>send it to an ELF loader (port 9021 or 9020)</small></button>
+      <button class="two" onclick="engAct('engine_start')">Start it now<small>load it through Payload Manager; it takes over from the running one</small></button>
       <button class="two danger" id="eng-restore" hidden onclick="engAct('engine_restore', 'Put the saved original engine (.orig) back?')">Restore the original<small>undo the install</small></button>
     </div>
     <div class="why" id="eng-msg"></div>
@@ -1276,13 +1276,13 @@ async function engCheck() {
     st.className = 'pill ' + m[0]; st.textContent = m[1];
     const why = {
       connected: 'Connected: transfers keep the PS5 awake through the engine.',
-      original: 'The engine runs but is the original build, so it can\'t keep the PS5 awake. Install this build, then restart the PS5 (or Start it now).',
+      original: 'The engine runs but is the original build, so it can\'t keep the PS5 awake. Press Install ELF on PS5, then Start it now: the new engine takes over from this one.',
       off: 'Nothing answers on port 5920. Start LZ4 Compression from the Payload Manager on the PS5, or press Start it now.',
       'no-address': 'Save the PS5 address below first.'}[j.state] || '';
     engInfo = j; engInst(j);
     document.getElementById('eng-restore').hidden = !(j.installed && j.installed.orig);
     document.getElementById('eng-auto').checked = !!j.auto;
-    info.innerHTML = esc(why) + (j.host ? `<br>Engine at <code>http://${esc(j.host)}:${j.port}</code>` : '')
+    info.innerHTML = esc(why) + (j.running_version ? `<br>Running: <b>${esc(j.running_version)}</b> (process ${esc(String(j.pid))})` : '') + (j.host ? `<br>Engine at <code>http://${esc(j.host)}:${j.port}</code>` : '')
       + `<br>Installed to <code>${esc(j.path)}</code> from <code>${esc(j.repo)}</code>` + (j.cached ? ` · downloaded: ${esc(j.cached)}` : '');
   } catch (e) { st.textContent = 'Engine: ?'; }
 }
@@ -1291,7 +1291,7 @@ async function engOneClick() {
   const upd = engInfo && engInfo.update;
   if (!confirm((upd ? `Update the LZ4 Compression engine on the PS5 from ${engInfo.installed.tag} to ${engInfo.latest}?`
     : 'Install the LZ4 Compression engine (ELF) on the PS5?') + `\n\nThe newest release is downloaded from GitHub (${engInfo ? engInfo.repo : 'your repository'}), `
-    + 'copied over FTP into the Payload Manager (overwriting the old file) and started through an ELF loader (port 9021 or 9020) when one runs.')) return;
+    + 'copied over FTP into the Payload Manager (overwriting the old file) and started through Payload Manager, taking over from the engine that runs now.')) return;
   const b = document.getElementById('b-elf'), small = document.getElementById('b-elf-st'), was = small.textContent;
   b.disabled = true; small.textContent = 'downloading and copying…';
   const post = action => fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -1299,29 +1299,27 @@ async function engOneClick() {
   try {
     const ins = await post('engine_install');
     if (!ins.ok) { alert('Not installed: ' + (ins.j.error || '?')); return; }
-    // An engine already on port 5920 keeps the port: a second copy can't start,
-    // so the new file runs from the next start of the PS5 / Payload Manager.
-    const st = (await (await fetch('/api/engine', {cache: 'no-store'})).json().catch(() => ({}))).state;
-    if (st === 'connected' || st === 'original') {
-      alert(`Installed ${ins.j.tag} on the PS5` + '' + '.\n\n'
-        + 'The engine that runs now keeps going until the PS5 restarts; the new one starts after that '
-        + '(or start LZ4 Compression again from the Payload Manager).');
-      return;
-    }
+    // Payload Manager loads the new engine; it takes over from one that runs.
     small.textContent = 'starting…';
     const run = await post('engine_start');
-    let state = '';
-    for (let i = 0; run.ok && i < 6 && state !== 'connected'; i++) {
-      await new Promise(r => setTimeout(r, 2000));
-      state = (await (await fetch('/api/engine', {cache: 'no-store'})).json().catch(() => ({}))).state;
-    }
-    alert(`Installed ${ins.j.tag} on the PS5` + '' + '.\n\n'
-      + (state === 'connected' ? 'The engine runs and is connected: transfers now keep the PS5 awake.'
-        : run.ok ? 'Sent to the ELF loader, but the engine does not answer yet. Check again on the Remote tab in a moment.'
-        : 'It could not be started from here (' + (run.j.error || '?') + '). Start LZ4 Compression from the Payload Manager on the PS5, or restart the PS5.'));
+    const w = run.ok ? await engWaitNew(run.j.before_pid) : null;
+    alert(`Installed ${ins.j.tag} on the PS5.\n\n`
+      + (w && w.state === 'connected' ? `The new engine runs (${w.running_version || ins.j.tag}) and is connected: transfers now keep the PS5 awake.`
+        : run.ok ? `Started through ${run.j.via}, but the new engine doesn't answer yet. Press Check on the Remote tab in a moment.`
+        : (run.j.error || 'It could not be started from here.')));
   } finally { b.disabled = false; small.textContent = was; engHeader(); if (!document.getElementById('p-ps5').hidden) engCheck(); }
 }
 let engInfo = null;
+// After a start: wait until an engine with another process ID answers.
+async function engWaitNew(oldPid) {
+  let j = null;
+  for (let i = 0; i < 15; i++) {
+    await new Promise(r => setTimeout(r, 2000));
+    j = await (await fetch('/api/engine', {cache: 'no-store'})).json().catch(() => null);
+    if (j && j.state === 'connected' && (!oldPid || j.pid !== oldPid)) return j;
+  }
+  return j;
+}
 async function engHeader() {
   try {
     const j = engInfo = await (await fetch('/api/engine', {cache: 'no-store'})).json();
@@ -1367,8 +1365,9 @@ async function engAct(action, confirmText) {
   msg.className = 'why good';
   msg.textContent = action === 'engine_install' ? `Installed ${j.tag} (${(j.bytes / 1048576).toFixed(1)} MB).`
       + ' Restart the PS5 or press Start it now to run it.'
-    : action === 'engine_start' ? `Sent ${j.tag}; it starts in a few seconds.` : 'The original engine is back; it runs after the next start.';
-  setTimeout(() => { engCheck(); engHeader(); }, action === 'engine_start' ? 5000 : 500);
+    : action === 'engine_start' ? `Started through ${j.via}; the new engine answers in a few seconds.` : 'The original engine is back; it runs after the next start.';
+  if (action === 'engine_start') { const w = await engWaitNew(j.before_pid); msg.textContent = w && w.state === 'connected' ? `The new engine runs (${w.running_version || '?'}) ✓` : 'Started, but the new engine doesn\'t answer yet: press Check in a moment.'; }
+  setTimeout(() => { engCheck(); engHeader(); }, 500);
 }
 // Wake and watch: the PS5 answers the same discovery port in rest mode
 // ("standby"), so the result says whether the wake-up got there.
