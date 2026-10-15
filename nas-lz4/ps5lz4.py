@@ -1962,7 +1962,8 @@ def dashboard_data() -> dict:
         rep = read_json(REPORTS / f"{e.id}.json") or {}
         g = games.get((e.title_id or "").upper()) or {}
         row = {"id": e.id, "rel": e.rel, "kind": e.kind, "source_size": src_size, "title_id": e.title_id,
-               "name": rep.get("title_name") or e.name or e.rel, "verdict": verdict, "why": why,
+               "name": rep.get("title_name") or e.name or (e.path.stem if e.kind != "folder" else e.path.name),
+               "verdict": verdict, "why": why,
                "can_queue": can, "running": e.id == current,
                "queued": e.id in (queue.get("remaining") or []) and running,
                "source_bytes": rep.get("source_bytes"), "output_bytes": rep.get("output_bytes"),
