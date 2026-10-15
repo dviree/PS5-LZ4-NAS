@@ -153,6 +153,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
 @keyframes fade{from{opacity:0}}@keyframes rise{from{transform:translateY(12px);opacity:0}}
 /* phones */
 @media (max-width:760px){
+  #fab{width:52px;height:52px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom))}#fab .fab-info{display:none!important}#fab .ring{width:42px;height:42px}#fab .ring span{width:34px;height:34px;font-size:11px}#fabpop{bottom:calc(74px + env(safe-area-inset-bottom))}
   header{padding:10px 14px;gap:8px}
   .hacts{width:100%;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -2px;padding:2px}
   .hacts::-webkit-scrollbar{display:none}.hacts button{white-space:nowrap;flex:none}
@@ -482,6 +483,20 @@ function renderImages(d) {
   if (list.some(([, j]) => j.state === 'running')) rows.push(`<button onclick="imageStop()">Stop</button>`);
   document.getElementById('imgs').innerHTML = rows.join('');
 }
+// Send to PS5 when packed: on the packing job and each queued game; press
+// again to undo.
+function sendWhenPacked(id, small) {
+  const on = (data.send_after || []).includes(id);
+  if (!(data.settings || {}).ps5_ftp) return '';
+  return on
+    ? `<button class="${small ? 'sm ' : ''}ghost" data-g="${esc(id)}" onclick="sendAfterToggle(this.dataset.g, false)" title="Press to undo">⬆️ Sent to PS5 when packed ✓</button>`
+    : `<button class="${small ? 'sm ' : ''}pri" data-g="${esc(id)}" onclick="sendAfterToggle(this.dataset.g, true)" title="Send it to the PS5 by itself once it is packed and checked">⬆️ ${small ? 'Send when packed' : 'Send to PS5 when packed'}</button>`;
+}
+async function sendAfterToggle(id, on) {
+  await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: on ? 'send_after' : 'send_after_remove', game: id})});
+  load();
+}
 function packLeft(j) {
   const e = j.eta || {}, l = e.job_left != null ? e.job_left : e.step_left;
   return (e.rate ? ' · ' + gb(e.rate) + '/s' : '') + (l != null ? ' · about ' + dur(l) + ' left' : '');
@@ -675,7 +690,7 @@ function render() {
     (!tf ? `<div class="mut" style="margin-top:8px">Starts by itself in a few seconds…</div>` : '') : '';
   const pqEl = document.getElementById('pq'), pqs = (d.queue || []).filter(x => !d.job || x !== d.job.id);
   pqEl.innerHTML = pqs.length ? `<h4 class="qh">Queued (${pqs.length})</h4>` + pqs.map((x, i) =>
-    `<div class="qrow"><span class="qn">${i + 1}</span><span class="qname">${esc(((d.games || []).find(g => g.id === x) || {}).name || x)}</span></div>`).join('') : '';
+    `<div class="qrow"><span class="qn">${i + 1}</span><span class="qname">${esc(((d.games || []).find(g => g.id === x) || {}).name || x)}</span>${sendWhenPacked(x, true)}</div>`).join('') : '';
   const busyEl = document.getElementById('busy'), parts = [];
   const ijobs = Object.entries((d.images || {}).jobs || {}).filter(([k, j]) => j.state === 'running');
   ijobs.forEach(([k, j]) => parts.push(`💿 exFAT image <b>${esc(k)}</b> · ${esc(j.phase || '')} ${j.total ? Math.floor(100 * j.done / j.total) + ' %' : ''}`));
@@ -711,7 +726,8 @@ function render() {
       <div class="steps">${j.steps.map(s => `<div class="st ${done.has(s) ? 'd' : s === j.step ? 'r' : ''}">${STEP_EN[s] || s}${done.has(s) ? ' ✓' : ''}</div>`).join('')}</div>
       <div class="bar"><i style="width:${pct}%"></i></div>
       <div class="mut" style="margin-top:6px">${prog ? `${prog[2] ? esc(prog[2]) + ': ' : ''}${gb(prog[0])} / ${gb(prog[1])} (${pct.toFixed(0)} %) · ${gb(Math.max(0, prog[1] - prog[0]))} left${jobEta(j, prog)}` : 'starting…'}${next.length ? ' · next: ' + esc(next.map(x => (d.games.find(g => g.id === x) || {}).name || x).join(', ')) : ''}</div>
-      <div style="margin-top:10px"><button onclick="act('stop', 'Stop the job? It can be resumed later.')">Stop (resumable)</button></div>`;
+      <div class="acts" style="margin-top:10px"><button onclick="act('stop', 'Stop the job? It can be resumed later.')">Stop (resumable)</button>
+        ${sendWhenPacked(j.id, false)}</div>`;
   } else job.innerHTML = '<div class="mut">No job running.</div>';
 
   const failed = document.getElementById('failed');
