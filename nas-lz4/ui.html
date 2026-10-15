@@ -621,7 +621,7 @@ function render() {
       const ps5 = lz4 && !g.output_only ? `<select onclick="event.stopPropagation()" data-game="${esc(g.id)}" onchange="this.blur();if(this.value)act('community',null,{game:this.dataset.game,result:this.value})">
           <option value="">${g.ps5 ? esc(PS5_EN[g.ps5]) : 'not tested'}</option>
           ${Object.entries(PS5_EN).map(([k, s]) => `<option value="${k}">${s}</option>`).join('')}</select>` : '<span class="mut">–</span>';
-      const waiting = pendingFor(g.id);
+      const waiting = pendingFor(g.id), sendNext = (d.send_after || []).includes(g.id);
       const txr = g.output ? (data.transfers || {})[g.output.split('/').pop()] : null;
       const action = waiting ? '<span class="pill p-run">waiting</span>' : g.can_queue && !g.running && !g.queued
         ? `<button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game)">Compress</button>`
@@ -629,7 +629,7 @@ function render() {
         ? `<button class="sm pri" data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}" onclick="event.stopPropagation();push(this.dataset.id, this.dataset.name)">▶ Resume transfer</button>` : '';
       const why = g.verdict !== 'LZ4' && !g.running ? `<div class="why">${esc(g.why)}</div>` : '';
       const tx = txr && txr.state !== 'done' ? `<div class="cm">${xferText(txr)}</div>` : '';
-      return `<tr class="row" data-id="${esc(g.id)}" onclick="if(!event.target.closest('select,button,a'))openGame(this.dataset.id)"><td class="c-game"><img class="ico" alt="" loading="lazy" src="/api/icon?id=${encodeURIComponent(g.id)}" onerror="this.remove()"><span class="gname">${esc(g.name)}</span>${g.output_only ? '<span class="mine">LZ4 FOLDER</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_EN[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div>${placeHtml(g)}<div class="cm">${community(g.community)}</div>${tx}${why}</td>
+      return `<tr class="row" data-id="${esc(g.id)}" onclick="if(!event.target.closest('select,button,a'))openGame(this.dataset.id)"><td class="c-game"><img class="ico" alt="" loading="lazy" src="/api/icon?id=${encodeURIComponent(g.id)}" onerror="this.remove()"><span class="gname">${esc(g.name)}</span>${g.output_only ? '<span class="mine">LZ4 FOLDER</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_EN[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div>${placeHtml(g)}<div class="cm">${community(g.community)}</div>${tx}${sendNext ? '<div class="cm"><span class="chip ok">🎮 sent to the PS5 when packed</span></div>' : ''}${why}</td>
         <td class="c-status"><span class="pill ${v[0]}">${v[1]}</span></td>
         <td class="num c-src">${gb(g.source_bytes)}</td><td class="num c-out">${gb(g.output_bytes)}</td>
         <td class="num c-saved">${g.saved_percent != null ? `<b>${gb(g.source_bytes - g.output_bytes)}</b> saved · ${Math.round(g.saved_percent)} %<span class="mut mob"> · ${gb(g.source_bytes)} → ${gb(g.output_bytes)}</span>
@@ -657,11 +657,16 @@ function render() {
 function pendingFor(id) {
   return data && (data.requests.pending_list || []).some(r => r.action === 'start' && r.game === id);
 }
-function compress(id) {
+async function compress(id, send) {
   const g = (data.games || []).find(x => x.id === id) || {name: id};
+  const s = data.settings || {};
+  if (send && !s.ps5_ftp) { alert('Enter the PS5 address on the Remote tab first.'); tab('ps5'); return; }
   const note = data.running ? '\n\nAnother game is being packed; this one starts when it is done.' : '';
   const pfsc = g.kind === 'ffpfsc' ? `\n\nThis .ffpfsc image is already compressed (${gb(g.source_size)}). The LZ4 copy is usually about as large or larger, so it saves little or no space; Compress all leaves these out.` : '';
-  act('start', `Compress ${g.name} with LZ4?${pfsc}${note}`, {game: id});
+  const then = send ? `\n\nWhen it is packed and checked, it is sent to ${s.ps5_ftp}${s.ps5_dest} by itself (queued if another transfer runs).` : '';
+  if (!confirm(`Compress ${g.name} with LZ4${send ? ' and send it to the PS5' : ''}?${pfsc}${note}${then}`)) return;
+  if (send) await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'send_after', game: id})});
+  act('start', null, {game: id});
 }
 function reportLink(repo, tid, name, status, extra = {}) {
   const forms = {works: 'Works', issues: 'Works with issues', nostart: "Won't start (black screen or crash on launch)", crash: 'Crashes in game'};
@@ -758,7 +763,8 @@ function gameHtml(g, det) {
   const acts = [];
   if (pendingFor(g.id)) acts.push('<span class="pill p-run">waiting to start</span>');
   else if (g.can_queue && !g.running && !g.queued)
-    acts.push(`<button class="pri" data-game="${esc(g.id)}" onclick="compress(this.dataset.game)">Compress</button>`);
+    acts.push(`<button class="pri" data-game="${esc(g.id)}" onclick="compress(this.dataset.game)">Compress</button>`,
+      `<button class="pri" data-game="${esc(g.id)}" onclick="compress(this.dataset.game, true)">Compress and send to PS5</button>`);
   if (g.verdict === 'LZ4' && !g.output_only)
     acts.push(`<select data-game="${esc(g.id)}" onchange="this.blur();if(this.value)act('community',null,{game:this.dataset.game,result:this.value})">
       <option value="">PS5 result: ${g.ps5 ? esc(PS5_EN[g.ps5]) : 'not tested'}</option>

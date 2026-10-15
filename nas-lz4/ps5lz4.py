@@ -585,6 +585,11 @@ class Job:
         self.state["updated"] = now()
         self.save()
 
+    def expect(self, folder: Path, total: int, phase: str) -> None:
+        """MkPFS runs without progress output: the page measures folder against total."""
+        self.state["expect"] = {"folder": folder.name, "total": int(total), "phase": phase}
+        self.save()
+
     def set_step(self, step: str) -> None:
         self.state["step"] = f"{step} (running)"
         self.state["updated"] = now()
@@ -646,6 +651,7 @@ class Job:
             if meta["status"] != "compatible":
                 raise Skip(meta["reason"])
             self.need_space(meta["logical_bytes"], "extraction")
+            self.expect(partial, meta["logical_bytes"], "unpacking the image")
             self.run_tool([MKPFS, "unpack", "--format", "exfat", "--no-progress",
                            str(image), str(partial)], "extract")
             info["extraction"] = "MkPFS exFAT reader"
@@ -664,6 +670,7 @@ class Job:
             info["listing_check"] = f"{len(meta['listing'])} files match the image directory"
         else:
             self.need_space(image.stat().st_size * 3, "extraction")
+            self.expect(outer, image.stat().st_size, "unpacking the outer image")
             self.run_tool([MKPFS, "unpack", "--format", "pfs", "--no-progress",
                            str(image), str(outer)], "extract-outer")
             info["extraction"] = "MkPFS PFS reader"
@@ -682,6 +689,7 @@ class Job:
                     fmt = "exfat" if f.read(8) == EXFAT_SIG else "pfs"
                 info["nested_format"] = fmt
                 self.need_space(nested.stat().st_size, "inner extraction")
+                self.expect(partial, nested.stat().st_size, "unpacking the inner image")
                 self.run_tool([MKPFS, "unpack", "--format", fmt, "--no-progress",
                                str(nested), str(partial)], "extract-inner")
                 remove_work_path(outer)
@@ -693,6 +701,7 @@ class Job:
         root = extract / rel_root
         files, total = tree_bytes(root)
         info.update(source_root=str(root), source_files=files, source_bytes=total)
+        self.state.pop("expect", None)
         self.mark("source", **info)
         self.log(f"extracted {files} files, {human(total)} ({info['vhash']})")
         for f in ("extract.out", "extract.err", "extract-outer.out", "extract-outer.err",
@@ -3056,6 +3065,12 @@ def work_progress(w: Path) -> tuple[int, int, str] | None:
         m = re.findall(r"\[progress\] (\d+) / (\d+)", tail)
         if m:
             best = (int(m[-1][0]), int(m[-1][1]), PROGRESS_PHASE.get(errf.stem, ""))
+    st = read_json(w / "state.json", {}) or {}
+    exp = st.get("expect")
+    if best is None and exp and str(st.get("step", "")).startswith("source"):
+        # Unpacking an image: how much of the expected size is on disk so far.
+        _files, got = tree_bytes(w / exp["folder"]) if (w / exp["folder"]).is_dir() else (0, 0)
+        best = (min(got, exp["total"]), exp["total"], exp["phase"])
     return best
 
 
@@ -3176,6 +3191,7 @@ def dashboard_data() -> dict:
             "free_bytes": free_bytes(OUTPUT), "games": rows, "totals": totals, "failed": failed,
             "lz4c_version": lz4c_version(),
             "delete_originals": DELETE_ORIGINALS,
+            "send_after": list(read_json(SEND_AFTER, {}) or {}),
             "level": int(os.environ.get("PS5LZ4_LEVEL", "9")), "runtime": RUNTIME_NAME.removeprefix("APR-EMU "),
             "compat_updated": compat_data().get("updated"),
             "requests": {"pending": pending, "pending_list": pending_list, "recent": done_req[::-1]}, "version": VERSION,
@@ -3281,6 +3297,61 @@ def cmd_agent(_args) -> int:
         for f in olds[:-20]:
             f.unlink(missing_ok=True)
         time.sleep(2)
+
+
+_push_lock = __import__("threading").Lock()
+
+
+def start_push(game: str, force: bool = False) -> dict:
+    """Start sending a game to the PS5, or queue it behind the running transfer."""
+    with _push_lock:
+        q = transfer_queue()
+        starting = TRANSFERS / ".starting"
+        just_started = starting.exists() and time.time() - starting.stat().st_mtime < 20
+        if transfer_running() or just_started:  # after the current one, in order
+            if game not in q:
+                transfer_queue_set(q + [game])
+            return {"queued": game, "position": transfer_queue().index(game) + 1}
+        argv = [sys.executable, os.path.abspath(__file__), "push", game] + (["--force"] if force else [])
+        TRANSFERS.mkdir(exist_ok=True)
+        starting.touch()  # until the new process has written its state
+        with open(os.devnull, "w") as devnull:
+            subprocess.Popen(argv, stdout=devnull, stderr=devnull, stdin=subprocess.DEVNULL,
+                             start_new_session=True)
+        return {"started": True}
+
+
+SEND_AFTER = STATE / "send_after.json"  # games to send to the PS5 once they are packed
+
+
+def send_after_watcher() -> None:
+    """Web page container: when a game marked 'Compress and send' is packed,
+    send it (or queue it). A game that fails or is skipped is dropped."""
+    while True:
+        try:
+            lst = read_json(SEND_AFTER, {}) or {}
+            lst = lst if isinstance(lst, dict) else {}
+            if lst:
+                keep = {}
+                entries = {e.id: e for e in scan_library()}
+                for gid in lst:
+                    e = entries.get(gid)
+                    res = result_for(e) if e else {"status": "gone"}
+                    if res["status"] == "done" and e.output.is_dir():
+                        if get_settings()["ps5_ftp"]:
+                            start_push(e.output.name)
+                        print(f"[{now()}] packed, sending to the PS5: {e.output.name}", flush=True)
+                    elif res["status"] in ("skipped", "exists", "gone"):
+                        print(f"[{now()}] not sending {gid}: {res['status']}", flush=True)
+                    elif res["status"] == "failed" and not job_running()[0] and time.time() - lst[gid] > 180:
+                        print(f"[{now()}] not sending {gid}: packing failed", flush=True)
+                    else:
+                        keep[gid] = lst[gid]
+                if keep != lst:
+                    write_json(SEND_AFTER, keep)
+        except Exception as err:
+            print(f"[{now()}] send-after: {err}", flush=True)
+        time.sleep(20)
 
 
 def cmd_ui(args) -> int:
@@ -3550,22 +3621,19 @@ def cmd_ui(args) -> int:
                     return self.send(400, b'{"error":"no game"}')
                 if not get_settings()["ps5_ftp"]:
                     return self.send(400, json.dumps({"error": "PS5 FTP address missing"}).encode())
-                q = transfer_queue()
-                starting = TRANSFERS / ".starting"
-                just_started = starting.exists() and time.time() - starting.stat().st_mtime < 20
-                if transfer_running() or just_started:  # after the current one, in order
-                    if game not in q:
-                        transfer_queue_set(q + [game])
-                    cache["at"] = 0
-                    return self.send(200, json.dumps({"queued": game, "position": transfer_queue().index(game) + 1}).encode())
-                argv = [sys.executable, os.path.abspath(__file__), "push", game] + (["--force"] if req.get("force") else [])
-                TRANSFERS.mkdir(exist_ok=True)
-                starting.touch()  # until the new process has written its state
-                with open(os.devnull, "w") as devnull:
-                    subprocess.Popen(argv, stdout=devnull, stderr=devnull, stdin=subprocess.DEVNULL,
-                                     start_new_session=True)
+                res = start_push(game, bool(req.get("force")))
                 cache["at"] = 0
-                return self.send(200, b'{"started":true}')
+                return self.send(200, json.dumps(res).encode())
+            if req.get("action") == "send_after":
+                game = str(req.get("game") or "")
+                if not game or "/" in game:
+                    return self.send(400, b'{"error":"no game"}')
+                lst = read_json(SEND_AFTER, {}) or {}
+                lst = lst if isinstance(lst, dict) else {}
+                lst.setdefault(game, time.time())
+                write_json(SEND_AFTER, lst)
+                cache["at"] = 0
+                return self.send(200, b'{"send_after":true}')
             if req.get("action") not in UI_ACTIONS:
                 return self.send(400, b'{"error":"unknown action"}')
             req = {k: req.get(k) for k in ("action", "game", "result")}
@@ -3578,6 +3646,7 @@ def cmd_ui(args) -> int:
     refreshed = [0.0]
     if COMPAT_REFRESH > 0:
         __import__("threading").Thread(target=compat_refresher, daemon=True).start()
+    __import__("threading").Thread(target=send_after_watcher, daemon=True).start()
     srv = http.server.ThreadingHTTPServer(("0.0.0.0", args.port), H)
     print(f"[{now()}] ui on port {args.port}", flush=True)
     srv.serve_forever()
