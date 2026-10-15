@@ -55,6 +55,13 @@ a{color:var(--acc)}
   <div class="card" id="job" hidden></div>
   <div class="card" id="failed" hidden></div>
   <div class="card"><h2>Bibliotek</h2><div class="scroll"><table id="games"></table></div></div>
+  <div class="card"><h2>Rapportera</h2>
+    <div class="mut">Välj PS5-resultat i kolumnen <b>PS5</b> för ett LZ4-spel. Resultatet sparas här, och under
+    <i>Senaste åtgärder</i> kommer en ifylld länk för att dela det med communityn (originalprojektets spelrapporter).</div>
+    <label style="display:inline-flex;gap:8px;align-items:center;margin-top:10px">Din firmware
+      <input id="fw" placeholder="t.ex. 13.40" size="8" style="font:inherit;padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--txt)"
+        oninput="localStorage.setItem('fw', this.value); render()"></label>
+  </div>
   <div class="card"><h2>Senaste åtgärder</h2><div class="log" id="log"><span class="mut">Inga ännu.</span></div></div>
 </main>
 <script>
@@ -145,7 +152,9 @@ function render() {
   const items = d.requests.recent;
   const pending = d.requests.pending ? `<div class="mut">${d.requests.pending} åtgärd(er) väntar…</div>` : '';
   log.innerHTML = pending + (items.length ? items.map(r => {
-    const url = (r.output || '').match(/https:\/\/github\.com\/\S+/);
+    let url = (r.output || '').match(/https:\/\/github\.com\/\S+/);
+    const fw = (localStorage.getItem('fw') || '').trim();
+    if (url && fw && !/[?&]firmware=/.test(url[0])) url = [url[0] + '&firmware=' + encodeURIComponent(fw)];
     return `<div><b class="${r.ok ? 'good' : 'bad'}">${r.ok ? '✓' : '✗'}</b> ${esc(ACT_SV[r.action] || r.action)}
       ${r.game ? esc(r.game) : ''}${r.result ? ': ' + esc(PS5_SV[r.result]) : ''} <span class="mut">${esc(r.finished)}</span>
       ${url ? `<div><a href="${esc(url[0])}" target="_blank" rel="noopener">Dela resultatet med communityn</a></div>` : ''}
@@ -166,6 +175,7 @@ async function load() {
     err.hidden = false; err.textContent = 'Når inte ps5-lz4-ui: ' + e;
   }
 }
+try { document.getElementById('fw').value = localStorage.getItem('fw') || ''; } catch (e) {}
 load(); setInterval(load, 5000);
 </script>
 </body>
