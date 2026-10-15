@@ -284,12 +284,25 @@ sent to the PS5 and installed there. The install script mounts
 `PS4_LIBRARY` (default `/volume1/games/roms/ps4`, read-only) into the web
 page container; `.pkg` files in the PS5 library are listed too.
 
-The **PS4 packages** card on My games lists each package with its name,
-CUSA ID, version, type (Game, Update, DLC) and icon, read from the package
-itself. **⬆️ Send to PS5** copies it as one file to the PS4 package folder on
-the PS5 (default `/data/pkg`, set on the Remote tab), resumable like every
-transfer. Install it from there with ItemzFlow or etaHEN's package
-installer.
+The **Packages** card on My games lists each package with its name, CUSA
+ID, version, type (Game, Update, DLC) and icon, read from the package itself.
+
+- **⬇ Install on PS5**: the PS5 downloads the package straight from this page
+  (`/pkgfile/...`, with Range requests) and installs it with its own
+  installer. That needs **pkg-receiver** on the PS5
+  ([Loopayeh/pkg-sender](https://github.com/Loopayeh/pkg-sender), MIT, port
+  12800): the Remote tab's **Install and start** downloads
+  `pkg-receiver.elf`, copies it to
+  `/data/pldmgr/payloads/pkg-receiver/pkg-receiver.elf` and starts it through
+  Payload Manager (or an ELF loader). The same card shows the internal SSD's
+  free space, which pkg-receiver reports.
+- **⬆️ Copy to /data/pkg** copies the file to the PS5's package folder (set
+  on the Remote tab), resumable like every transfer; **Install from
+  /data/pkg** then installs that copy, or use ItemzFlow / etaHEN.
+
+The PS5 reaches the page at the address the browser used (the request's
+host); set `PS5LZ4_NAS_URL` (e.g. `http://192.168.1.10:5921`) if that isn't
+an address the PS5 can reach.
 
 ## Rest mode when everything is sent
 

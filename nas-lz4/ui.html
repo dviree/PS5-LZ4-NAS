@@ -260,7 +260,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     </div>
   </details>
   <div class="card"><h2>Library</h2><div class="scroll"><table id="games"></table></div></div>
-  <div class="card" id="pkgcard" hidden><h2>PS4 packages <span class="mut" style="font-weight:500">· .pkg, sent to the PS5 and installed there with ItemzFlow or etaHEN</span></h2>
+  <div class="card" id="pkgcard" hidden><h2>Packages <span class="mut" style="font-weight:500">· .pkg, installed on the PS5 by pkg-receiver (Remote tab)</span></h2>
     <div class="scroll"><table id="pkgs"></table></div></div>
 </main>
 <main id="p-act" hidden>
@@ -324,6 +324,15 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     <div class="filters"><span class="pill p-no" id="app-st" style="align-self:center">App: ?</span>
       <button class="two" onclick="appInstall()">Install app on PS5<small>download the tile and copy it over FTP</small></button></div>
     <div class="why" id="app-msg"></div>
+  </div>
+  <div class="card"><h2>Package installer on the PS5 <span class="mut" style="font-weight:500">· pkg-receiver</span></h2>
+    <div class="mut">Installs <code>.pkg</code> games, updates and DLC with the PS5's own installer: the PS5 downloads the
+    package straight from this NAS. It is <a href="https://github.com/Loopayeh/pkg-sender" target="_blank" rel="noopener">pkg-receiver</a>
+    (pkg-sender, MIT), a payload on port 12800. <b>Install and start</b> copies it into Payload Manager and starts it.</div>
+    <div class="filters"><span class="pill p-no" id="rcv-st" style="align-self:center">pkg-receiver: ?</span>
+      <button class="sm" onclick="rcvCheck()">Check</button>
+      <button class="two" onclick="rcvInstall()">Install and start<small>download from GitHub, copy over FTP, start it</small></button></div>
+    <div class="why" id="rcv-msg"></div>
   </div>
   <div class="card"><h2>PS5 storage</h2>
     <div class="mut">ftpsrv can't tell a drive's size or free space, so: <b>Set size</b> once (as PS5 Settings › Storage
@@ -509,13 +518,24 @@ function renderPkgs(d) {
     const t = (d.transfers || {})[p.file], queued = (d.transfer_queue || []).includes('pkg:' + p.id), sending = tf && tf.game === p.file;
     const state = sending ? `<span class="pill p-run">⬆️ ${tf.total ? Math.floor(100 * tf.bytes / tf.total) : 0} %</span>`
       : queued ? '<span class="pill p-run">queued</span>'
-      : t && t.state === 'done' ? `<span class="good">in ${esc(dest)}</span><div class="why">install it with ItemzFlow or etaHEN</div>`
+      : t && t.state === 'done' ? `<span class="good">copied to ${esc(dest)}</span>`
       : t && t.state === 'failed' ? `<span class="bad">stopped at ${t.total ? Math.round(100 * t.bytes / t.total) : 0} %</span>` : '<span class="mut">–</span>';
-    const btn = sending || queued ? '' : `<button class="sm pri" data-g="${esc('pkg:' + p.id)}" data-n="${esc(p.name)}" onclick="pushPkg(this.dataset.g, this.dataset.n)">${t && t.state === 'failed' ? '▶ Resume' : t && t.state === 'done' ? 'Send again' : '⬆️ Send to PS5'}</button>`;
+    const btn = `<div class="rowbtns"><button class="sm pri" data-g="${esc(p.id)}" data-n="${esc(p.name)}" onclick="pkgInstall(this.dataset.g, this.dataset.n, 'url')" title="pkg-receiver on the PS5 downloads it from this NAS and installs it">⬇ Install on PS5</button>`
+      + (t && t.state === 'done' ? `<button class="sm ghost" data-g="${esc(p.id)}" data-n="${esc(p.name)}" onclick="pkgInstall(this.dataset.g, this.dataset.n, 'local')" title="Install the copy already in ${esc(dest)}">Install from ${esc(dest)}</button>` : '')
+      + (sending || queued ? '' : `<button class="sm ghost" data-g="${esc('pkg:' + p.id)}" data-n="${esc(p.name)}" onclick="pushPkg(this.dataset.g, this.dataset.n)">${t && t.state === 'failed' ? '▶ Resume copy' : t && t.state === 'done' ? 'Copy again' : '⬆️ Copy to ' + esc(dest)}</button>`) + '</div>';
     return `<tr><td class="c-game"><img class="ico" alt="" loading="lazy" src="/api/pkg/icon?id=${encodeURIComponent(p.id)}" onerror="this.remove()"><span class="gname">${esc(p.name)}</span>
         <div class="why">${esc(p.title_id || '')}${p.version ? ' · v' + esc(p.version) : ''} · ${esc(p.file)}${p.error ? ` · <span class="bad">${esc(p.error)}</span>` : ''}</div></td>
       <td><span class="pill p-no">${esc(p.category || 'PS4')}</span></td><td class="num">${gb(p.size)}</td><td>${state}</td><td>${btn}</td></tr>`;
   }).join('');
+}
+async function pkgInstall(id, name, via) {
+  const s = data.settings || {};
+  if (!s.ps5_ftp) { alert('Enter the PS5 address on the Remote tab first.'); tab('ps5'); return; }
+  if (!confirm(via === 'local' ? `Install ${name} on the PS5 from ${s.ps4_dest || '/data/pkg'}?`
+      : `Install ${name} on the PS5?\n\nThe PS5 downloads it from this NAS and installs it; follow it in the PS5's notifications / Downloads.`)) return;
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'pkg_install', game: id, via})});
+  const j = await r.json().catch(() => ({}));
+  alert(r.ok ? `Install of ${name} started on the PS5. Follow it there (Downloads / notifications).` : 'Not started: ' + (j.error || r.status));
 }
 function pushPkg(id, name) {
   const s = data.settings || {};
@@ -1346,7 +1366,7 @@ function tab(t) {
   try { localStorage.setItem('tab', t); } catch (e) {}
   if (t === 'comm') loadComm();
   if (t === 'pg' && !pgData) loadPg();
-  if (t === 'ps5') { engCheck(); appCheck(); }
+  if (t === 'ps5') { engCheck(); appCheck(); rcvCheck(); }
   if (t === 'ps5' && !window._drives) { window._drives = 1; loadDrives(); }
   if (t === 'ftp' && !ftpLoaded) ftpGo(ftpPath);
 }
@@ -1572,6 +1592,29 @@ async function appInstall() {
   msg.className = 'why good';
   msg.textContent = `Installed ${j.tag} (${j.files} files). The LZ4 Compression tile shows up on the home screen once ShadowMount+ has scanned (close any running game).`;
   appCheck();
+}
+async function rcvCheck() {
+  const st = document.getElementById('rcv-st'), msg = document.getElementById('rcv-msg');
+  try {
+    const j = await (await fetch('/api/receiver', {cache: 'no-store'})).json();
+    st.className = 'pill ' + (j.running ? 'p-LZ4' : 'p-no');
+    st.textContent = j.running ? `pkg-receiver: running ✓ ${j.build ? '(' + j.build + ')' : ''}` : 'pkg-receiver: not running';
+    const sp = j.space || {}, busy = j.status && j.status.busy;
+    msg.className = 'why';
+    msg.innerHTML = j.running ? `Internal SSD: <b>${gb(sp.free)}</b> free of ${gb(sp.total)}${busy ? ` · installing ${j.status.active}` : ''}`
+      : 'Not answering on port 12800. Press Install and start, or start pkg-receiver from the Payload Manager.';
+  } catch (e) { st.textContent = 'pkg-receiver: ?'; }
+}
+async function rcvInstall() {
+  if (!confirm('Download pkg-receiver.elf (github.com/Loopayeh/pkg-sender), copy it into Payload Manager on the PS5 and start it?')) return;
+  const msg = document.getElementById('rcv-msg');
+  msg.className = 'why'; msg.textContent = 'Downloading and copying to the PS5…';
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'receiver_install'})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { msg.className = 'why bad'; msg.textContent = 'Failed: ' + (j.error || r.status); return; }
+  msg.className = 'why good';
+  msg.textContent = `Installed to ${j.installed}. ` + (j.started ? `Started (${j.started}).` : j.note || '');
+  setTimeout(rcvCheck, 4000);
 }
 async function engAct(action, confirmText) {
   if (confirmText && !confirm(confirmText)) return;

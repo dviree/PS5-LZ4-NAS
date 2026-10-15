@@ -3398,6 +3398,134 @@ def pkg_icon(pid: str) -> bytes | None:
         return None
 
 
+# pkg-receiver (Loopayeh/pkg-sender, MIT): a PS5 payload on port 12800 that
+# installs .pkg files with the console's own installer, from a URL (here: the
+# NAS serves the file) or from a path on the PS5 (/data/...). This page puts
+# it in Payload Manager, starts it and asks it to install.
+RECV_PORT = int(os.environ.get("PS5LZ4_RECV_PORT", "12800"))
+RECV_REPO = os.environ.get("PS5LZ4_RECV_REPO", "Loopayeh/pkg-sender")
+RECV_PATH = "/data/pldmgr/payloads/pkg-receiver/pkg-receiver.elf"
+NAS_URL = os.environ.get("PS5LZ4_NAS_URL", "")  # how the PS5 reaches this page, e.g. http://192.168.1.10:5921
+
+
+def _recv_get(path: str, timeout: float = 3):
+    import urllib.request
+    host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
+    if not host:
+        raise ValueError("set the PS5 address first")
+    with urllib.request.urlopen(f"http://{host}:{RECV_PORT}{path}", timeout=timeout) as r:
+        return json.load(r)
+
+
+def receiver_status() -> dict:
+    out = {"port": RECV_PORT, "repo": RECV_REPO, "path": RECV_PATH, "running": False}
+    try:
+        out["build"] = _recv_get("/api/version").get("build")
+        out["running"] = True
+        out["space"] = _recv_get("/api/space")
+        out["status"] = _recv_get("/api/status")
+    except Exception as err:
+        out["error"] = str(err) if out["running"] else None
+    return out
+
+
+def receiver_fetch() -> Path:
+    """pkg-receiver.elf from the newest release of RECV_REPO (SHA-256 GitHub lists),
+    else from the repository itself; cached in state/engine."""
+    import hashlib
+    import urllib.request
+    hdr = {"User-Agent": "ps5-lz4", "Accept": "application/vnd.github+json"}
+    url, want = None, ""
+    try:
+        req = urllib.request.Request(f"https://api.github.com/repos/{RECV_REPO}/releases/latest", headers=hdr)
+        with urllib.request.urlopen(req, timeout=20) as r:
+            rel = json.load(r)
+        a = next((a for a in rel.get("assets", []) if a.get("name") == "pkg-receiver.elf"), None)
+        if a:
+            url, want = a["browser_download_url"], str(a.get("digest") or "").removeprefix("sha256:").lower()
+    except Exception:
+        pass
+    url = url or f"https://raw.githubusercontent.com/{RECV_REPO}/HEAD/payload/pkg-receiver.elf"
+    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "ps5-lz4"}), timeout=60) as r:
+        data = r.read()
+    if data[:4] != b"\x7fELF":
+        raise ValueError("the downloaded pkg-receiver.elf is not an ELF")
+    if want and hashlib.sha256(data).hexdigest() != want:
+        raise ValueError("the downloaded pkg-receiver.elf does not match the SHA-256 GitHub lists")
+    ENGINE_DIR.mkdir(parents=True, exist_ok=True)
+    elf = ENGINE_DIR / "pkg-receiver.elf"
+    elf.write_bytes(data)
+    return elf
+
+
+def receiver_install() -> dict:
+    """Put pkg-receiver in Payload Manager over FTP and start it."""
+    import io
+    import socket
+    import urllib.request
+    elf = receiver_fetch()
+    f = ps5_ftp_connect()
+    try:
+        ps5_ftp_mkdirs(f, RECV_PATH.rsplit("/", 1)[0])
+        f.storbinary(f"STOR {RECV_PATH}", io.BytesIO(elf.read_bytes()), blocksize=1 << 20)
+    finally:
+        try:
+            f.quit()
+        except Exception:
+            pass
+    if receiver_status()["running"]:
+        return {"installed": RECV_PATH, "started": "already running"}
+    host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
+    try:
+        with urllib.request.urlopen(f"http://{host}:{PLDMGR_PORT}/loadpayload:{RECV_PATH}", timeout=10) as r:
+            if "Invalid payload name" not in r.read(65536).decode(errors="replace"):
+                return {"installed": RECV_PATH, "started": f"Payload Manager ({PLDMGR_PORT})"}
+    except Exception:
+        pass
+    for port in ELFLDR_PORTS:
+        try:
+            with socket.create_connection((host, port), timeout=10) as sk:
+                sk.sendall(elf.read_bytes())
+            return {"installed": RECV_PATH, "started": f"ELF loader ({port})"}
+        except OSError:
+            continue
+    return {"installed": RECV_PATH, "started": None,
+            "note": "start pkg-receiver from the Payload Manager on the PS5"}
+
+
+def pkg_install(pid: str, via: str, page_host: str) -> dict:
+    """Ask pkg-receiver to install a package: from this page over HTTP ("url"),
+    or from the copy sent to the PS5's package folder ("local")."""
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+    p = pkg_path(pid)
+    info = pkg_info(p)
+    base = (NAS_URL or f"http://{page_host}").rstrip("/")
+    if via == "local":
+        src = f"{get_settings()['ps4_dest'].rstrip('/')}/{p.name}"
+    else:
+        if not page_host and not NAS_URL:
+            raise ValueError("unknown address of this page; set PS5LZ4_NAS_URL")
+        src = f"{base}/pkgfile/{urllib.parse.quote(pid)}"
+    body = {"type": "direct", "packages": [src], "name": info.get("name") or p.name}
+    if info.get("icon") and via != "local":
+        body["icon_url"] = f"{base}/api/pkg/icon?id={urllib.parse.quote(pid)}"
+    host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
+    req = urllib.request.Request(f"http://{host}:{RECV_PORT}/api/install", data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            res = json.load(r)
+    except (urllib.error.URLError, OSError) as err:
+        raise ValueError(f"pkg-receiver does not answer on the PS5 (port {RECV_PORT}): install and start it on "
+                         f"the Remote tab ({err})")
+    if res.get("status") != "success":
+        raise ValueError(f"pkg-receiver: {res.get('error') or res}")
+    print(f"[{now()}] install of {p.name} queued on the PS5 ({src})", flush=True)
+    return {"queued": True, "source": src}
+
+
 class TransferStopped(Exception):
     """Stop pressed: not retried like a network error."""
 
@@ -4376,6 +4504,10 @@ def cmd_ui(args) -> int:
                 self.end_headers()
                 self.wfile.write(png)
                 return
+            if self.path.startswith("/pkgfile/"):
+                return self.send_pkgfile()
+            if self.path == "/api/receiver":
+                return self.send(200, json.dumps(receiver_status()).encode())
             if self.path.startswith("/api/pkg/icon?"):
                 from urllib.parse import parse_qs, urlparse
                 data = pkg_icon((parse_qs(urlparse(self.path).query).get("id") or [""])[0])
@@ -4499,6 +4631,56 @@ def cmd_ui(args) -> int:
                     return self.send(200, cache["body"])
             self.send(404, b'{"error":"not found"}')
 
+        def do_HEAD(self):
+            if self.path.startswith("/pkgfile/"):
+                return self.send_pkgfile(head=True)
+            self.send_response(405)
+            self.end_headers()
+
+        def send_pkgfile(self, head: bool = False):
+            """A library .pkg for pkg-receiver on the PS5 to download (Range supported)."""
+            from urllib.parse import unquote
+            try:
+                p = pkg_path(unquote(self.path[len("/pkgfile/"):].split("?")[0]))
+            except SystemExit:
+                return self.send(404, b'{"error":"no such package"}')
+            size = p.stat().st_size
+            start, end = 0, size - 1
+            m = re.match(r"bytes=(\d*)-(\d*)$", self.headers.get("Range") or "")
+            if m and (m.group(1) or m.group(2)):
+                if m.group(1):
+                    start = int(m.group(1))
+                    end = min(int(m.group(2)), size - 1) if m.group(2) else size - 1
+                else:
+                    start = max(0, size - int(m.group(2)))
+                if start > end or start >= size:
+                    self.send_response(416)
+                    self.send_header("Content-Range", f"bytes */{size}")
+                    self.end_headers()
+                    return
+                self.send_response(206)
+                self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+            else:
+                self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Content-Length", str(end - start + 1))
+            self.end_headers()
+            if head:
+                return
+            left = end - start + 1
+            try:
+                with open(p, "rb") as f:
+                    f.seek(start)
+                    while left > 0:
+                        chunk = f.read(min(left, 1 << 20))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        left -= len(chunk)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
         def do_POST(self):
             if self.path.startswith("/api/ftp/put?"):
                 from urllib.parse import parse_qs, urlparse
@@ -4529,6 +4711,18 @@ def cmd_ui(args) -> int:
                 ENGINE_DIR.mkdir(parents=True, exist_ok=True)
                 write_json(ENGINE_AUTO, {"on": bool(req.get("on"))})
                 return self.send(200, json.dumps({"auto": engine_auto_on()}).encode())
+            if req.get("action") == "receiver_install":
+                try:
+                    return self.send(200, json.dumps(receiver_install()).encode())
+                except Exception as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+            if req.get("action") == "pkg_install":
+                try:
+                    res = pkg_install(str(req.get("game") or ""), str(req.get("via") or "url"),
+                                      self.headers.get("Host") or "")
+                    return self.send(200, json.dumps(res).encode())
+                except (ValueError, SystemExit) as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if req.get("action") in ("engine_install", "engine_restore", "engine_start", "app_install"):
                 try:
                     fn = {"engine_install": engine_install, "engine_restore": engine_restore,
