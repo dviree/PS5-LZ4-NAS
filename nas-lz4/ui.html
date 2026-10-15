@@ -91,6 +91,7 @@ select{font:inherit;padding:5px 8px;border-radius:8px;border:0;background:var(--
 .cm{font-size:12px;margin-top:2px}.kind{font-weight:600}
 .csec{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:14px 0}
 .rowbtns{display:flex;flex-direction:column;gap:6px;align-items:stretch}
+.aprres:not(:empty){margin-top:12px;padding:10px 14px;border-radius:12px;background:var(--chip);box-shadow:var(--inset);font-size:13px}.aprres div+div{margin-top:8px}
 .pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin:14px 0;clear:both}.pair .csec{margin:0}
 .pair .csec .kv{grid-template-columns:minmax(80px,auto) 1fr}
 .csec h4{margin:0 0 6px;font-size:14px}.cbar{display:flex;height:8px;border-radius:99px;overflow:hidden;background:var(--chip);margin:8px 0}
@@ -733,7 +734,7 @@ function render() {
       const waiting = pendingFor(g.id), sendNext = (d.send_after || []).includes(g.id);
       const txr = g.output ? (data.transfers || {})[g.output.split('/').pop()] : null;
       const action = waiting ? '<span class="pill p-run">waiting</span>' : g.can_queue && !g.running && !g.queued
-        ? `<div class="rowbtns"><button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game)">Compress</button><button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game, true)" title="Compress, then send it to the PS5 by itself">Compress &amp; send</button></div>`
+        ? `<button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game, !!(data.settings || {}).ps5_ftp)" title="Compress with LZ4, then send it to the PS5 by itself">Compress &amp; send</button>`
         : txr && txr.state === 'failed' && !d.transfer
         ? `<button class="sm pri" data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}" onclick="event.stopPropagation();push(this.dataset.id, this.dataset.name)">▶ Resume transfer</button>` : '';
       const why = g.verdict !== 'LZ4' && !g.running ? `<div class="why">${esc(g.why)}</div>` : '';
@@ -886,8 +887,7 @@ function gameHtml(g, det) {
   const a = det && det.apr;
   if (a) rows.push(['APR-EMU', `${a.ok ? '<span class="good">' + esc(a.build) + ' ✓</span>' : '<span class="bad">' + esc(a.build) + '</span> · Check all, then Repair'}${a.path ? `<div class="why">${esc(a.path)}</div>` : ''}`]);
   const pp = ps5Place(g);
-  if (pp || g.title_id) rows.push(['On the PS5', `${pp ? esc(pp.path) : ''}<div class="why" id="ps5-here">${pp && pp.sent ? '<span class="good">sent by this page</span>' : 'checking the PS5…'}</div>
-    <div class="why" id="apr-ps5"></div>`]);
+  if (pp || g.title_id) rows.push(['On the PS5', `${pp ? esc(pp.path) : ''}<div class="why" id="ps5-here">${pp && pp.sent ? '<span class="good">sent by this page</span>' : 'checking the PS5…'}</div>`]);
   if (f) rows.push(['LZ4 folder', `${esc(f.path)}<div class="why">${f.files} files · ${f.paks} LZ4 volumes · ${gb(f.bytes)}${f.problem ? ' · <span class="bad">' + esc(f.problem) + '</span>' : ' · format ok'}</div>`]);
   if (r) {
     rows.push(['Compression', `${esc(r.codec || '')}${r.profile ? `<div class="why">profile: ${esc(r.profile)}</div>` : ''}`]);
@@ -909,9 +909,9 @@ function gameHtml(g, det) {
   const acts = [];
   if (pendingFor(g.id)) acts.push('<span class="pill p-run">waiting to start</span>');
   else if (g.can_queue && !g.running && !g.queued)
-    acts.push(`<button class="pri" data-game="${esc(g.id)}" onclick="compress(this.dataset.game)">Compress</button>`,
-      `<button class="pri" data-game="${esc(g.id)}" onclick="compress(this.dataset.game, true)">Compress and send to PS5</button>`,
-      `<button class="pri" data-game="${esc(g.id)}" onclick="compress(this.dataset.game, true, true)" title="LZ4, then an exFAT image of the LZ4 game, then the image to the PS5">Compress, make exFAT and send to PS5</button>`);
+    acts.push(`<button class="pri" data-game="${esc(g.id)}" onclick="compress(this.dataset.game, true)" title="Compress with LZ4, check it, then send it to the PS5 by itself">⚡ Compress &amp; send to PS5</button>`,
+      `<button class="ghost" data-game="${esc(g.id)}" onclick="compress(this.dataset.game)">Compress only</button>`,
+      `<button class="ghost" data-game="${esc(g.id)}" onclick="compress(this.dataset.game, true, true)" title="LZ4, then an exFAT image of the LZ4 game, then the image to the PS5">Compress, exFAT &amp; send</button>`);
   if (g.verdict === 'LZ4' && !g.output_only)
     acts.push(`<select data-game="${esc(g.id)}" onchange="this.blur();if(this.value)act('community',null,{game:this.dataset.game,result:this.value})">
       <option value="">PS5 result: ${g.ps5 ? esc(PS5_EN[g.ps5]) : 'not tested'}</option>
@@ -957,6 +957,7 @@ function gameHtml(g, det) {
     <div class="pair">${ffpfscHtml(g, det) || ''}${communityHtml(g, det)}</div>
     <div class="kv">${rows.map(([k, x]) => `<div>${k}</div><div>${x}</div>`).join('')}</div>
     <div class="acts" id="m-acts">${acts.join('') || '<span class="mut">Nothing to do for this game.</span>'}</div>
+    <div class="aprres" id="apr-ps5">${aprShown(g)}</div>
     ${dels.length ? `<div class="acts dels" id="dels">${dels.join('')}</div>` : '<div class="acts dels" id="dels"></div>'}`;
 }
 let ftpPath = '/', ftpLoaded = false;
@@ -1023,16 +1024,33 @@ function placeHtml(g) {
   return `<div class="chips"><span class="chip" title="${esc(g.output)}">🗄 On NAS</span>${bigger}` +
     (pp && pp.sent ? `<span class="chip ok" title="${esc(pp.path)}">🎮 On PS5 · ${esc(drive)}${t && t.finished ? ' · ' + esc(t.finished.slice(5, 16)) : ''}</span>` : '') + '</div>';
 }
+// Results of Check APR-EMU on PS5, by path: shown under the buttons and kept
+// when the page refreshes the game sheet.
+const aprResults = {};
+function aprShown(g) {
+  const tid = (g.title_id || '').toUpperCase(), on = g.output ? '/' + g.output.split('/').pop() : null;
+  const paths = Object.keys(aprResults).filter(p => (tid && p.toUpperCase().includes(tid)) || (on && p.endsWith(on)));
+  return paths.map(p => aprResults[p]).join('');
+}
 async function aprCheck(path, el) {
+  const inSheet = !!el && el.id === 'apr-ps5';
   el = el || document.getElementById('ftp-msg');
-  el.textContent = 'Checking APR-EMU on the PS5…';
+  const show = html => {
+    if (!inSheet) { el.innerHTML = html; return; }
+    aprResults[path] = `<div>${html}</div>`;
+    const cur = document.getElementById('apr-ps5');
+    if (!cur) return;
+    cur.innerHTML = aprShown((data.games || []).find(x => x.id === openId) || {}) || aprResults[path];
+    cur.scrollIntoView({block: 'nearest', behavior: 'smooth'});
+  };
+  show('Checking APR-EMU on the PS5…');
   try {
     const r = await fetch('/api/ftp/apr?path=' + encodeURIComponent(path), {cache: 'no-store'});
     const j = await r.json();
-    el.innerHTML = !r.ok ? `<span class="bad">${esc(j.error || r.status)}</span>`
-      : j.ok ? `<span class="good">APR-EMU on the PS5: ${esc(j.build)} ✓</span> ${esc(j.path)}`
-      : `<span class="bad">APR-EMU on the PS5: ${esc(j.build)}</span>${j.path ? ' ' + esc(j.path) : ''}. Send the game again to replace it.`;
-  } catch (e) { el.innerHTML = `<span class="bad">${esc(String(e))}</span>`; }
+    show(!r.ok ? `<span class="bad">Could not check: ${esc(j.error || r.status)}</span>`
+      : j.ok ? `<span class="good">APR-EMU on the PS5: ${esc(j.build)} ✓</span><br><span class="mut">${esc(j.path)}</span>`
+      : `<span class="bad">APR-EMU on the PS5: ${esc(j.build)}</span>${j.path ? '<br><span class="mut">' + esc(j.path) + '</span>' : ''}<br>Send the game again to replace it.`);
+  } catch (e) { show(`<span class="bad">${esc(String(e))}</span>`); }
 }
 // Game folders (two levels down or more) get their icon0.png; others a folder sign.
 function folderIcon(p) {
