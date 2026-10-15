@@ -95,8 +95,9 @@ that container alone.
 - **Remote tab:** the PS5 address, pairing and wake-up (see below).
 - **FTP tab:** browse the PS5's drives over ftpsrv, game folders with their
   icon (`sce_sys/icon0.png`, cached in `state/icons/`) (`/data`, `/mnt/usb0`,
-  `/mnt/ext0`, ...) and download files as they are on disk (SELF decryption
-  off), and delete files or folders (only inside `/data`, `/mnt/usbN` and
+  `/mnt/ext0`, ...) download files as they are on disk (SELF decryption off)
+  or whole folders as ZIP, upload files and folders from your phone or
+  computer, make folders, and delete files or folders (only inside `/data`, `/mnt/usbN` and
   `/mnt/extN`, at least two folders down; a folder needs its name typed to
   confirm).
 - **Send to the PS5**, **wake** and **pair**: see below.
