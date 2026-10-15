@@ -1,7 +1,26 @@
 {
  "version": 1,
- "updated": "2026-10-15T21:48:06Z",
+ "updated": "2026-10-15T22:16:49Z",
  "games": {
+  "PPSA01593": {
+   "name": "Hogwarts Legacy",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Hogwarts Legacy",
+    "gameVersion": "01.013.000",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-15T22:16:39Z",
+    "issue": 31
+   }
+  },
   "PPSA03396": {
    "name": "The Last of Us Part I",
    "works": 0,
