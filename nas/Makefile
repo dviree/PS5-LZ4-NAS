@@ -23,7 +23,8 @@ C_SRCS := src/lzc_main.c src/lzc_websrv.c src/lzc_api.c src/lzc_job.c \
   src/ampr_index.c src/asset.c src/pfs_compress.c src/pfs_decompress.c \
   src/pfs_repair.c src/pfs_ampr_hotswap.c src/pfs_block_pipeline.c \
   src/pfs_validate_hash.c src/miniz_tinfl.c src/ampr_pack.c \
-  src/ampr_pack_profile.c src/ampr_pack_toml.c src/ampr_pack_runtime.c
+  src/ampr_pack_profile.c src/ampr_pack_toml.c src/ampr_pack_runtime.c \
+  src/lzc_boot_files.c
 C_SRCS += nas/src/lzc_nas_platform.c nas/src/lzc_notify_nas.c \
   nas/src/lzc_power_guard_nas.c nas/src/lzc_app_installer_nas.c \
   nas/src/lzc_shadowmount_nas.c nas/src/lzc_image_mount_nas.c
