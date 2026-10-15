@@ -1698,7 +1698,12 @@ def game_detail(game_id: str) -> dict:
     write_json(CHECKS_PATH, cache)
     work = read_json(WORK / game_id / "state.json") or None
     skipped = read_json(REPORTS / f"{game_id}.skipped.json") or None
-    return {"id": game_id, "report": rep or None, "folder": folder, "work": work, "skipped": skipped}
+    tid = ((rep or {}).get("title_id") or (folder or {}).get("title_id") or "").upper()
+    if not tid:
+        m = TITLE_RE.search(game_id)
+        tid = m.group(0).upper() if m else ""
+    return {"id": game_id, "report": rep or None, "folder": folder, "work": work, "skipped": skipped,
+            "title_id": tid, "community": compat_games().get(tid), "community_repo": COMPAT_REPO}
 
 
 def cmd_dashboard(_args) -> int:
