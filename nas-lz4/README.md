@@ -110,8 +110,8 @@ that container alone.
   `/mnt/ext0`, ...) download files as they are on disk (SELF decryption off)
   or whole folders as ZIP, upload files and folders from your phone or
   computer, make folders, and delete files or folders (only inside `/data`, `/mnt/usbN` and
-  `/mnt/extN`, at least two folders down; a folder needs its name typed to
-  confirm).
+  `/mnt/extN`, at least two folders down; also while a transfer runs, and
+  deleting the game being sent stops that transfer first).
 - **Send to the PS5**, **wake** and **pair**: see below.
 
 The page runs in its own container (`ps5-lz4-ui`). It sees the library and

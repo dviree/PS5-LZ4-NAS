@@ -766,9 +766,9 @@ async function ftpGo(path) {
 }
 async function ftpDelete(path, dir) {
   const name = path.split('/').pop();
-  if (!confirm(dir ? `Delete the folder ${name} and EVERYTHING in it on the PS5?\n\n${path}\n\nThis can't be undone.`
-                   : `Delete ${name} on the PS5?\n\n${path}\n\nThis can't be undone.`)) return;
-  if (dir && prompt(`To confirm, type the folder name:\n${name}`) !== name) { alert('Not deleted: the name did not match.'); return; }
+  const sending = data && data.transfer && data.transfer.dest && ('/' + data.transfer.dest.split('/').slice(1).join('/') + '/').startsWith(path + '/');
+  if (!confirm((dir ? `Delete the folder ${name} and everything in it on the PS5?` : `Delete ${name} on the PS5?`) +
+      `\n\n${path}\n\n` + (sending ? 'It is being sent right now: that transfer is stopped first.\n\n' : '') + "This can't be undone.")) return;
   const msg = document.getElementById('ftp-msg');
   msg.textContent = 'Deleting ' + name + '…';
   const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},

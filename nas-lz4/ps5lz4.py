@@ -2425,8 +2425,22 @@ def ps5_ftp_delete(path: str) -> dict:
     if not FTP_DELETE_ROOTS.match(path):
         raise ValueError("only files and folders at least two levels inside /data, /mnt/usbN or /mnt/extN "
                          "can be deleted here")
-    if transfer_running():
-        raise ValueError("a transfer to the PS5 is running; delete after it finishes")
+    # Other folders can go while a transfer runs. If the folder is the game
+    # being sent, that transfer is stopped first; queued sends of it are dropped.
+    inside = lambda t: (t.get("dest", "").partition("/")[2] and
+                        ("/" + t["dest"].partition("/")[2] + "/").startswith(path + "/"))
+    run = transfer_running()
+    if run and inside(run):
+        try:
+            os.kill(int(run["pid"]), signal.SIGTERM)
+        except (OSError, ValueError, KeyError):
+            pass
+        for _ in range(20):
+            if not transfer_running():
+                break
+            time.sleep(0.5)
+    cfg_dest = get_settings()["ps5_dest"].rstrip("/")
+    transfer_queue_set([g for g in transfer_queue() if not (cfg_dest + "/" + g + "/").startswith(path + "/")])
     f = ps5_ftp_connect()
     count = {"files": 0, "folders": 0}
 
@@ -2473,6 +2487,11 @@ def ps5_ftp_delete(path: str) -> dict:
             f.quit()
         except Exception:
             pass
+    # The game is no longer on the PS5: forget its transfer record.
+    for t in transfer_files():
+        st = read_json(t, {}) or {}
+        if isinstance(st, dict) and st.get("state") != "running" and inside(st):
+            t.unlink(missing_ok=True)
     return {"deleted": path, **count}
 
 
