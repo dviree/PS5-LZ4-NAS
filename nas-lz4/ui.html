@@ -94,6 +94,17 @@ select{font:inherit;padding:5px 8px;border-radius:8px;border:1px solid var(--lin
 .kv div{overflow-wrap:anywhere}.acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
 .err{background:var(--badbg);color:var(--bad);border-radius:10px;padding:10px 12px}
 footer{opacity:.8}
+button.two{flex-direction:column;align-items:flex-start;gap:0;text-align:left;padding:7px 14px;max-width:210px}
+button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;white-space:normal}
+.badge{display:inline-block;min-width:18px;padding:0 6px;margin-left:6px;border-radius:99px;background:var(--acc);color:#fff;font-size:11px;line-height:18px;text-align:center}
+.busy{cursor:pointer;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;background:var(--accbg);border-color:transparent}
+.busy .dot{color:var(--mut)}.busy .more{margin-left:auto;color:var(--acc);font-weight:600}
+.jobtitle{font-size:15px;margin-bottom:10px}
+.stats{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px;color:var(--mut);font-variant-numeric:tabular-nums}.stats b{color:var(--txt)}
+.qh{margin:16px 0 6px;font-size:13px;color:var(--mut)}
+.qrow{display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--line)}
+.qn{width:22px;height:22px;border-radius:99px;background:var(--chip);display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--mut)}
+.qname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mob{display:none}
 @keyframes fade{from{opacity:0}}@keyframes rise{from{transform:translateY(12px);opacity:0}}
 /* phones */
@@ -102,7 +113,8 @@ footer{opacity:.8}
   .hacts{width:100%;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -2px;padding:2px}
   .hacts::-webkit-scrollbar{display:none}.hacts button{white-space:nowrap;flex:none}
   .tabs{position:static;margin:12px 12px 0;max-width:none}
-  .hacts .pri{order:-1}.tabs button{flex:1;padding:7px 10px}
+  .hacts .pri{order:-1}.tabs button{flex:none;padding:7px 12px}
+  button.two{max-width:170px}
   main{padding:12px}
   .card{padding:14px}
   .steps{grid-template-columns:repeat(3,1fr)}
@@ -130,15 +142,16 @@ footer{opacity:.8}
 <header>
   <div class="brand"><div class="logo">LZ4</div><div><h1>ps5-lz4</h1><span class="sub" id="sub"></span></div></div><span class="sp"></span>
   <div class="hacts">
-  <button id="b-resume" hidden onclick="act('resume')">Continue queue</button>
-  <button title="Checks every game without changing anything. Games unchanged since their last check are taken from the database." onclick="act('check')">Check all</button>
-  <button class="ghost" title="Checks every game again, ignoring the database" onclick="act('check_full', 'Check every game again, ignoring earlier results?\n\nThis reads every LZ4 game in full and can take a while.')">Full re-check</button>
-  <button class="pri" id="b-fix" title="Compresses every game that can be LZ4, one at a time"
-    onclick="act('fix', 'Compress every game that can be LZ4?\n\nThey are queued and compressed one at a time. If a job is running, this starts when it is done.')">Compress all</button>
+  <button class="two" id="b-resume" hidden onclick="act('resume')">Continue queue<small>resume interrupted packing</small></button>
+  <button class="two" onclick="act('check')">Check all<small>check every game, read-only; unchanged ones from the saved results</small></button>
+  <button class="two ghost" onclick="act('check_full', 'Check every game again, ignoring earlier results?\n\nThis reads every LZ4 game in full and can take a while.')">Full re-check<small>check every game again from scratch</small></button>
+  <button class="two pri" id="b-fix"
+    onclick="act('fix', 'Compress every game that can be LZ4?\n\nThey are queued and compressed one at a time. If a job is running, this starts when it is done.')">Compress all<small>pack every game that can be LZ4, one at a time</small></button>
   </div>
 </header>
 <nav class="tabs">
   <button id="t-mine" class="on" onclick="tab('mine')">My games</button>
+  <button id="t-act" onclick="tab('act')">Activity<span class="badge" id="act-n" hidden></span></button>
   <button id="t-comm" onclick="tab('comm')">Community</button>
   <button id="t-ps5" onclick="tab('ps5')">Remote</button>
   <button id="t-ftp" onclick="tab('ftp')">FTP</button>
@@ -146,10 +159,16 @@ footer{opacity:.8}
 <main id="p-mine">
   <div id="error" class="err" hidden></div>
   <div class="kpis" id="kpis"></div>
-  <div class="card" id="job" hidden></div>
-  <div class="card" id="xfer" hidden></div>
-  <div class="card" id="failed" hidden></div>
+  <div class="card busy" id="busy" hidden onclick="tab('act')"></div>
   <div class="card"><h2>Library</h2><div class="scroll"><table id="games"></table></div></div>
+</main>
+<main id="p-act" hidden>
+  <div class="card"><h2>Packing</h2><div id="job"></div><div id="pq"></div></div>
+  <div class="card"><h2>Transfers to the PS5</h2><div id="xfer"></div><div id="xq"></div>
+    <div class="why" style="margin-top:10px">If the PS5 goes to rest mode during a transfer, it is woken (Remote Play key) and the
+    transfer continues, a half-sent file from where it stopped. To keep it awake: <i>Settings › System › Power Saving ›
+    Set Time Until PS5 Enters Rest Mode</i> › <b>Don't Put in Rest Mode</b>.</div></div>
+  <div class="card" id="failed" hidden></div>
   <div class="card"><h2>Report</h2>
     <div class="mut">Pick the PS5 result in the <b>PS5</b> column for an LZ4 game. It is saved here, and
     <i>Recent actions</i> then shows a filled-in link to share it with the community (the original project's game reports).</div>
@@ -169,6 +188,11 @@ footer{opacity:.8}
       <button onclick="act('wake')">Wake PS5 now</button>
     </div>
     <div class="mut" id="paired"></div>
+  </div>
+  <div class="card"><h2>PS5 storage</h2>
+    <div class="mut">Drives the PS5 shows over FTP and what is on them. ftpsrv can't report free space, so
+    <b>Measure</b> adds up the files on a drive (a full drive takes a minute or two).</div>
+    <div id="drives" style="margin-top:8px"><button class="sm" onclick="loadDrives()">Show drives</button></div>
   </div>
   <div class="card"><h2>1. Address</h2>
     <div class="mut"><b>Send to PS5</b> copies a game straight over FTP to the PS5's ftpsrv (port 2121), not through a
@@ -230,6 +254,7 @@ footer{opacity:.8}
       <label class="btn">Upload folder<input type="file" webkitdirectory multiple hidden onchange="ftpUpload(this.files); this.value=''"></label>
       <button onclick="ftpMkdir()">New folder</button>
       <button onclick="location.href='/api/ftp/zip?path=' + encodeURIComponent(ftpPath)">Download this folder (ZIP)</button>
+      <button onclick="measure(ftpPath, document.getElementById('ftp-msg'))">Folder size</button>
     </div>
     <div class="mut" id="ftp-addr"></div>
     <div class="mut" id="ftp-msg"></div>
@@ -267,6 +292,11 @@ function gb(n) {
   while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
   return (i ? n.toFixed(i >= 3 ? 1 : 0) : n) .toString() + ' ' + u[i];
 }
+function dur(s) {
+  if (s == null || !isFinite(s)) return '–';
+  const m = Math.round(s / 60);
+  return s < 90 ? '1 min' : m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min';
+}
 // Time left from the progress seen over the last few minutes in this browser.
 const seen = {};
 function eta(key, prog) {
@@ -292,6 +322,10 @@ async function act(action, confirmText, extra = {}) {
   const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action, ...extra})});
   if (!r.ok) { let m = r.status; try { m = (await r.json()).error || m; } catch (e) {} alert('Failed: ' + m); }
+  else if (action === 'push') {
+    const j = await r.json().catch(() => ({}));
+    if (j.position) alert(`Another game is being sent. This one is queued as number ${j.position}; see the Activity tab.`);
+  }
   setTimeout(load, 800);
 }
 
@@ -358,16 +392,35 @@ function render() {
       : 'Not paired yet: transfers work, but waking the PS5 from rest mode needs step 2.';
     settingsFilled = true;
   }
-  const xf = document.getElementById('xfer'), tf = d.transfer;
+  const xf = document.getElementById('xfer'), tf = d.transfer, nameOf = id => ((d.games || []).find(g => g.output && g.output.split('/').pop() === id) || {}).name || id;
   if (tf) {
     const pct = tf.total ? 100 * tf.bytes / tf.total : 0;
-    xf.hidden = false;
-    xf.innerHTML = `<h2>Sending to PS5: ${esc(tf.game)}</h2>
+    xf.innerHTML = `<div class="jobtitle">Sending <b>${esc(nameOf(tf.game))}</b></div>
       <div class="bar"><i style="width:${pct}%"></i></div>
-      <div class="mut" style="margin-top:6px">${gb(tf.bytes)} / ${gb(tf.total)} (${pct.toFixed(0)} %) · file ${tf.files_done} of ${tf.files} · ${esc(tf.current || '')}</div>
-      <div class="why">${esc(tf.dest)}</div>
-      <div style="margin-top:10px"><button onclick="act('push_stop', 'Stop the transfer? Finished files stay on the PS5; Send to PS5 again continues where it stopped.')">Stop (resumable)</button></div>`;
-  } else xf.hidden = true;
+      <div class="stats"><b>${pct.toFixed(0)} %</b><span>${gb(tf.bytes)} / ${gb(tf.total)}</span>
+        ${tf.speed ? `<span>${gb(tf.speed)}/s</span><span>about ${dur(tf.eta)} left</span>` : '<span>measuring speed…</span>'}
+        <span>file ${tf.files_done} of ${tf.files}</span>${tf.woken ? `<span>woke the PS5 ${tf.woken}×</span>` : ''}</div>
+      <div class="why">${esc(tf.current || '')}</div>
+      <div style="margin-top:10px"><button onclick="act('push_stop', 'Stop the transfer? Finished files stay on the PS5; the queue waits.')">Stop (resumable)</button></div>`;
+  } else xf.innerHTML = '<div class="mut">No transfer running.</div>';
+  const tq = d.transfer_queue || [];
+  document.getElementById('xq').innerHTML = tq.length ? `<h4 class="qh">Queued (${tq.length})</h4>` + tq.map((x, i) =>
+    `<div class="qrow"><span class="qn">${i + 1}</span><span class="qname">${esc(nameOf(x))}</span>
+      ${i ? `<button class="sm" data-g="${esc(x)}" onclick="act('push_queue_up', null, {game: this.dataset.g})" title="Move up">↑</button>` : ''}
+      <button class="sm" data-g="${esc(x)}" onclick="act('push_queue_remove', null, {game: this.dataset.g})" title="Remove from the queue">✕</button></div>`).join('') +
+    (!tf ? `<button class="pri" style="margin-top:10px" onclick="act('push_queue_start')">Start the queue</button>` : '') : '';
+  const pqEl = document.getElementById('pq'), pqs = (d.queue || []).filter(x => !d.job || x !== d.job.id);
+  pqEl.innerHTML = pqs.length ? `<h4 class="qh">Queued (${pqs.length})</h4>` + pqs.map((x, i) =>
+    `<div class="qrow"><span class="qn">${i + 1}</span><span class="qname">${esc(((d.games || []).find(g => g.id === x) || {}).name || x)}</span></div>`).join('') : '';
+  const busyEl = document.getElementById('busy'), parts = [];
+  if (d.job) parts.push(`📦 Packing <b>${esc(((d.games || []).find(g => g.id === d.job.id) || {}).name || d.job.id)}</b>${d.job.progress && d.job.progress[1] ? ' · ' + Math.round(100 * d.job.progress[0] / d.job.progress[1]) + ' %' : ''}`);
+  if (tf) parts.push(`🎮 Sending <b>${esc(nameOf(tf.game))}</b> · ${tf.total ? Math.round(100 * tf.bytes / tf.total) : 0} %${tf.speed ? ' · ' + gb(tf.speed) + '/s · ' + dur(tf.eta) + ' left' : ''}`);
+  const nq = pqs.length + tq.length;
+  if (nq) parts.push(`${nq} queued`);
+  busyEl.hidden = !parts.length;
+  busyEl.innerHTML = parts.map(x => `<span>${x}</span>`).join('<span class="dot">·</span>') + ' <span class="more">Activity ›</span>';
+  const an = document.getElementById('act-n'), n = (d.job ? 1 : 0) + (tf ? 1 : 0) + nq;
+  an.hidden = !n; an.textContent = n;
   document.getElementById('sub').textContent = `LZ4 HC level ${d.level} · APR-EMU ${d.runtime}`;
   document.getElementById('b-resume').hidden = !d.interrupted;
   const t = d.totals, saved = t.source - t.output;
@@ -384,13 +437,12 @@ function render() {
     const pct = prog && prog[1] ? Math.min(100, 100 * prog[0] / prog[1]) : 0;
     const name = (d.games.find(g => g.id === j.id) || {}).name || j.id;
     const next = d.queue.filter(x => x !== j.id);
-    job.hidden = false;
-    job.innerHTML = `<h2>Running: ${esc(name)}</h2>
+    job.innerHTML = `<div class="jobtitle">Packing <b>${esc(name)}</b></div>
       <div class="steps">${j.steps.map(s => `<div class="st ${done.has(s) ? 'd' : s === j.step ? 'r' : ''}">${STEP_EN[s] || s}${done.has(s) ? ' ✓' : ''}</div>`).join('')}</div>
       <div class="bar"><i style="width:${pct}%"></i></div>
       <div class="mut" style="margin-top:6px">${prog ? `${prog[2] ? esc(prog[2]) + ': ' : ''}${gb(prog[0])} / ${gb(prog[1])} (${pct.toFixed(0)} %) · ${gb(Math.max(0, prog[1] - prog[0]))} left${eta(j.step + (prog[2] || ''), prog)}` : 'starting…'}${next.length ? ' · next: ' + esc(next.map(x => (d.games.find(g => g.id === x) || {}).name || x).join(', ')) : ''}</div>
       <div style="margin-top:10px"><button onclick="act('stop', 'Stop the job? It can be resumed later.')">Stop (resumable)</button></div>`;
-  } else job.hidden = true;
+  } else job.innerHTML = '<div class="mut">No job running.</div>';
 
   const failed = document.getElementById('failed');
   failed.hidden = !d.failed.length;
@@ -488,6 +540,20 @@ async function openGame(id) {
   try {
     const det = await (await fetch('/api/game?id=' + encodeURIComponent(id), {cache: 'no-store'})).json();
     if (openId === id) body.innerHTML = gameHtml(g, det);
+    const pp = ps5Place(g), here = document.getElementById('ps5-here');
+    if (pp && !pp.sent && here) {
+      const parent = pp.path.replace(/\/[^/]*$/, ''), name = pp.path.split('/').pop();
+      const r = await fetch('/api/ftp/list?path=' + encodeURIComponent(parent), {cache: 'no-store'});
+      const j = await r.json().catch(() => ({}));
+      if (openId !== id) return;
+      if (!r.ok) here.textContent = 'not sent by this page; the PS5 did not answer, so it is unknown whether it is there';
+      else if (j.items.some(i => i.name === name)) {
+        here.innerHTML = '<span class="good">on the PS5</span> (copied there earlier)';
+        const acts = body.querySelector('.acts');
+        if (acts) acts.insertAdjacentHTML('afterbegin', `<button data-p="${esc(pp.path)}" onclick="closeGame();tab('ftp');ftpGo(this.dataset.p)">Open on PS5</button>
+          <button data-p="${esc(pp.path)}" onclick="aprCheck(this.dataset.p, document.getElementById('apr-ps5'))">Check APR-EMU on PS5</button>`);
+      } else here.textContent = 'not on the PS5 yet: this is where Send to PS5 puts it';
+    }
   } catch (e) {}
 }
 function gameHtml(g, det) {
@@ -496,6 +562,7 @@ function gameHtml(g, det) {
   const rows = [
     ['Status', esc(v) + (g.why && g.verdict !== 'LZ4' ? `<div class="why">${esc(g.why)}</div>` : '')],
     ['Title ID', esc(g.title_id || '–')],
+    ['Version', det && det.version && det.version.version ? esc(det.version.version) + (det.version.master ? `<div class="why">master ${esc(det.version.master)}</div>` : '') + (det.version.firmware ? `<div class="why">needs firmware ${esc(det.version.firmware)} or newer</div>` : '') : (det ? '–' : '…')],
     ['Source', g.output_only ? 'not in the library' : `${esc(KIND_EN[g.kind] || g.kind)}${g.source_size ? ' · ' + gb(g.source_size) : ''}<div class="why">${esc(g.rel || '')}</div>` +
       (g.verdict !== 'LZ4' && g.kind !== 'folder' && !g.output_only ? '<div class="why">Unpacked to a work folder on the NAS before LZ4 packing; the original is not changed.</div>' : '')],
     ['Original', gb(g.source_bytes)],
@@ -505,7 +572,7 @@ function gameHtml(g, det) {
   const a = det && det.apr;
   if (a) rows.push(['APR-EMU', `${a.ok ? '<span class="good">' + esc(a.build) + ' ✓</span>' : '<span class="bad">' + esc(a.build) + '</span> · Check all, then Repair'}${a.path ? `<div class="why">${esc(a.path)}</div>` : ''}`]);
   const pp = ps5Place(g);
-  if (pp) rows.push(['On the PS5', `${esc(pp.path)}${pp.sent ? '' : '<div class="why">not sent yet: this is where Send to PS5 puts it</div>'}
+  if (pp) rows.push(['On the PS5', `${esc(pp.path)}<div class="why" id="ps5-here">${pp.sent ? '<span class="good">sent by this page</span>' : 'checking the PS5…'}</div>
     <div class="why" id="apr-ps5"></div>`]);
   if (f) rows.push(['LZ4 folder', `${esc(f.path)}<div class="why">${f.files} files · ${f.paks} LZ4 volumes · ${gb(f.bytes)}${f.problem ? ' · <span class="bad">' + esc(f.problem) + '</span>' : ' · format ok'}</div>`]);
   if (r) {
@@ -665,14 +732,36 @@ async function ftpMkdir() {
   if (!r.ok) alert('Not made: ' + (j.error || r.status));
   ftpGo(ftpPath);
 }
+async function loadDrives() {
+  const el = document.getElementById('drives');
+  el.textContent = 'Asking the PS5…';
+  try {
+    const r = await fetch('/api/ps5/drives', {cache: 'no-store'}), j = await r.json();
+    if (!r.ok) { el.innerHTML = `<span class="bad">${esc(j.error || r.status)}</span> <button class="sm" onclick="loadDrives()">Try again</button>`; return; }
+    el.innerHTML = j.drives.map((d, i) => `<div class="qrow"><span class="qname"><b>${esc(d.label)}</b> <span class="mut">${esc(d.path)}</span>
+        <div class="why">${d.games ? `${d.games} game${d.games === 1 ? '' : 's'} sent by this page · ${gb(d.game_bytes)}` : 'no games sent by this page'}</div>
+        <div class="why" id="du-${i}"></div></span>
+      <button class="sm" data-p="${esc(d.path)}" data-i="${i}" onclick="measure(this.dataset.p, document.getElementById('du-' + this.dataset.i))">Measure</button>
+      <button class="sm" data-p="${esc(d.path)}" onclick="tab('ftp');ftpGo(this.dataset.p)">Open</button></div>`).join('') || '<span class="mut">No drives answered.</span>';
+  } catch (e) { el.innerHTML = `<span class="bad">${esc(String(e))}</span>`; }
+}
+async function measure(path, el) {
+  el.textContent = 'Measuring ' + path + '…';
+  try {
+    const r = await fetch('/api/ftp/du?path=' + encodeURIComponent(path), {cache: 'no-store'}), j = await r.json();
+    el.innerHTML = r.ok ? `<b>${gb(j.bytes)}</b> used in ${esc(path)} · ${j.files.toLocaleString()} files, ${j.folders.toLocaleString()} folders`
+                        : `<span class="bad">${esc(j.error || r.status)}</span>`;
+  } catch (e) { el.innerHTML = `<span class="bad">${esc(String(e))}</span>`; }
+}
 let comm = null;
 function tab(t) {
-  for (const k of ['mine', 'ps5', 'comm', 'ftp']) {
+  for (const k of ['mine', 'act', 'ps5', 'comm', 'ftp']) {
     document.getElementById('p-' + k).hidden = t !== k;
     document.getElementById('t-' + k).classList.toggle('on', t === k);
   }
   try { localStorage.setItem('tab', t); } catch (e) {}
   if (t === 'comm') loadComm();
+  if (t === 'ps5' && !window._drives) { window._drives = 1; loadDrives(); }
   if (t === 'ftp' && !ftpLoaded) ftpGo(ftpPath);
 }
 function ago(iso) {
@@ -784,8 +873,8 @@ async function ps5State() {
 load(); setInterval(load, 5000);
 setInterval(() => { if (!document.getElementById('p-comm').hidden) loadComm(); }, 60000); ps5State(); setInterval(ps5State, 15000);
 try {
-  const saved = {'#community': 'comm', '#remote': 'ps5', '#ftp': 'ftp'}[location.hash] || localStorage.getItem('tab');
-  if (['comm', 'ps5', 'ftp'].includes(saved)) tab(saved);
+  const saved = {'#community': 'comm', '#remote': 'ps5', '#ftp': 'ftp', '#activity': 'act'}[location.hash] || localStorage.getItem('tab');
+  if (['comm', 'ps5', 'ftp', 'act'].includes(saved)) tab(saved);
 } catch (e) {}
 </script>
 <footer class="mut" style="text-align:center;padding:16px;font-size:12px">ps5-lz4 ·

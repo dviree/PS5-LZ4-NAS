@@ -223,6 +223,26 @@ def parse_param_json(data: bytes) -> tuple[str, str]:
     return title_id, name
 
 
+def game_version(*folders: Path, name: str = "") -> dict:
+    """Version of a game: sce_sys/param.json (contentVersion, masterVersion,
+    required firmware) in the first folder that has it, else [v1.2.3] in the name."""
+    for d in folders:
+        p = d / "sce_sys" / "param.json" if d else None
+        try:
+            if p and p.is_file() and p.stat().st_size < 1 << 20:
+                j = json.loads(p.read_bytes().decode("utf-8", "replace"))
+                v = {"version": str(j.get("contentVersion") or ""), "master": str(j.get("masterVersion") or "")}
+                fw = j.get("requiredSystemSoftwareVersion")
+                if isinstance(fw, str) and fw.startswith("0x") and len(fw) >= 6:
+                    v["firmware"] = f"{int(fw[2:4], 16):x}.{fw[4:6]}"  # 0x0750000000000000 -> 7.50
+                if v["version"]:
+                    return v
+        except (OSError, ValueError):
+            pass
+    m = re.search(r"[\[_ ]v(\d+(?:\.\d+)+)", name)
+    return {"version": m.group(1)} if m else {}
+
+
 def stream_has(chunks, needle: bytes) -> bool:
     tail = b""
     for chunk in chunks:
@@ -2276,6 +2296,61 @@ def ps5_ftp_zip(path: str, out) -> None:
             pass
 
 
+def ps5_ftp_du(path: str) -> dict:
+    """Total size, files and folders under a folder on the PS5 (ftpsrv has no
+    command for free space, so this adds up what is there)."""
+    path = ps5_ftp_path(path)
+    f = ps5_ftp_connect()
+    tot = {"path": path, "bytes": 0, "files": 0, "folders": 0}
+    try:
+        todo = [path]
+        while todo and tot["files"] + tot["folders"] < 500000:
+            p = todo.pop()
+            try:
+                items = ps5_ftp_list_conn(f, p)
+            except Exception:
+                continue
+            for i in items:
+                child = f"{p.rstrip('/')}/{i['name']}"
+                if i["dir"]:
+                    tot["folders"] += 1
+                    todo.append(child)
+                elif not i.get("link"):
+                    tot["files"] += 1
+                    tot["bytes"] += i.get("size") or 0
+    finally:
+        try:
+            f.quit()
+        except Exception:
+            pass
+    tot["measured"] = now()
+    return tot
+
+
+def ps5_drives() -> dict:
+    """Which PS5 drives answer over FTP, and the games ps5-lz4 sent to each."""
+    f = ps5_ftp_connect()
+    drives = []
+    try:
+        mnt = ps5_ftp_names(f, "/mnt") or []
+        for path in ["/data"] + [f"/mnt/{n}" for n in sorted(mnt) if re.fullmatch(r"(usb|ext)\d+", n)]:
+            if ps5_ftp_names(f, path) is not None:
+                drives.append({"path": path, "label": "internal SSD" if path == "/data" else
+                               ("USB drive " if "usb" in path else "extended storage ") + path[-1]})
+    finally:
+        try:
+            f.quit()
+        except Exception:
+            pass
+    for d in drives:
+        sent = [read_json(t, {}) or {} for t in transfer_files()]
+        sent = [t for t in sent if isinstance(t, dict) and t.get("state") == "done"
+                and t.get("dest", "").partition("/")[2].startswith(d["path"].lstrip("/") + "/")]
+        d["games"] = len(sent)
+        d["game_bytes"] = sum(t.get("total") or 0 for t in sent)
+    return {"drives": drives}
+
+
 # Deleting is allowed only inside these, and never the drive or its top folders.
 FTP_DELETE_ROOTS = re.compile(r"^/(data|mnt/(usb|ext)\d+)/[^/]+/.+")
 
@@ -2369,9 +2444,15 @@ def cmd_wake(_args) -> int:
     return 0
 
 
+def transfer_files() -> list[Path]:
+    return [f for f in TRANSFERS.glob("*.json") if f.name != "queue.json"] if TRANSFERS.is_dir() else []
+
+
 def transfer_running() -> dict | None:
-    for f in TRANSFERS.glob("*.json") if TRANSFERS.is_dir() else []:
+    for f in transfer_files():
         st = read_json(f, {}) or {}
+        if not isinstance(st, dict):
+            continue
         if st.get("state") == "running":
             try:
                 os.kill(int(st.get("pid", 0)), 0)
@@ -2397,17 +2478,48 @@ class TransferStopped(Exception):
     """Stop pressed: not retried like a network error."""
 
 
+TRANSFER_QUEUE = TRANSFERS / "queue.json"
+
+
+def transfer_queue() -> list[str]:
+    q = read_json(TRANSFER_QUEUE, []) or []
+    return [x for x in q if isinstance(x, str)]
+
+
+def transfer_queue_set(q: list[str]) -> None:
+    TRANSFERS.mkdir(parents=True, exist_ok=True)
+    write_json(TRANSFER_QUEUE, q)
+
+
 def cmd_push(args) -> int:
-    """Copy a finished LZ4 game to the PS5 over FTP and check it."""
-    import ftplib
+    """Copy a finished LZ4 game to the PS5 over FTP and check it, then the
+    games queued after it (state/transfers/queue.json), one at a time."""
     ensure_dirs()
     TRANSFERS.mkdir(exist_ok=True)
-    cfg = get_settings()
-    if not cfg["ps5_ftp"]:
-        raise SystemExit("set the PS5 FTP address first (web page: Send to PS5, or PS5LZ4_PS5_FTP)")
+    if not get_settings()["ps5_ftp"]:
+        raise SystemExit("set the PS5 FTP address first (web page: Remote tab, or PS5LZ4_PS5_FTP)")
     if transfer_running():
         raise SystemExit("a transfer is already running")
-    out = output_for(args.game)
+    game, rc = args.game, 0
+    while game:
+        q = [x for x in transfer_queue() if x != game]
+        transfer_queue_set(q)
+        try:
+            rc = push_one(game, args.force) or rc
+        except TransferStopped:
+            return 1  # the queue waits until it is started again
+        except SystemExit as err:
+            print(f"{game}: {err}", file=sys.stderr)
+            rc = 1
+        q = transfer_queue()
+        game = q[0] if q else None
+    return rc
+
+
+def push_one(game: str, force: bool = False) -> int:
+    import ftplib
+    cfg = get_settings()
+    out = output_for(game)
     problem = lz4_format_problem(out)
     if problem:
         raise SystemExit(f"{out.name} is not a complete LZ4 game: {problem}")
@@ -2427,10 +2539,18 @@ def cmd_push(args) -> int:
         raise TransferStopped("stopped; press Send to PS5 again to resume (finished files are kept)")
     signal.signal(signal.SIGTERM, stop)
 
+    rate = __import__("collections").deque()  # (time, bytes) of the last 30 seconds
+
     def save(force=False):
         if force or time.time() - last[0] > 1:
+            t = time.time()
+            while rate and t - rate[0][0] > 30:
+                rate.popleft()
+            if len(rate) > 1 and t - rate[0][0] > 2:
+                st["speed"] = int(sum(n for _, n in rate) / (t - rate[0][0]))
+                st["eta"] = int((st["total"] - st["bytes"]) / st["speed"]) if st["speed"] else None
             write_json(st_path, st)
-            last[0] = time.time()
+            last[0] = t
 
     def connect():
         f = ftplib.FTP()
@@ -2452,35 +2572,48 @@ def cmd_push(args) -> int:
         except ftplib.all_errors:
             return None
 
+    wakes = [0]
+
+    def ensure_ftp():
+        """Wait for ftpsrv, waking the PS5 from rest mode when it went to sleep."""
+        if ftp_open(host, port):
+            return
+        state = ps5_status(host)
+        if state == "on":
+            # Awake but nothing on this port: give ftpsrv a moment, then say why.
+            for _ in range(5):
+                time.sleep(2)
+                if ftp_open(host, port):
+                    return
+            hint = " (ftpsrv uses port 2121; change it on the Remote tab)" if port != 2121 else ""
+            raise RuntimeError(f"the PS5 is on but nothing answers on {host}:{port}{hint}; "
+                               "is ftpsrv running? Then press Send to PS5 again to resume")
+        if not cfg["ps5_wake_key"]:
+            raise RuntimeError(f"no FTP server at {host}:{port}: is the PS5 on with ftpsrv running? "
+                               "(add the Remote Play key to wake it from rest mode)")
+        wakes[0] += 1
+        if wakes[0] > 5:
+            raise RuntimeError("the PS5 kept going to rest mode; set Settings > System > Power Saving > "
+                               "Set Time Until PS5 Enters Rest Mode to Don't Put in Rest Mode")
+        was, cur = st.get("current", ""), f"waking the PS5 (it was {state})"
+        st["current"] = cur
+        save(True)
+        ps5_wake(host, cfg["ps5_wake_key"])
+        deadline = time.time() + 240
+        while not ftp_open(host, port):
+            if time.time() > deadline:
+                raise RuntimeError("woke the PS5 but its FTP server did not answer within 4 minutes "
+                                   "(is ftpsrv loaded after rest mode?)")
+            if int(time.time()) % 30 == 0:
+                ps5_wake(host, cfg["ps5_wake_key"])
+            time.sleep(3)
+        time.sleep(5)  # give ftpsrv a moment after resume
+        st["current"] = was
+        st["woken"] = st.get("woken", 0) + 1
+        save(True)
+
     try:
-        if not ftp_open(host, port):
-            state = ps5_status(host)
-            if state == "on":
-                # Awake but nothing on this port: give ftpsrv a moment, then say why.
-                for _ in range(5):
-                    time.sleep(2)
-                    if ftp_open(host, port):
-                        break
-                else:
-                    hint = " (ftpsrv uses port 2121; change it on the Remote tab)" if port != 2121 else ""
-                    raise RuntimeError(f"the PS5 is on but nothing answers on {host}:{port}{hint}; "
-                                       "is ftpsrv running? Then press Send to PS5 again to resume")
-        if not ftp_open(host, port):
-            if not cfg["ps5_wake_key"]:
-                raise RuntimeError(f"no FTP server at {host}:{port}: is the PS5 on with ftpsrv running? "
-                                   "(add the Remote Play key to wake it from rest mode)")
-            st["current"] = f"waking the PS5 (it was {state})"
-            save(True)
-            ps5_wake(host, cfg["ps5_wake_key"])
-            deadline = time.time() + 240
-            while not ftp_open(host, port):
-                if time.time() > deadline:
-                    raise RuntimeError("woke the PS5 but its FTP server did not answer within 4 minutes "
-                                       "(is ftpsrv loaded after rest mode?)")
-                if int(time.time()) % 30 == 0:
-                    ps5_wake(host, cfg["ps5_wake_key"])
-                time.sleep(3)
-            time.sleep(5)  # give ftpsrv a moment after resume
+        ensure_ftp()
         ftp = connect()
         # Two copies of one title confuse ShadowMountPlus.
         tid = ""
@@ -2496,7 +2629,7 @@ def cmd_push(args) -> int:
             ps5_ftp_mkdirs(ftp, cfg["ps5_dest"])
             ftp.voidcmd("TYPE I")
         dupes = [n for n in names if tid and tid in n.upper() and n != out.name]
-        if dupes and not args.force:
+        if dupes and not force:
             raise RuntimeError(f"{cfg['ps5_dest']} on the PS5 already has {tid}: {', '.join(dupes)}. "
                                "Delete or move it first (ShadowMountPlus mounts one copy per title)")
         made = set()
@@ -2528,32 +2661,44 @@ def cmd_push(args) -> int:
             with open(p, "rb") as fh:
                 if fh.read(4) in PROGRAM_MAGICS:
                     programs.append((p, remote))
-            for attempt in range(3):
+            for attempt in range(6):
                 try:
-                    if rsize(ftp, remote) == size:
+                    have = rsize(ftp, remote)
+                    if have == size:
                         st["skipped"] += 1
                         break
                     mkdirs(remote.rsplit("/", 1)[0])
                     start = st["bytes"]
+                    # A partial file continues where it stopped (ftpsrv honours
+                    # REST on STOR); the last MiB is sent again to be safe.
+                    offset = max(0, have - (1 << 20)) if have and have < size else 0
+                    st["bytes"] += offset
 
-                    def cb(chunk, start=start):
+                    def cb(chunk):
                         st["bytes"] += len(chunk)
+                        rate.append((time.time(), len(chunk)))
                         save()
                     with open(p, "rb") as fh:
-                        ftp.storbinary(f"STOR {remote}", fh, blocksize=1 << 20, callback=cb)
+                        fh.seek(offset)
+                        ftp.storbinary(f"STOR {remote}", fh, blocksize=1 << 20, callback=cb,
+                                       rest=offset or None)
                     got = rsize(ftp, remote)
                     if got is not None and got != size:
                         st["bytes"] = start
                         raise RuntimeError(f"{rel}: PS5 has {got} bytes, expected {size}")
+                    if offset and (p, remote) not in programs:
+                        programs.append((p, remote))  # a joined file is compared byte for byte below
                     break
-                except (*ftplib.all_errors, RuntimeError) as err:
-                    if "No space" in str(err) or attempt == 2:
+                except (*ftplib.all_errors, OSError, RuntimeError) as err:
+                    if "No space" in str(err) or attempt == 5:
                         raise RuntimeError(f"{rel}: {err}")
+                    st["bytes"] = sum(q.stat().st_size for q in files[: st["files_done"]])
                     try:
                         ftp.close()
                     except Exception:
                         pass
                     time.sleep(3)
+                    ensure_ftp()  # the PS5 may have gone to rest mode
                     ftp = connect()
             else:
                 pass
@@ -2775,7 +2920,8 @@ def dashboard_data() -> dict:
             "settings": {**get_settings(), "ps5_wake_key": "set" if get_settings()["ps5_wake_key"] else "",
                          "paired": {k: (read_json(SETTINGS_PATH, {}) or {}).get(k) for k in ("ps5_nickname", "ps5_paired")}},
             "transfer": transfer_running(),
-            "transfers": {f.stem: read_json(f, {}) for f in TRANSFERS.glob("*.json")} if TRANSFERS.is_dir() else {}}
+            "transfers": {f.stem: read_json(f, {}) for f in transfer_files()},
+            "transfer_queue": transfer_queue()}
 
 
 def game_detail(game_id: str) -> dict:
@@ -2807,8 +2953,12 @@ def game_detail(game_id: str) -> dict:
                    "build": RUNTIME_NAME if sha == RUNTIME_SHA256 else f"another build ({sha[:12]})"}
         else:
             apr = {"path": None, "ok": False, "build": "missing"}
+    src = next((e for e in scan_library() if e.id == game_id), None)
+    version = game_version(*(x for x in (out, src.path if src and src.kind == "folder" else None) if x),
+                           name=(src.rel if src else "") or (out.name if out else game_id))
     return {"id": game_id, "report": rep or None, "folder": folder, "work": work, "skipped": skipped,
-            "title_id": tid, "community": compat_games().get(tid), "community_repo": COMPAT_REPO, "apr": apr}
+            "title_id": tid, "community": compat_games().get(tid), "community_repo": COMPAT_REPO, "apr": apr,
+            "version": version}
 
 
 def cmd_dashboard(_args) -> int:
@@ -2929,6 +3079,16 @@ def cmd_ui(args) -> int:
                 self.end_headers()
                 self.wfile.write(png)
                 return
+            if self.path.startswith("/api/ftp/du?") or self.path == "/api/ps5/drives":
+                from urllib.parse import parse_qs, urlparse
+                try:
+                    if self.path == "/api/ps5/drives":
+                        body = ps5_drives()
+                    else:
+                        body = ps5_ftp_du((parse_qs(urlparse(self.path).query).get("path") or ["/"])[0])
+                    return self.send(200, json.dumps(body).encode())
+                except Exception as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if self.path.startswith("/api/ftp/apr?"):
                 from urllib.parse import parse_qs, urlparse
                 path = (parse_qs(urlparse(self.path).query).get("path") or ["/"])[0]
@@ -3085,14 +3245,35 @@ def cmd_ui(args) -> int:
                 except (OSError, ValueError, KeyError) as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
                 return self.send(200, b'{"stopping":true}')
+            if req.get("action") in ("push_queue_remove", "push_queue_up"):
+                game, q = str(req.get("game") or ""), transfer_queue()
+                if game in q:
+                    i = q.index(game)
+                    q.pop(i)
+                    if req["action"] == "push_queue_up":
+                        q.insert(max(0, i - 1), game)
+                    transfer_queue_set(q)
+                cache["at"] = 0
+                return self.send(200, json.dumps({"queue": q}).encode())
+            if req.get("action") == "push_queue_start":
+                q = transfer_queue()
+                if not q:
+                    return self.send(409, b'{"error":"the transfer queue is empty"}')
+                if transfer_running():
+                    return self.send(409, b'{"error":"a transfer is already running"}')
+                req = {"action": "push", "game": q[0]}
             if req.get("action") == "push":
                 game = str(req.get("game") or "")
                 if not game or game.startswith("-") or "/" in game:
                     return self.send(400, b'{"error":"no game"}')
                 if not get_settings()["ps5_ftp"]:
                     return self.send(400, json.dumps({"error": "PS5 FTP address missing"}).encode())
-                if transfer_running():
-                    return self.send(409, b'{"error":"a transfer is already running"}')
+                q = transfer_queue()
+                if transfer_running():  # after the current one, in order
+                    if game not in q:
+                        transfer_queue_set(q + [game])
+                    cache["at"] = 0
+                    return self.send(200, json.dumps({"queued": game, "position": transfer_queue().index(game) + 1}).encode())
                 argv = [sys.executable, os.path.abspath(__file__), "push", game] + (["--force"] if req.get("force") else [])
                 TRANSFERS.mkdir(exist_ok=True)
                 with open(os.devnull, "w") as devnull:

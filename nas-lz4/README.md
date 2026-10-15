@@ -90,10 +90,17 @@ that container alone.
 - **Compress all:** compresses every game that can be LZ4, one at a time.
 - **Running job:** the six steps with live progress and a stop button (the
   job can be resumed).
+- **Activity tab:** everything that runs or waits: the packing job with its
+  steps and the packing queue, the transfer to the PS5 with speed and time
+  left, the transfer queue (move up, remove, start), failed jobs and recent
+  actions. My games shows a one-line summary while something runs.
 - **Community tab:** every game reported by other players, fetched live from
   the GitHub reports every 5 minutes (or **Refresh now**), with search,
   filters and sorting.
-- **Remote tab:** the PS5 address, pairing and wake-up (see below).
+- **Remote tab:** the PS5 address, pairing and wake-up (see below), and the
+  PS5's drives (internal SSD, USB, extended storage) with what ps5-lz4 sent
+  there and a **Measure** button that adds up their files (ftpsrv can't
+  report free space).
 - **FTP tab:** browse the PS5's drives over ftpsrv, game folders with their
   icon (`sce_sys/icon0.png`, cached in `state/icons/`) (`/data`, `/mnt/usb0`,
   `/mnt/ext0`, ...) download files as they are on disk (SELF decryption off)
@@ -123,7 +130,12 @@ On the **Remote** tab set the PS5's FTP address (ftpsrv, for example
   (ShadowMountPlus mounts one copy per title);
 - checks the size of every file and compares the program files (`eboot.bin`,
   `.prx`, `.sprx`) by SHA-256, uploading one again if it differs;
-- resumes an interrupted transfer by skipping finished files.
+- resumes an interrupted transfer by skipping finished files and continuing
+  a half-sent file where it stopped (ftpsrv supports REST);
+- wakes the PS5 again if it goes to rest mode during the transfer, and
+  carries on (to keep it awake: Settings › System › Power Saving › Set Time
+  Until PS5 Enters Rest Mode › Don't Put in Rest Mode);
+- queues games sent while another transfer runs and sends them in turn;
 - adds a PlayGo emulator to the PS5 copy's `fakelib/` when the game needs
   one and the LZ4 folder has none (see *Boot files* below). It is taken from
   the NAS or downloaded from the console (`/data/shadowmount/emus`, other
