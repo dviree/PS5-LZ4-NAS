@@ -594,6 +594,7 @@ class Job:
     def set_step(self, step: str) -> None:
         self.state["step"] = f"{step} (running)"
         self.state["updated"] = now()
+        self.state["step_at"] = time.time()
         self.save()
 
     def need_space(self, nbytes: int, what: str) -> None:
@@ -3350,6 +3351,54 @@ def work_progress(w: Path) -> tuple[int, int, str] | None:
     return best
 
 
+# Time left for the packing job, worked out where the page is served so it is
+# there as soon as the page opens: the rate over the last minutes (or since the
+# step started), and for the steps still to come the rate earlier games had.
+PROG_SEEN: dict = {}
+RATES_PATH = STATE / "rates.json"
+LATER_PHASES = {"pack": ["checking every chunk", "unpacking", "comparing with the original"],
+                "verify": ["unpacking", "comparing with the original"], "restore": []}
+
+
+def job_eta(current: str, st: dict, prog, restore_test: bool = True) -> dict | None:
+    if not prog or not prog[1]:
+        return None
+    done, total, phase = prog
+    t = time.time()
+    h = PROG_SEEN.setdefault((current, phase), [])
+    if h and done < h[-1][1]:
+        h.clear()
+    if not h or h[-1][1] != done:
+        h.append((t, done))
+    while len(h) > 2 and t - h[1][0] > 600:
+        h.pop(0)
+    rate = None
+    if len(h) > 1 and h[-1][0] - h[0][0] >= 30:
+        rate = (h[-1][1] - h[0][1]) / (h[-1][0] - h[0][0])
+    if not rate and st.get("step_at") and t - st["step_at"] > 30 and done:
+        rate = done / (t - st["step_at"])
+    rates = read_json(RATES_PATH, {}) or {}
+    if rate and done >= total and len(h) > 1 and h[-1][0] - h[0][0] >= 60:
+        rates[phase] = round(rate if phase not in rates else 0.5 * rates[phase] + 0.5 * rate)
+        write_json(RATES_PATH, rates)
+    if not rate and rates.get(phase):
+        rate = rates[phase]
+    out = {"rate": rate, "step_left": (total - done) / rate if rate else None}
+    # The steps after this one each go through about the game's size again.
+    step = str(st.get("step", "")).split(" ")[0]
+    size = st.get("source_bytes") or (total if phase == "packing" else None)
+    later = LATER_PHASES.get(step)
+    if later is not None and step == "restore" and phase == "unpacking":
+        later = ["comparing with the original"]
+    if later is not None and not restore_test:
+        later = [p for p in later if p == "checking every chunk"]
+    if out["step_left"] is not None and later is not None and size:
+        rest = [size / rates[p] for p in later if rates.get(p)]
+        out["job_left"] = out["step_left"] + sum(rest) if len(rest) == len(later) else None
+        out["later"] = len(later)
+    return out
+
+
 def lz4_folder_info(out: Path, cache: dict | None = None) -> dict:
     """Size, file count and pack volumes of an LZ4 game folder (cached by mtime)."""
     try:
@@ -3450,6 +3499,11 @@ def dashboard_data() -> dict:
         step = str(st.get("step", "")).split(" ")[0]
         job = {"id": current, "step": step, "done": st.get("done", []), "steps": STEPS,
                "progress": work_progress(WORK / current), "since": lock_text}
+        try:
+            job["eta"] = job_eta(current, st, job["progress"],
+                                 not (queue.get("options") or {}).get("no_restore_test"))
+        except Exception:
+            job["eta"] = None
     failed = []
     if WORK.is_dir():
         for w in sorted(WORK.iterdir()):
@@ -3595,6 +3649,26 @@ def start_push(game: str, force: bool = False) -> dict:
             subprocess.Popen(argv, stdout=devnull, stderr=devnull, stdin=subprocess.DEVNULL,
                              start_new_session=True)
         return {"started": True}
+
+
+def transfer_queue_watcher() -> None:
+    """Web page container: games waiting in the transfer queue start by
+    themselves as soon as nothing is being sent (after a game is done, after
+    Stop, or after the container restarted), so no Start button is needed."""
+    while True:
+        try:
+            q = transfer_queue()
+            starting = TRANSFERS / ".starting"
+            busy = starting.exists() and time.time() - starting.stat().st_mtime < 20
+            if q and not busy and not transfer_running() and get_settings()["ps5_ftp"]:
+                time.sleep(5)  # let a process that just finished hand over itself
+                q = transfer_queue()
+                if q and not transfer_running():
+                    print(f"[{now()}] transfer queue: starting {q[0]}", flush=True)
+                    start_push(q[0])
+        except Exception as err:
+            print(f"[{now()}] transfer queue: {err}", flush=True)
+        time.sleep(10)
 
 
 SEND_AFTER = STATE / "send_after.json"  # games to send to the PS5 once they are packed
@@ -3874,8 +3948,9 @@ def cmd_ui(args) -> int:
                 host = cfg["ps5_ftp"].partition(":")[0]
                 if not host or not cfg["ps5_wake_key"]:
                     return self.send(400, json.dumps({"error": "PS5 address or Remote Play key missing"}).encode())
+                before = ps5_status(host)
                 ps5_wake(host, cfg["ps5_wake_key"])
-                return self.send(200, b'{"sent":true}')
+                return self.send(200, json.dumps({"sent": True, "before": before}).encode())
             if req.get("action") == "settings":
                 if req.get("ps5_wake_key") == "set":
                     req.pop("ps5_wake_key")  # unchanged (the page only sees that one is stored)
@@ -3943,6 +4018,7 @@ def cmd_ui(args) -> int:
     if COMPAT_REFRESH > 0:
         __import__("threading").Thread(target=compat_refresher, daemon=True).start()
     __import__("threading").Thread(target=send_after_watcher, daemon=True).start()
+    __import__("threading").Thread(target=transfer_queue_watcher, daemon=True).start()
     if ENGINE_CHECK_EVERY > 0:
         __import__("threading").Thread(target=engine_updater, daemon=True).start()
     srv = http.server.ThreadingHTTPServer(("0.0.0.0", args.port), H)
