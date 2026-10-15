@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-15T04:25:20Z",
+ "updated": "2026-10-15T12:51:40Z",
  "games": {
   "PPSA03671": {
    "name": "Marvel's Wolverine",
@@ -19,6 +19,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-14T21:28:58Z",
     "issue": 14
+   }
+  },
+  "PPSA15368": {
+   "name": "Contra: Operation Galuga",
+   "works": 0,
+   "issues": 0,
+   "noStart": 1,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "noStart",
+    "game": "Contra: Operation Galuga",
+    "gameVersion": "",
+    "level": "",
+    "source": "",
+    "firmware": "",
+    "appVersion": "1.5.0-6-g779",
+    "date": "2026-10-15T12:51:29Z",
+    "issue": 20
    }
   },
   "PPSA16106": {
