@@ -88,6 +88,10 @@ that container alone.
   job can be resumed).
 - **Community tab:** every game reported by other players, with search,
   filters and sorting.
+- **Remote tab:** the PS5 address, pairing and wake-up (see below).
+- **FTP tab:** browse the PS5's drives over ftpsrv (`/data`, `/mnt/usb0`,
+  `/mnt/ext0`, ...) and download files as they are on disk (SELF decryption
+  off). Read-only.
 - **Send to the PS5**, **wake** and **pair**: see below.
 
 The page runs in its own container (`ps5-lz4-ui`). It sees the library and
@@ -99,7 +103,7 @@ Tailscale), never through a router port forward.
 
 ## Send to the PS5
 
-On the **PS5** tab set the PS5's FTP address (ftpsrv, for example
+On the **Remote** tab set the PS5's FTP address (ftpsrv, for example
 `192.168.1.20:2121`) and the destination (for example `/mnt/usb0/homebrew`).
 **Send to PS5** on a game then:
 
@@ -122,7 +126,7 @@ If the PS5 doesn't answer, the transfer wakes it first with the Remote Play
 wake-up Chiaki uses, waits for ftpsrv and then copies. That needs the
 registration key, which you get by **pairing**:
 
-1. On the **PS5** tab, enter the PSN account ID of the account signed in on
+1. On the **Remote** tab, enter the PSN account ID of the account signed in on
    the PS5, in the base64 form Chiaki uses (12 characters ending in `=`).
    Already set up in Chiaki? Use the same ID. A normal PSN account: chiaki-ng
    can look it up when you sign in with PSN. A fake signed-in (offline

@@ -73,8 +73,9 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
 </header>
 <nav class="tabs">
   <button id="t-mine" class="on" onclick="tab('mine')">My games</button>
-  <button id="t-ps5" onclick="tab('ps5')">PS5</button>
   <button id="t-comm" onclick="tab('comm')">Community</button>
+  <button id="t-ps5" onclick="tab('ps5')">Remote</button>
+  <button id="t-ftp" onclick="tab('ftp')">FTP</button>
 </nav>
 <main id="p-mine">
   <div id="error" class="err" hidden></div>
@@ -96,7 +97,7 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
   <div class="sheet"><button class="x" onclick="closeGame()">✕</button><div id="m-body">Loading…</div></div>
 </div>
 <main id="p-ps5" hidden>
-  <div class="card"><h2>PS5</h2>
+  <div class="card"><h2>Remote</h2>
     <div class="filters" style="margin-top:0">
       <span class="pill p-no" id="ps5st">PS5: ?</span>
       <button onclick="act('wake')">Wake PS5 now</button>
@@ -142,6 +143,20 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
       <input id="s-key" placeholder="Remote Play key (rp_regist_key)" autocomplete="off">
       <button onclick="saveSettings()">Save</button>
     </div>
+  </div>
+</main>
+<main id="p-ftp" hidden>
+  <div class="card"><h2>PS5 files (FTP)</h2>
+    <div class="mut">Browse the PS5 over ftpsrv: the internal drive (<code>/data</code>), USB drives (<code>/mnt/usb0</code>)
+    and extended storage (<code>/mnt/ext0</code>). Read-only; tap a file to download it as it is on disk.</div>
+    <div class="filters">
+      <button onclick="ftpGo(ftpPath.replace(/\/[^/]*$/, '') || '/')">⬆ Up</button>
+      <input id="ftp-path" placeholder="/data" onkeydown="if(event.key==='Enter')ftpGo(this.value)">
+      <button onclick="ftpGo(document.getElementById('ftp-path').value)">Go</button>
+    </div>
+    <div class="filters" id="ftp-quick"></div>
+    <div class="mut" id="ftp-msg"></div>
+    <div class="scroll"><table id="ftp-list"></table></div>
   </div>
 </main>
 <main id="p-comm" hidden>
@@ -225,7 +240,7 @@ async function saveAddress() {
 }
 function push(id, name) {
   const s = data.settings || {};
-  if (!s.ps5_ftp) { alert('Enter the PS5 address on the PS5 tab first.'); tab('ps5'); return; }
+  if (!s.ps5_ftp) { alert('Enter the PS5 address on the Remote tab first.'); tab('ps5'); return; }
   const t = (data.transfers || {})[id];
   act('push', `Send ${name} to ${s.ps5_ftp}${s.ps5_dest}?\n\n` +
     (s.ps5_wake_key ? 'If the PS5 is in rest mode it is woken first.' : 'The PS5 must be on with the FTP server running.') +
@@ -424,14 +439,38 @@ function gameHtml(g, det) {
     <div class="kv">${rows.map(([k, x]) => `<div>${k}</div><div>${x}</div>`).join('')}</div>
     <div class="acts">${acts.join('') || '<span class="mut">Nothing to do for this game.</span>'}</div>`;
 }
+let ftpPath = '/', ftpLoaded = false;
+async function ftpGo(path) {
+  path = '/' + String(path || '/').trim().replace(/^\/+|\/+$/g, '');
+  const msg = document.getElementById('ftp-msg'), list = document.getElementById('ftp-list');
+  document.getElementById('ftp-path').value = path;
+  const dest = (data && data.settings && data.settings.ps5_dest) || '';
+  document.getElementById('ftp-quick').innerHTML = ['/', '/data', '/mnt/usb0', '/mnt/ext0', dest].filter((x, i, a) => x && a.indexOf(x) === i)
+    .map(x => `<button class="sm" data-p="${esc(x)}" onclick="ftpGo(this.dataset.p)">${esc(x)}</button>`).join('');
+  msg.textContent = 'Loading…';
+  try {
+    const r = await fetch('/api/ftp/list?path=' + encodeURIComponent(path), {cache: 'no-store'});
+    const j = await r.json();
+    if (!r.ok) { msg.innerHTML = `<span class="bad">${esc(j.error || r.status)}</span>`; return; }
+    ftpPath = j.path; ftpLoaded = true;
+    const files = j.items.filter(i => !i.dir), bytes = files.reduce((n, i) => n + (i.size || 0), 0);
+    msg.textContent = `${j.items.length - files.length} folders, ${files.length} files` + (files.length ? ` (${gb(bytes)})` : '');
+    const join = n => (ftpPath === '/' ? '' : ftpPath) + '/' + n;
+    list.innerHTML = (j.items.length ? j.items.map(i => i.dir
+      ? `<tr class="row" data-p="${esc(join(i.name))}" onclick="ftpGo(this.dataset.p)"><td>📁 ${esc(i.name)}<div class="why">${esc(i.modified)}</div></td></tr>`
+      : `<tr><td>📄 <a href="/api/ftp/get?path=${encodeURIComponent(join(i.name))}" download>${esc(i.name)}</a><div class="why">${gb(i.size)} · ${esc(i.modified)}</div></td></tr>`
+    ).join('') : '<tr><td class="mut">Empty folder.</td></tr>');
+  } catch (e) { msg.innerHTML = `<span class="bad">${esc(String(e))}</span>`; }
+}
 let comm = null;
 function tab(t) {
-  for (const k of ['mine', 'ps5', 'comm']) {
+  for (const k of ['mine', 'ps5', 'comm', 'ftp']) {
     document.getElementById('p-' + k).hidden = t !== k;
     document.getElementById('t-' + k).classList.toggle('on', t === k);
   }
   try { localStorage.setItem('tab', t); } catch (e) {}
   if (t === 'comm') loadComm();
+  if (t === 'ftp' && !ftpLoaded) ftpGo(ftpPath);
 }
 async function loadComm() {
   try {
@@ -535,8 +574,8 @@ async function ps5State() {
 }
 load(); setInterval(load, 5000); ps5State(); setInterval(ps5State, 15000);
 try {
-  const saved = location.hash === '#community' ? 'comm' : location.hash === '#ps5' ? 'ps5' : localStorage.getItem('tab');
-  if (saved === 'comm' || saved === 'ps5') tab(saved);
+  const saved = {'#community': 'comm', '#remote': 'ps5', '#ftp': 'ftp'}[location.hash] || localStorage.getItem('tab');
+  if (['comm', 'ps5', 'ftp'].includes(saved)) tab(saved);
 } catch (e) {}
 </script>
 <footer class="mut" style="text-align:center;padding:16px;font-size:12px">ps5-lz4 ·
