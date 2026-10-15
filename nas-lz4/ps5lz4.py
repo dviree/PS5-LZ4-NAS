@@ -2939,7 +2939,11 @@ def ps5_games() -> dict:
 
 
 # Deleting is allowed only inside these, and never the drive or its top folders.
-FTP_DELETE_ROOTS = re.compile(r"^/(data|mnt/(usb|ext)\d+)/[^/]+/.+")
+FTP_DELETE_ROOTS = re.compile(r"^/(data|mnt/(usb|ext)\d+)/[^/]+")
+# Folders directly in /data that the jailbreak, payloads and homebrew need:
+# only what is inside them can be deleted.
+FTP_KEEP = {"etahen", "pldmgr", "homebrew", "shadowmount", "lz4compression", "goldhen", "payloads",
+            "kstuff", "elfldr", "websrv", "ftpsrv", "itemzflow", "toolbox", "app", "system_data"}
 
 
 def ps5_ftp_delete(path: str) -> dict:
@@ -2947,8 +2951,9 @@ def ps5_ftp_delete(path: str) -> dict:
     import ftplib
     path = ps5_ftp_path(path)
     if not FTP_DELETE_ROOTS.match(path):
-        raise ValueError("only files and folders at least two levels inside /data, /mnt/usbN or /mnt/extN "
-                         "can be deleted here")
+        raise ValueError("only files and folders inside /data, /mnt/usbN or /mnt/extN can be deleted here")
+    if path.count("/") == 2 and path.startswith("/data/") and path.rsplit("/", 1)[1].lower() in FTP_KEEP:
+        raise ValueError(f"{path} is needed by the jailbreak, payloads or homebrew; delete what is inside it instead")
     # Other folders can go while a transfer runs. If the folder is the game
     # being sent, that transfer is stopped first; queued sends of it are dropped.
     inside = lambda t: (t.get("dest", "").partition("/")[2] and

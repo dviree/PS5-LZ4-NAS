@@ -870,10 +870,11 @@ async function ftpGo(path) {
     if (j.items.some(i => i.dir && i.name.toLowerCase() === 'fakelib'))
       msg.innerHTML += ` · <button class="sm" onclick="aprCheck(ftpPath)">Check APR-EMU here</button>`;
     const join = n => (ftpPath === '/' ? '' : ftpPath) + '/' + n;
-    const del = (p, dir) => /^\/(data|mnt\/(usb|ext)\d+)\/[^/]+\/.+/.test(p)
+    const KEEP = ['etahen', 'pldmgr', 'homebrew', 'shadowmount', 'lz4compression', 'goldhen', 'payloads', 'kstuff', 'elfldr', 'websrv', 'ftpsrv', 'itemzflow', 'toolbox', 'app', 'system_data'];
+    const del = (p, dir) => /^\/(data|mnt\/(usb|ext)\d+)\/[^/]+/.test(p) && !(/^\/data\/[^/]+$/.test(p) && KEEP.includes(p.split('/').pop().toLowerCase()))
       ? `<button class="sm" style="float:right;margin-left:8px" data-p="${esc(p)}" data-dir="${dir ? 1 : ''}" onclick="ftpDelete(this.dataset.p, this.dataset.dir)">Delete</button>` : '';
     list.innerHTML = (j.items.length ? j.items.map(i => i.dir || i.link
-      ? `<tr class="row" data-p="${esc(join(i.name))}" onclick="if(!event.target.closest('button'))ftpGo(this.dataset.p)"><td style="white-space:normal">${i.link ? '' : del(join(i.name), true)}<button class="sm" style="float:right;margin-left:8px" data-p="${esc(join(i.name))}" onclick="location.href='/api/ftp/zip?path=' + encodeURIComponent(this.dataset.p)">ZIP</button>${folderIcon(join(i.name))}${esc(i.name)}${i.link ? ' ↪' : ''}<div class="why">${esc(i.modified)}</div></td></tr>`
+      ? `<tr class="row" data-p="${esc(join(i.name))}" onclick="if(!event.target.closest('button'))ftpGo(this.dataset.p)"><td style="white-space:normal">${del(join(i.name), !i.link)}<button class="sm" style="float:right;margin-left:8px" data-p="${esc(join(i.name))}" onclick="location.href='/api/ftp/zip?path=' + encodeURIComponent(this.dataset.p)">ZIP</button>${folderIcon(join(i.name))}${esc(i.name)}${i.link ? ' ↪' : ''}<div class="why">${esc(i.modified)}</div></td></tr>`
       : `<tr><td style="white-space:normal">${del(join(i.name), false)}📄 <a href="/api/ftp/get?path=${encodeURIComponent(join(i.name))}" download>${esc(i.name)}</a><div class="why">${gb(i.size)} · ${esc(i.modified)}</div></td></tr>`
     ).join('') : '<tr><td class="mut">Empty folder.</td></tr>');
   } catch (e) { msg.innerHTML = `<span class="bad">${esc(String(e))}</span>`; }
