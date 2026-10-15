@@ -246,6 +246,26 @@ copies its `PPSA99420` folder over FTP to `/data/homebrew/PPSA99420`.
 ShadowMount+ then adds the LZ4 Compression tile: the console UI made for the
 controller, which uses the engine on the PS5.
 
+## exFAT images of LZ4 games
+
+Some games only start when they run from an image instead of a folder. In
+a packed game's sheet:
+
+- **Make exFAT image** packs the LZ4 folder into one file,
+  `<name>-lz4.exfat`, next to it in the output folder (MkPFS), then compares
+  every file in the image with the LZ4 folder byte for byte. Only then is the
+  image kept; the LZ4 folder stays. Progress and **Stop** are on the Activity
+  tab.
+- **Send exFAT image to PS5** sends that file to the PS5 folder (resumable,
+  like every transfer). ShadowMount+ mounts it from there. The PS5 must not
+  hold the same game as a folder too (one copy per title).
+- **Compress, make exFAT and send to PS5** (and **Make exFAT and send to
+  PS5** for packed games) does it all in one go: LZ4, image, check, send.
+- **Delete exFAT image** removes the image; the LZ4 folder stays.
+
+Making an exFAT image of the original first changes nothing: the NAS unpacks
+it again before LZ4 packing. Originals are never converted.
+
 ## Deleting originals
 
 By default the library is mounted read-only, so nothing can change or delete
