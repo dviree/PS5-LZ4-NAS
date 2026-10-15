@@ -4,7 +4,7 @@ Pack PS5 games with **LZ4 HC for APR-EMU on a NAS**, check them byte for byte,
 and send them to the console, all from a web page. Nothing runs on the PS5
 except the game. A fork of
 [theghostonline/PS5-LZ4-Compression](https://github.com/theghostonline/PS5-LZ4-Compression),
-kept in sync with it every six hours.
+kept in sync with it every 10 minutes.
 
 Full guide: [nas-lz4/README.md](../nas-lz4/README.md).
 
