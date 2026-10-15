@@ -14,3 +14,10 @@ int
 lzc_launcher_remove(void) {
   return 0;
 }
+
+/* No PS5 app to close and reopen after an update. */
+int
+lzc_relaunch_after_close(const char *title_id) {
+  (void)title_id;
+  return -1;
+}
