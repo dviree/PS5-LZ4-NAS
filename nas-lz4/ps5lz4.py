@@ -1700,6 +1700,10 @@ def cmd_ui(args) -> int:
         def do_GET(self):
             if self.path in ("/", "/index.html"):
                 return self.send(200, UI_HTML.encode(), "text/html")
+            if self.path == "/api/community":
+                data = read_json(COMPAT_FILE, {}) or {}
+                body = {"repo": COMPAT_REPO, "updated": data.get("updated"), "games": data.get("games") or {}}
+                return self.send(200, json.dumps(body, ensure_ascii=False).encode())
             if self.path == "/api/dashboard":
                 with lock:
                     if time.time() - cache["at"] > 4:
