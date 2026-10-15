@@ -532,6 +532,11 @@ async function saveAddress() {
 }
 // Resume from the Activity list: straight into the queue while something is
 // sent, so several can be lined up without a question each time.
+function transferDelete(key, name, running) {
+  const t = (data.transfers || {})[key] || {}, path = t.dest ? '/' + t.dest.split('/').slice(1).join('/') : '';
+  act('transfer_delete', (running ? `Stop sending ${name} and delete it from the PS5?` : `Delete ${name} from the PS5 and remove it from this list?`)
+    + `\n\n${path}\n\nWhat was sent so far is deleted; the game on the NAS stays.`, {game: key});
+}
 async function resumeTransfer(id, name) {
   if (data.transfer || (data.transfer_queue || []).length) {
     await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -625,7 +630,8 @@ function render() {
         ${tf.speed ? `<span>${gb(tf.speed)}/s</span><span>about ${dur(tf.eta)} left</span>` : '<span>measuring speed…</span>'}
         <span>file ${tf.files_done} of ${tf.files}</span>${tf.woken ? `<span>woke the PS5 ${tf.woken}×</span>` : ''}${tf.kept_awake ? '<span class="good">kept awake by LZ4 Compression</span>' : ''}</div>
       <div class="why">${esc(tf.current || '')}</div>
-      <div style="margin-top:10px"><button onclick="act('push_stop', 'Stop sending this game? Finished files stay on the PS5 and it can be resumed later. The queue goes on with the next game.')">Stop (resumable)</button></div>`;
+      <div class="acts" style="margin-top:10px"><button onclick="act('push_stop', 'Stop sending this game? Finished files stay on the PS5 and it can be resumed later. The queue goes on with the next game.')">Stop (resumable)</button>
+        <button class="danger" data-k="${esc(tf.game)}" data-n="${esc(nameOf(tf.game))}" onclick="transferDelete(this.dataset.k, this.dataset.n, true)">🗑 Stop and delete</button></div>`;
   } else xf.innerHTML = '<div class="mut">No transfer running.</div>';
   // Stopped or failed transfers, newest first, each resumable where it stopped.
   // They stay listed while another runs; Resume then queues them.
@@ -639,7 +645,8 @@ function render() {
       return `<div class="qrow"><span class="qname"><b>${esc(nameOf(id))}</b>
           <div class="why">${stop ? 'stopped' : '<span class="bad">failed</span>'} at ${pct} % · ${gb(t.bytes)} / ${gb(t.total)} · ${esc((t.finished || '').slice(5, 16))}</div>
           ${stop ? '' : `<div class="why bad">${esc(t.error || '')}</div>`}</span>
-        <button class="sm pri" data-id="${esc(t.request || id)}" data-name="${esc(nameOf(id))}" onclick="resumeTransfer(this.dataset.id, this.dataset.name)">${tf || tq0.length ? '＋ Queue' : '▶ Resume'}</button></div>`;
+        <button class="sm pri" data-id="${esc(t.request || id)}" data-name="${esc(nameOf(id))}" onclick="resumeTransfer(this.dataset.id, this.dataset.name)">${tf || tq0.length ? '＋ Queue' : '▶ Resume'}</button>
+        <button class="sm danger" data-k="${esc(id)}" data-n="${esc(nameOf(id))}" onclick="transferDelete(this.dataset.k, this.dataset.n)" title="Delete what was sent to the PS5 and remove it from this list">🗑 Delete</button></div>`;
     }).join('') : '';
   const tq = d.transfer_queue || [];
   document.getElementById('xq').innerHTML = tq.length ? `<h4 class="qh">Queued (${tq.length})</h4>` + tq.map((x, i) =>

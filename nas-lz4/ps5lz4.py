@@ -4375,6 +4375,26 @@ def cmd_ui(args) -> int:
                 except (OSError, ValueError, KeyError) as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
                 return self.send(200, b'{"stopping":true}')
+            if req.get("action") == "transfer_delete":
+                # Stop it if it runs, delete what reached the PS5, forget it.
+                key = str(req.get("game") or "")
+                rec = TRANSFERS / f"{key}.json"
+                if not key or "/" in key or key.startswith(".") or not rec.is_file():
+                    return self.send(400, b'{"error":"no such transfer"}')
+                st = read_json(rec, {}) or {}
+                path = "/" + str(st.get("dest") or "").partition("/")[2]
+                try:
+                    res = ps5_ftp_delete(path)
+                except ValueError as err:
+                    if "is not on the PS5" not in str(err):
+                        return self.send(400, json.dumps({"error": str(err)}).encode())
+                    res = {"deleted": None}
+                except Exception as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+                rec.unlink(missing_ok=True)
+                transfer_queue_set([g for g in transfer_queue() if g not in (key, st.get("request"))])
+                cache["at"] = 0
+                return self.send(200, json.dumps(res).encode())
             if req.get("action") in ("push_queue_remove", "push_queue_up"):
                 game, q = str(req.get("game") or ""), transfer_queue()
                 if game in q:
