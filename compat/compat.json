@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-15T13:32:44Z",
+ "updated": "2026-10-15T13:33:26Z",
  "games": {
   "PPSA03671": {
    "name": "Marvel's Wolverine",
@@ -76,6 +76,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-14T21:29:31Z",
     "issue": 15
+   }
+  },
+  "PPSA25286": {
+   "name": "Crimson Desert",
+   "works": 0,
+   "issues": 0,
+   "noStart": 1,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "noStart",
+    "game": "Crimson Desert",
+    "gameVersion": "",
+    "level": "",
+    "source": "Folder",
+    "firmware": "",
+    "appVersion": "1.5.0-6-g779",
+    "date": "2026-10-15T13:33:13Z",
+    "issue": 23
    }
   },
   "PPSA26344": {
