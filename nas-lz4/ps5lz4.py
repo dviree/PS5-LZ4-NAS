@@ -1868,6 +1868,36 @@ def cmd_apr(args) -> int:
     return 1 if bad and not args.fix else 0
 
 
+DELETE_ORIGINALS = os.environ.get("PS5LZ4_DELETE_ORIGINALS", "no") == "yes"
+
+
+def cmd_delete_original(args) -> int:
+    """Delete an original game (folder or image) from the library. Only when
+    installed with DELETE_ORIGINALS=yes; the LZ4 copy, if any, stays."""
+    ensure_dirs()
+    if not DELETE_ORIGINALS:
+        raise SystemExit("deleting originals is off; reinstall with DELETE_ORIGINALS=yes to allow it")
+    e = next((x for x in scan_library() if x.id == args.game), None)
+    if e is None:
+        raise SystemExit(f"{args.game} is not in the library")
+    if not under(e.path, LIBRARY) or os.path.abspath(e.path) == os.path.abspath(LIBRARY):
+        raise SystemExit(f"refusing to delete outside the library: {e.path}")
+    running, _ = job_running()
+    q = read_json(QUEUE_PATH, {}) or {}
+    if running and q.get("current") == e.id:
+        raise SystemExit("that game is being packed right now; stop the job first")
+    files, size = tree_bytes(e.path) if e.path.is_dir() else (1, e.path.stat().st_size)
+    if e.path.is_dir():
+        shutil.rmtree(e.path)
+    else:
+        e.path.unlink()
+        for side in (e.path.with_name(e.path.name + ".vhash"),):
+            side.unlink(missing_ok=True)
+    print(f"deleted the original {e.rel} ({human(size)}) from {HOST_LIBRARY}"
+          + (f"; the LZ4 copy {e.output.name} stays" if e.output.is_dir() else ""))
+    return 0
+
+
 def cmd_remove(args) -> int:
     """Delete a finished LZ4 copy from the output folder (never an original).
     Its report goes too, so the game shows as 'can be LZ4' again."""
@@ -1916,7 +1946,8 @@ def cmd_doctor(_args) -> int:
     try:
         probe.write_text("x")
         probe.unlink()
-        line(False, "library is WRITABLE: mount it read-only (:ro)")
+        line(DELETE_ORIGINALS, "library is writable (DELETE_ORIGINALS=yes: originals can be deleted from the web page)"
+             if DELETE_ORIGINALS else "library is WRITABLE: mount it read-only (:ro)")
     except OSError as err:
         line(err.errno in (errno.EROFS, errno.EACCES, errno.EPERM), "library is read-only")
     line(OUTPUT.is_dir() and os.access(OUTPUT, os.W_OK), f"output {OUTPUT} writable")
@@ -2494,7 +2525,7 @@ def ps5_games() -> dict:
                         j = json.loads(bytes(buf).decode("utf-8", "replace"))
                         g["title_id"], g["name"] = parse_param_json(bytes(buf))
                         g["version"] = str(j.get("contentVersion") or "")
-                    except (ftplib.all_errors, ValueError):
+                    except (*ftplib.all_errors, ValueError):
                         m = TITLE_RE.search(it["name"])
                         g["title_id"] = m.group(0).upper() if m else ""
                     if not g["version"]:
@@ -2990,6 +3021,7 @@ UI_ACTIONS = {  # action -> ps5lz4 arguments (game and result are checked separa
     "start": ["start"],
     "community": ["community"],
     "remove": ["remove"],
+    "delete_original": ["delete-original"],
 }
 
 
@@ -3143,6 +3175,7 @@ def dashboard_data() -> dict:
             "interrupted": (not running) and bool(queue.get("remaining")),
             "free_bytes": free_bytes(OUTPUT), "games": rows, "totals": totals, "failed": failed,
             "lz4c_version": lz4c_version(),
+            "delete_originals": DELETE_ORIGINALS,
             "level": int(os.environ.get("PS5LZ4_LEVEL", "9")), "runtime": RUNTIME_NAME.removeprefix("APR-EMU "),
             "compat_updated": compat_data().get("updated"),
             "requests": {"pending": pending, "pending_list": pending_list, "recent": done_req[::-1]}, "version": VERSION,
@@ -3200,7 +3233,7 @@ def run_request(req: dict) -> dict:
     if action not in UI_ACTIONS:
         return {"ok": False, "output": f"unknown action {action!r}"}
     argv = list(UI_ACTIONS[action])
-    if action in ("start", "community", "remove"):
+    if action in ("start", "community", "remove", "delete_original"):
         game = str(req.get("game") or "")
         if not game or game.startswith("-") or len(game) > 300:
             return {"ok": False, "output": "no game given"}
@@ -3630,6 +3663,9 @@ def main() -> int:
     sp = sub.add_parser("ui", help="serve the web page (own container, see install.sh)")
     sp.add_argument("--port", type=int, default=int(os.environ.get("PS5LZ4_UI_PORT", "5921")))
     sp.set_defaults(func=cmd_ui)
+    sp = sub.add_parser("delete-original", help="delete an original game from the library (needs DELETE_ORIGINALS=yes)")
+    sp.add_argument("game")
+    sp.set_defaults(func=cmd_delete_original)
     sp = sub.add_parser("remove", help="delete a finished LZ4 copy from the output folder (not the original)")
     sp.add_argument("game")
     sp.set_defaults(func=cmd_remove)

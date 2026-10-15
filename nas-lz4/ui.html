@@ -380,7 +380,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;whi
 const STEP_EN = {source: 'Source', check: 'Check', pack: 'Pack', verify: 'Verify', restore: 'Restore test', publish: 'Publish'};
 const PS5_EN = {works: 'works', issues: 'with issues', nostart: "won't start", crash: 'crashes'};
 const KIND_EN = {folder: 'game folder', exfat: 'exFAT image', ffpfsc: '.ffpfsc image (PFSC compressed)', ffpfs: '.ffpfs image', lz4: 'LZ4 folder'};
-const ACT_EN = {check: 'Check all', check_full: 'Full re-check', fix: 'Compress all', apr: 'Repair', stop: 'Stop', resume: 'Continue queue', start: 'Compress', community: 'PS5 result'};
+const ACT_EN = {check: 'Check all', check_full: 'Full re-check', fix: 'Compress all', apr: 'Repair', stop: 'Stop', resume: 'Continue queue', start: 'Compress', community: 'PS5 result', remove: 'Delete LZ4 copy', delete_original: 'Delete original'};
 let data = null;
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -772,6 +772,9 @@ function gameHtml(g, det) {
   // Deleting: the PS5 copy and the NAS LZ4 copy separately; never the original.
   const dels = [];
   if (pp && pp.sent) dels.push(`<button class="danger" data-p="${esc(pp.path)}" data-n="${esc(g.name)}" onclick="deleteFromPs5(this.dataset.p, this.dataset.n)">🗑 Delete from PS5</button>`);
+  if (!g.output_only && g.rel && !g.running) dels.push(data.delete_originals
+    ? `<button class="danger" data-g="${esc(g.id)}" onclick="deleteOriginal(this.dataset.g)">🗑 Delete original on NAS</button>`
+    : `<button class="ghost" onclick="alert(ORIG_OFF)">🗑 Delete original…</button>`);
   if (g.output && (g.verdict === 'LZ4' || g.output_only) && !g.running)
     dels.push(`<button class="danger" data-g="${esc(g.id)}" data-n="${esc(g.name)}" onclick="deleteLz4(this.dataset.g, this.dataset.n)">🗑 Delete LZ4 copy on NAS</button>`);
   if (g.verdict !== 'LZ4' && !g.output_only && g.rel) {
@@ -1073,6 +1076,17 @@ async function deleteFromPs5(path, name) {
   const j = await r.json().catch(() => ({}));
   alert(r.ok ? `Deleted ${name} from the PS5 (${j.files} files).` : 'Not deleted: ' + (j.error || r.status));
   if (r.ok) { pgData = null; closeGame(); setTimeout(load, 500); }
+}
+const ORIG_OFF = "Deleting original games is turned off: the library is mounted read-only so nothing can harm the originals.\n\n" +
+  "To allow it, reinstall with DELETE_ORIGINALS=yes (see the guide, \"Deleting originals\"). After that this button deletes the original from the NAS.";
+function deleteOriginal(gid) {
+  const g = (data.games || []).find(x => x.id === gid);
+  if (!g) return;
+  const lz4 = g.verdict === 'LZ4' && g.output;
+  closeGame();
+  act('delete_original', `Delete the ORIGINAL of ${g.name} from the NAS?\n\n${g.source_path}\n${gb(g.source_size || g.source_bytes)}\n\n` +
+    (lz4 ? 'The LZ4 copy stays and still works on the PS5.' : 'There is no LZ4 copy: after this the game is gone from the NAS.') +
+    "\n\nThis can't be undone.", {game: gid});
 }
 function deleteLz4(id, name) {
   closeGame();
