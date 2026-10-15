@@ -90,6 +90,8 @@ select{font:inherit;padding:5px 8px;border-radius:8px;border:0;background:var(--
 .mine{font-size:10.5px;font-weight:700;color:var(--acc);background:var(--accbg);padding:1px 7px;border-radius:99px;margin-left:6px;vertical-align:2px}
 .cm{font-size:12px;margin-top:2px}.kind{font-weight:600}
 .csec{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:14px 0}
+.pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin:14px 0;clear:both}.pair .csec{margin:0}
+.pair .csec .kv{grid-template-columns:minmax(80px,auto) 1fr}
 .csec h4{margin:0 0 6px;font-size:14px}.cbar{display:flex;height:8px;border-radius:99px;overflow:hidden;background:var(--chip);margin:8px 0}
 .cbar i{display:block;height:100%}
 /* sheet */
@@ -799,12 +801,12 @@ function communityHtml(g, det) {
     source: {folder: 'Folder', exfat: 'exFAT image', ffpfsc: 'Uncompressed .ffpfsc', ffpfs: 'Uncompressed .ffpfsc'}[g.kind] || ''};
   const report = tid ? `<a href="${esc(reportLink(repo, tid, g.name || tid, mine, extra))}" target="_blank" rel="noopener">Report how it runs</a>` : '';
   if (!c || !c.reports)
-    return `<div class="csec"><h4>Community</h4><div class="mut">Nobody has reported ${esc(g.name || tid)} yet.</div>
+    return `<div class="csec"><h4>LZ4 <span class="mut" style="font-weight:500">· community reports</span></h4><div class="mut">Nobody has reported ${esc(g.name || tid)} yet.</div>
       <div class="acts">${report}</div></div>`;
   const n = c.reports, seg = (k, col) => c[k] ? `<i style="width:${100 * c[k] / n}%;background:${col}"></i>` : '';
   const l = c.lastReport || {};
   const link = l.issue ? ` · <a href="https://github.com/${esc(repo)}/issues/${esc(l.issue)}" target="_blank" rel="noopener">#${esc(l.issue)}</a>` : '';
-  return `<div class="csec"><h4>Community · ${n} report${n === 1 ? '' : 's'}</h4>
+  return `<div class="csec"><h4>LZ4 <span class="mut" style="font-weight:500">· ${n} community report${n === 1 ? '' : 's'}</span></h4>
     <div>${community(c)}</div>
     <div class="cbar">${seg('works', 'var(--ok)')}${seg('issues', 'var(--warn)')}${seg('noStart', 'var(--bad)')}${seg('crash', 'var(--bad)')}</div>
     <div class="why">Latest: <b>${esc(ST_EN[l.status] || l.status || '–')}</b> ${esc((l.date || '').slice(0, 10))}${link}
@@ -926,8 +928,7 @@ function gameHtml(g, det) {
     }
   }
   return `<img class="ico big" alt="" src="/api/icon?id=${encodeURIComponent(g.id)}" onerror="this.remove()"><h3>${esc(g.name)}</h3><div class="mut">${esc(g.title_id || '')}</div>
-    ${communityHtml(g, det)}
-    ${ffpfscHtml(g, det)}
+    <div class="pair">${ffpfscHtml(g, det) || ''}${communityHtml(g, det)}</div>
     <div class="kv">${rows.map(([k, x]) => `<div>${k}</div><div>${x}</div>`).join('')}</div>
     <div class="acts" id="m-acts">${acts.join('') || '<span class="mut">Nothing to do for this game.</span>'}</div>
     ${dels.length ? `<div class="acts dels" id="dels">${dels.join('')}</div>` : '<div class="acts dels" id="dels"></div>'}`;
