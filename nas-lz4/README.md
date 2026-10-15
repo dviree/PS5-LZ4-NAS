@@ -178,6 +178,22 @@ If you have already paired in Chiaki, you can enter its `rp_regist_key`
 page. The pairing code is a port of chiaki-ng's registration
 (`ps5regist.py`, AGPL-3.0).
 
+## Store (for the PS5 browser)
+
+`http://<NAS IP>:5921/store` is the library as a store, made for a TV and a
+controller: covers, size, LZ4 or original, community stars, and whether each
+game is on the PS5. **Install** sends it (queued behind other installs, with
+speed and time left), **Uninstall** deletes it from the PS5, **Pause** and
+**Resume install** continue where it stopped.
+
+## Keeping the PS5 awake during transfers
+
+While a game is sent, the NAS asks the LZ4 Compression engine on the PS5
+(port 5920, when it runs) to hold off rest mode (`/api/lzc/keep-awake`,
+renewed every minute, released at the end). That endpoint is in this fork's
+engine (`lz4-compression.elf` built from this repository); the original
+engine ignores it, and then the PS5 is woken again if it goes to rest mode.
+
 ## Deleting originals
 
 By default the library is mounted read-only, so nothing can change or delete

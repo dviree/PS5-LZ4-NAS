@@ -24,6 +24,17 @@ extern int sceShellCoreUtilTurnOffScreenSaver(void) __attribute__((weak));
 extern int sceSystemServicePowerTick(void) __attribute__((weak));
 
 static pthread_once_t g_power_guard_once = PTHREAD_ONCE_INIT;
+static _Atomic long long g_hold_until;  /* time() until which rest is held off */
+
+long
+lzc_power_guard_hold(long seconds) {
+  time_t now = time(NULL);
+  if(seconds < 0) seconds = 0;
+  if(seconds > 3600) seconds = 3600;
+  atomic_store(&g_hold_until, seconds ? (long long)now + seconds : 0);
+  lzc_power_guard_start();
+  return seconds;
+}
 
 static void
 log_power_guard_failure(time_t now, time_t *last_fail_log,
@@ -100,6 +111,8 @@ power_guard_thread_main(void *arg) {
          atomic_load(&g_job.cancel_disabled) != 0 ||
          atomic_load(&g_job.destructive_stream_active) != 0);
     time_t now = time(NULL);
+    /* Held off from outside (POST /api/lzc/keep-awake), e.g. a NAS transfer. */
+    if(!busy && atomic_load(&g_hold_until) > (long long)now) busy = 1;
 
     if(!busy) {
       if(was_busy) {

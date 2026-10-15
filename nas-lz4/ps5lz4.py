@@ -71,6 +71,7 @@ RUNTIME_FILE = Path(os.environ.get("PS5LZ4_RUNTIME", "/opt/ps5lz4/libSceAmpr.spr
 # refreshed by the fork sync and baked into each image).
 COMPAT_FILE = Path(os.environ.get("PS5LZ4_COMPAT", "/opt/ps5lz4/compat.json"))
 COMPAT_REPO = "theghostonline/PS5-LZ4-Compression"
+LZC_PORT = int(os.environ.get("PS5LZ4_LZC_PORT", "5920"))  # LZ4 Compression engine on the PS5
 
 
 def lz4c_version() -> str:
@@ -2876,6 +2877,26 @@ def push_one(game: str, force: bool = False) -> int:
         st["woken"] = st.get("woken", 0) + 1
         save(True)
 
+    # Ask the LZ4 Compression engine on the PS5 (port 5920, when it runs) to
+    # hold off rest mode while this transfer runs; renewed every minute.
+    awake_stop = __import__("threading").Event()
+
+    def keep_awake():
+        import urllib.request
+        while not awake_stop.is_set():
+            try:
+                with urllib.request.urlopen(f"http://{host}:{LZC_PORT}/api/lzc/keep-awake?seconds=180", timeout=4) as r:
+                    if r.status == 200 and not st.get("kept_awake"):
+                        st["kept_awake"] = True
+            except Exception:
+                pass
+            awake_stop.wait(60)
+        try:
+            urllib.request.urlopen(f"http://{host}:{LZC_PORT}/api/lzc/keep-awake?seconds=0", timeout=4).close()
+        except Exception:
+            pass
+    __import__("threading").Thread(target=keep_awake, daemon=True).start()
+
     try:
         ensure_ftp()
         ftp = connect()
@@ -3003,6 +3024,7 @@ def push_one(game: str, force: bool = False) -> int:
                     ftp.storbinary(f"STOR {remote}", fh, blocksize=1 << 20)
             st["verified"] += 1
         ftp.quit()
+        awake_stop.set()
         st.update(state="done", current="", finished=now())
         save(True)
         print(f"done: {out.name} -> {st['dest']} ({human(total)}, {st['verified']} program files "
@@ -3012,6 +3034,7 @@ def push_one(game: str, force: bool = False) -> int:
                 print(st[k])
         return 0
     except Exception as err:
+        awake_stop.set()
         st.update(state="failed", error=str(err)[:500], finished=now())
         save(True)
         print(f"FAILED: {err}", file=sys.stderr)
@@ -3376,6 +3399,8 @@ def cmd_ui(args) -> int:
         def do_GET(self):
             if self.path in ("/", "/index.html"):
                 return self.send(200, UI_HTML.encode(), "text/html")
+            if self.path in ("/store", "/store/"):
+                return self.send(200, STORE_HTML.encode(), "text/html")
             if self.path.startswith("/api/game?"):
                 from urllib.parse import parse_qs, urlparse
                 gid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
@@ -3653,6 +3678,8 @@ def cmd_ui(args) -> int:
     return 0
 
 
+STORE_HTML = (Path(__file__).with_name("store.html").read_text()
+              if Path(__file__).with_name("store.html").is_file() else "<p>store.html missing</p>")
 UI_HTML = (Path(__file__).with_name("ui.html").read_text()
            if Path(__file__).with_name("ui.html").is_file() else "<p>ui.html missing</p>")
 

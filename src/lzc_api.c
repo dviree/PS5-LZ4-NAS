@@ -38,6 +38,7 @@
 #include "lzc_profiles.h"
 #include "lzc_image_mount.h"
 #include "lzc_boot_files.h"
+#include "lzc_power_guard.h"
 
 #define LZC_APP_BASE "/user/app"
 #define LZC_APPMETA_BASE "/user/appmeta"
@@ -14557,6 +14558,19 @@ lzc_api_qr_request(const http_request_t *req) {
   return rc;
 }
 
+/* GET /api/lzc/keep-awake?seconds=N: keep the PS5 out of rest mode for N
+ * seconds (max 3600; 0 releases it), for a NAS that sends games over FTP and
+ * renews the hold while it does. */
+static int
+keep_awake_request(const http_request_t *req) {
+  char arg[16] = "600";
+  websrv_get_query_arg(req, "seconds", arg, sizeof(arg));
+  long left = lzc_power_guard_hold(atol(arg));
+  char body[64];
+  int n = snprintf(body, sizeof(body), "{\"ok\":true,\"seconds\":%ld}", left);
+  return websrv_send(req->fd, 200, "application/json", body, (size_t)n);
+}
+
 void
 lzc_api_recover_on_startup(void) {
   lzc_image_mount_cleanup_stale();
@@ -14570,6 +14584,7 @@ int
 lzc_api_request(const http_request_t *req, const char *url) {
   (void)url;
   if(!strcmp(req->path, "/api/lzc/games")) return games_request(req);
+  if(!strcmp(req->path, "/api/lzc/keep-awake")) return keep_awake_request(req);
   if(!strcmp(req->path, "/api/lzc/size-priority")) {
     return size_priority_request(req);
   }

@@ -8,3 +8,8 @@
 void
 lzc_power_guard_start(void) {
 }
+
+long
+lzc_power_guard_hold(long seconds) {
+  return seconds < 0 ? 0 : seconds > 3600 ? 3600 : seconds;
+}
