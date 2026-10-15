@@ -2430,25 +2430,42 @@ def ps5_ftp_delete(path: str) -> dict:
     f = ps5_ftp_connect()
     count = {"files": 0, "folders": 0}
 
-    def rm_tree(p):
-        try:
-            f.delete(p)
+    def dele(p):
+        # ftpsrv answers DELE with 226, which ftplib.delete() (250 or 200
+        # only) takes for an error after the file is gone; any 2xx is fine.
+        resp = f.sendcmd("DELE " + p)
+        if not resp.startswith("2"):
+            raise ftplib.error_reply(resp)
+
+    def entries(p):
+        """LIST (not MLSD): it marks symlinks, which are removed, never followed."""
+        lines = []
+        f.retrlines(f"LIST {p}", lines.append)
+        out = []
+        for line in lines:
+            m = LIST_RE.match(line)
+            if m and m.group(4).split(" -> ")[0] not in (".", ".."):
+                out.append((m.group(4).split(" -> ")[0], m.group(1)))
+        return out
+
+    def rm_tree(p, kind):
+        if kind != "d":
+            dele(p)
             count["files"] += 1
             return
-        except ftplib.error_perm:
-            pass  # a folder
-        for item in ps5_ftp_list_conn(f, p):
-            child = f"{p}/{item['name']}"
-            if item["dir"]:
-                rm_tree(child)
-            else:
-                f.delete(child)
-                count["files"] += 1
-        f.rmd(p)
+        for name, k in entries(p):
+            rm_tree(f"{p}/{name}", k)
+        f.voidcmd("RMD " + p)
         count["folders"] += 1
 
+    parent, name = path.rsplit("/", 1)
+    kind = next((k for n, k in entries(parent) if n == name), None)
+    if kind is None:
+        f.quit()
+        raise ValueError(f"{path} is not on the PS5")
+
     try:
-        rm_tree(path)
+        rm_tree(path, kind)
     except ftplib.all_errors as err:
         raise ValueError(f"stopped after {count['files']} files: {err}")
     finally:
