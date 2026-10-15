@@ -2365,6 +2365,147 @@ def ps5_ftp_put(path: str, stream, length: int) -> dict:
             pass
 
 
+# The LZ4 Compression engine on the PS5 (port 5920): see whether it runs and
+# whether it is this fork's build (which answers keep-awake), and install that
+# build into the Payload Manager over FTP, keeping the old file as .orig.
+ENGINE_REPO = os.environ.get("PS5LZ4_ENGINE_REPO", "dviree/PS5-LZ4-NAS")
+ENGINE_PATH = "/data/pldmgr/payloads/lz4-compression/lz4-compression.elf"
+ENGINE_DIR = STATE / "engine"
+ELFLDR_PORT = int(os.environ.get("PS5LZ4_ELFLDR_PORT", "9021"))
+
+
+def engine_status() -> dict:
+    import urllib.error
+    import urllib.request
+    cfg = get_settings()
+    host = (cfg.get("ps5_ftp") or "").partition(":")[0]
+    out = {"host": host, "port": LZC_PORT, "repo": ENGINE_REPO, "path": ENGINE_PATH,
+           "state": "unknown", "keep_awake": False, "elfldr_port": ELFLDR_PORT,
+           "cached": (read_json(ENGINE_DIR / "release.json", {}) or {}).get("tag")}
+    if not host:
+        out["state"] = "no-address"
+        return out
+
+    def get(path):
+        try:
+            with urllib.request.urlopen(f"http://{host}:{LZC_PORT}{path}", timeout=3) as r:
+                return r.status
+        except urllib.error.HTTPError as err:
+            return err.code
+        except Exception:
+            return None
+    ka = get("/api/lzc/keep-awake?seconds=0")
+    if ka == 200:
+        out.update(state="connected", keep_awake=True)
+    elif ka is not None or get("/api/lzc/ui-settings") is not None:
+        out["state"] = "original"  # runs, but an engine without keep-awake
+    else:
+        out["state"] = "off"
+    return out
+
+
+def engine_fetch() -> tuple[Path, str]:
+    """Latest release ELF of ENGINE_REPO, cached in state/engine, SHA-256 checked."""
+    import hashlib
+    import urllib.request
+    hdr = {"User-Agent": "ps5-lz4", "Accept": "application/vnd.github+json"}
+    req = urllib.request.Request(f"https://api.github.com/repos/{ENGINE_REPO}/releases/latest", headers=hdr)
+    with urllib.request.urlopen(req, timeout=20) as r:
+        rel = json.load(r)
+    tag = rel.get("tag_name") or "?"
+    assets = {a["name"]: a["browser_download_url"] for a in rel.get("assets", [])}
+    if "lz4-compression.elf" not in assets:
+        raise ValueError(f"release {tag} of {ENGINE_REPO} has no lz4-compression.elf")
+    ENGINE_DIR.mkdir(parents=True, exist_ok=True)
+    elf = ENGINE_DIR / "lz4-compression.elf"
+    known = read_json(ENGINE_DIR / "release.json", {}) or {}
+    if known.get("tag") == tag and elf.is_file() and hashlib.sha256(elf.read_bytes()).hexdigest() == known.get("sha256"):
+        return elf, tag
+
+    def fetch(url):
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "ps5-lz4"}), timeout=60) as r:
+            return r.read()
+    data = fetch(assets["lz4-compression.elf"])
+    if data[:4] != b"\x7fELF":
+        raise ValueError("the downloaded file is not an ELF")
+    digest = hashlib.sha256(data).hexdigest()
+    if "SHA256SUMS" in assets:
+        sums = fetch(assets["SHA256SUMS"]).decode(errors="replace")
+        want = next((ln.split()[0] for ln in sums.splitlines() if ln.strip().endswith("lz4-compression.elf")), None)
+        if want and want.lower() != digest:
+            raise ValueError("the downloaded ELF does not match the release's SHA256SUMS")
+    tmp = elf.with_suffix(".part")
+    tmp.write_bytes(data)
+    tmp.replace(elf)
+    write_json(ENGINE_DIR / "release.json", {"tag": tag, "sha256": digest, "bytes": len(data)})
+    return elf, tag
+
+
+def engine_install() -> dict:
+    """Put this fork's engine where the Payload Manager loads it; the old file is kept as .orig."""
+    import ftplib
+    elf, tag = engine_fetch()
+    size = elf.stat().st_size
+    f = ps5_ftp_connect()
+    try:
+        ps5_ftp_mkdirs(f, ENGINE_PATH.rsplit("/", 1)[0])
+        names = ps5_ftp_names(f, ENGINE_PATH.rsplit("/", 1)[0]) or []
+        backup = None
+        if "lz4-compression.elf" in names and "lz4-compression.elf.orig" not in names:
+            f.rename(ENGINE_PATH, ENGINE_PATH + ".orig")
+            backup = ENGINE_PATH + ".orig"
+        with elf.open("rb") as src:
+            f.storbinary(f"STOR {ENGINE_PATH}", src, blocksize=1 << 20)
+        try:
+            got = f.size(ENGINE_PATH)
+        except ftplib.all_errors:
+            got = None
+        if got is not None and got != size:
+            raise ValueError(f"the PS5 has {got} bytes, expected {size}")
+    finally:
+        try:
+            f.quit()
+        except Exception:
+            pass
+    print(f"[{now()}] engine {tag} installed on the PS5 at {ENGINE_PATH}" + (f" (old one kept as {backup})" if backup else ""), flush=True)
+    return {"tag": tag, "path": ENGINE_PATH, "bytes": size, "backup": backup}
+
+
+def engine_restore() -> dict:
+    """Put the .orig engine back."""
+    f = ps5_ftp_connect()
+    try:
+        names = ps5_ftp_names(f, ENGINE_PATH.rsplit("/", 1)[0]) or []
+        if "lz4-compression.elf.orig" not in names:
+            raise ValueError("there is no saved original engine (.orig) on the PS5")
+        if "lz4-compression.elf" in names:
+            f.sendcmd(f"DELE {ENGINE_PATH}")
+        f.rename(ENGINE_PATH + ".orig", ENGINE_PATH)
+    finally:
+        try:
+            f.quit()
+        except Exception:
+            pass
+    print(f"[{now()}] original engine restored on the PS5", flush=True)
+    return {"restored": ENGINE_PATH}
+
+
+def engine_start() -> dict:
+    """Run the engine now by sending the ELF to the PS5's ELF loader (port 9021)."""
+    import socket
+    elf, tag = engine_fetch()
+    host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
+    if not host:
+        raise ValueError("set the PS5 address first")
+    try:
+        with socket.create_connection((host, ELFLDR_PORT), timeout=10) as s:
+            s.sendall(elf.read_bytes())
+    except OSError as err:
+        raise ValueError(f"no ELF loader at {host}:{ELFLDR_PORT} ({err})")
+    print(f"[{now()}] engine {tag} sent to the ELF loader on {host}:{ELFLDR_PORT}", flush=True)
+    return {"tag": tag, "sent": True}
+
+
 def ps5_ftp_zip(path: str, out) -> None:
     """Write a folder on the PS5 to out as a ZIP (stored, streamed, zip64)."""
     import zipfile
@@ -3438,6 +3579,8 @@ def cmd_ui(args) -> int:
                 self.end_headers()
                 self.wfile.write(png)
                 return
+            if self.path == "/api/engine":
+                return self.send(200, json.dumps(engine_status()).encode())
             if self.path == "/api/ps5/games":
                 try:
                     return self.send(200, json.dumps(ps5_games(), ensure_ascii=False).encode())
@@ -3566,6 +3709,13 @@ def cmd_ui(args) -> int:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
                 cache["at"] = 0
                 return self.send(200, json.dumps(res).encode())
+            if req.get("action") in ("engine_install", "engine_restore", "engine_start"):
+                try:
+                    fn = {"engine_install": engine_install, "engine_restore": engine_restore,
+                          "engine_start": engine_start}[req["action"]]
+                    return self.send(200, json.dumps(fn()).encode())
+                except Exception as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if req.get("action") == "drive_size":
                 try:
                     path = str(req.get("path") or "")
