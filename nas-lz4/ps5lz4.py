@@ -1575,6 +1575,30 @@ def work_progress(w: Path) -> tuple[int, int] | None:
     return best
 
 
+def lz4_folder_info(out: Path, cache: dict | None = None) -> dict:
+    """Size, file count and pack volumes of an LZ4 game folder (cached by mtime)."""
+    try:
+        sig = f"{int(out.stat().st_mtime)}:{int((out / 'ampr_assets.index').stat().st_mtime)}"
+    except OSError:
+        sig = None
+    key = "out:" + str(out)
+    hit = (cache or {}).get(key)
+    if hit and sig and hit.get("sig") == sig:
+        return hit["info"]
+    files, total = tree_bytes(out)
+    info = {"path": str(Path(HOST_OUTPUT) / out.name), "files": files, "bytes": total,
+            "paks": len(list(out.glob("ampr_assets-*.pak"))), "problem": lz4_format_problem(out)}
+    pj = out / "sce_sys" / "param.json"
+    if pj.is_file():
+        try:
+            info["title_id"], info["name"] = parse_param_json(pj.read_bytes())
+        except Exception:
+            pass
+    if cache is not None and sig:
+        cache[key] = {"sig": sig, "info": info}
+    return info
+
+
 def dashboard_data() -> dict:
     ensure_dirs()
     running, lock_text = job_running()
@@ -1597,12 +1621,40 @@ def dashboard_data() -> dict:
                "queued": e.id in (queue.get("remaining") or []) and running,
                "source_bytes": rep.get("source_bytes"), "output_bytes": rep.get("output_bytes"),
                "saved_percent": rep.get("saved_percent"), "ps5": rep.get("ps5_result"),
-               "community": {k: g.get(k, 0) for k in ("works", "issues", "noStart", "crash", "reports")}}
+               "community": {k: g.get(k, 0) for k in ("works", "issues", "noStart", "crash", "reports")},
+               "output": str(Path(HOST_OUTPUT) / e.output.name) if e.output.is_dir() else None}
         if verdict == "LZ4" and rep:
             totals["lz4"] += 1
             totals["source"] += rep.get("source_bytes", 0)
             totals["output"] += rep.get("output_bytes", 0)
         rows.append(row)
+    # LZ4 games in the output folder without a source in the library
+    # (original removed, or packed somewhere else).
+    known = {e.output.name for e in entries}
+    for out in sorted(OUTPUT.iterdir()) if OUTPUT.is_dir() else []:
+        if out.name.startswith(".") or out.name in known or not out.is_dir() \
+                or not (out / "ampr_assets.index").is_file():
+            continue
+        info = lz4_folder_info(out, cache)
+        rep = {}
+        for f in REPORTS.glob("*.json"):
+            if f.name == out.name[: -len("-lz4")] + ".json":
+                rep = read_json(f, {}) or {}
+        tid = (info.get("title_id") or rep.get("title_id") or "").upper()
+        if not tid:
+            m = TITLE_RE.search(out.name)
+            tid = m.group(0).upper() if m else ""
+        g = games.get(tid) or {}
+        problem = info["problem"]
+        rows.append({"id": out.name, "rel": out.name, "kind": "lz4", "title_id": tid,
+                     "name": rep.get("title_name") or info.get("name") or out.name,
+                     "verdict": "LZ4" if not problem else "FEL",
+                     "why": "bara i LZ4-mappen (originalet finns inte i biblioteket)" if not problem else problem,
+                     "can_queue": False, "running": False, "queued": False, "output_only": True,
+                     "source_bytes": rep.get("source_bytes"), "output_bytes": rep.get("output_bytes") or info["bytes"],
+                     "saved_percent": rep.get("saved_percent"), "ps5": rep.get("ps5_result"),
+                     "community": {k: g.get(k, 0) for k in ("works", "issues", "noStart", "crash", "reports")},
+                     "output": info["path"]})
     write_json(CHECKS_PATH, cache)
     job = None
     if running and current:
@@ -1620,13 +1672,33 @@ def dashboard_data() -> dict:
     if REQUESTS.is_dir():
         for f in sorted(REQUESTS.glob("*.done.json"), key=lambda f: f.stat().st_mtime)[-5:]:
             done_req.append(read_json(f, {}))
-    pending = len(list(REQUESTS.glob("*.req.json"))) if REQUESTS.is_dir() else 0
+    pending_list = [read_json(f, {}) or {} for f in sorted(REQUESTS.glob("*.req.json"))] if REQUESTS.is_dir() else []
+    pending = len(pending_list)
     return {"running": running, "job": job, "queue": queue.get("remaining") or [] if running else [],
             "interrupted": (not running) and bool(queue.get("remaining")),
             "free_bytes": free_bytes(OUTPUT), "games": rows, "totals": totals, "failed": failed,
             "level": int(os.environ.get("PS5LZ4_LEVEL", "9")), "runtime": "PackedStdio 0.4.2.1",
             "compat_updated": (read_json(COMPAT_FILE, {}) or {}).get("updated"),
-            "requests": {"pending": pending, "recent": done_req[::-1]}, "version": VERSION}
+            "requests": {"pending": pending, "pending_list": pending_list, "recent": done_req[::-1]}, "version": VERSION}
+
+
+def game_detail(game_id: str) -> dict:
+    """Everything known about one game, for the page's detail view."""
+    out = None
+    rep = read_json(REPORTS / f"{game_id}.json") or {}
+    for e in scan_library():
+        if e.id == game_id:
+            out = e.output
+            break
+    if out is None and (OUTPUT / game_id).is_dir():
+        out = OUTPUT / game_id
+        rep = rep or read_json(REPORTS / f"{game_id[: -len('-lz4')]}.json") or {}
+    cache = read_json(CHECKS_PATH, {}) or {}
+    folder = lz4_folder_info(out, cache) if out and out.is_dir() else None
+    write_json(CHECKS_PATH, cache)
+    work = read_json(WORK / game_id / "state.json") or None
+    skipped = read_json(REPORTS / f"{game_id}.skipped.json") or None
+    return {"id": game_id, "report": rep or None, "folder": folder, "work": work, "skipped": skipped}
 
 
 def cmd_dashboard(_args) -> int:
@@ -1663,6 +1735,8 @@ def cmd_agent(_args) -> int:
     while True:
         for f in sorted(REQUESTS.glob("*.req.json")):
             req = read_json(f, {}) or {}
+            if req.get("action") in ("start", "fix", "resume") and job_running()[0]:
+                continue  # waits for the running job; picked up when it is done
             f.unlink(missing_ok=True)
             print(f"[{now()}] agent: {req.get('action')} {req.get('game') or ''}", flush=True)
             try:
@@ -1700,6 +1774,16 @@ def cmd_ui(args) -> int:
         def do_GET(self):
             if self.path in ("/", "/index.html"):
                 return self.send(200, UI_HTML.encode(), "text/html")
+            if self.path.startswith("/api/game?"):
+                from urllib.parse import parse_qs, urlparse
+                gid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+                if not gid or "/" in gid or gid.startswith("."):
+                    return self.send(400, b'{"error":"bad id"}')
+                try:
+                    body = game_detail(gid)
+                except Exception as err:
+                    body = {"error": str(err)}
+                return self.send(200, json.dumps(body, ensure_ascii=False).encode())
             if self.path == "/api/community":
                 data = read_json(COMPAT_FILE, {}) or {}
                 body = {"repo": COMPAT_REPO, "updated": data.get("updated"), "games": data.get("games") or {}}

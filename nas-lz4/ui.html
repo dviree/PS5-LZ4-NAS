@@ -47,6 +47,12 @@ a{color:var(--acc)}
 .filters{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
 .filters input{font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--txt);flex:1;min-width:180px}
 .mine{font-size:11px;font-weight:600;color:var(--acc);margin-left:6px}
+tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;z-index:10}
+.sheet{position:relative;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;width:100%;max-width:640px}
+.sheet h3{margin:0 24px 4px 0;font-size:18px}.sheet .x{position:absolute;top:12px;right:12px;padding:4px 10px}
+.kv{display:grid;grid-template-columns:150px minmax(0,1fr);gap:6px 12px;margin:14px 0}.kv div:nth-child(odd){color:var(--mut)}
+.kv div{overflow-wrap:anywhere}.acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
 .err{background:var(--badbg);color:var(--bad);border-radius:8px;padding:10px 12px}
 @media (max-width:640px){.steps{grid-template-columns:repeat(3,1fr)}}
 </style>
@@ -77,6 +83,9 @@ a{color:var(--acc)}
   </div>
   <div class="card"><h2>Senaste åtgärder</h2><div class="log" id="log"><span class="mut">Inga ännu.</span></div></div>
 </main>
+<div id="modal" class="modal" hidden onclick="if(event.target===this)closeGame()">
+  <div class="sheet"><button class="x" onclick="closeGame()">✕</button><div id="m-body">Läser…</div></div>
+</div>
 <main id="p-comm" hidden>
   <div class="card">
     <h2>Communityrapporter</h2>
@@ -157,7 +166,7 @@ function render() {
     d.failed.map(f => `<div><b>${esc(f.id)}</b> <span class="mut">${esc(f.step)}</span><div class="why">${esc(f.error)}</div></div>`).join('');
 
   const busy = d.running;
-  document.getElementById('b-fix').disabled = busy;
+  document.getElementById('b-fix').disabled = false;
   document.getElementById('games').innerHTML =
     '<tr><th>Spel</th><th>Status</th><th class="num">Original</th><th class="num">LZ4</th><th class="num">Sparat</th><th>PS5</th><th>Community</th><th></th></tr>' +
     d.games.map(g => {
@@ -165,13 +174,14 @@ function render() {
         g.verdict === 'LZ4' ? ['p-LZ4', 'LZ4'] : g.verdict === 'kan bli LZ4' ? ['p-kan', 'kan bli LZ4'] :
         g.verdict === 'FEL' ? ['p-FEL', 'fel'] : ['p-inte', 'inte LZ4'];
       const lz4 = g.verdict === 'LZ4' && g.output_bytes;
-      const ps5 = lz4 ? `<select data-game="${esc(g.id)}" onchange="if(this.value)act('community',null,{game:this.dataset.game,result:this.value})">
+      const ps5 = lz4 && !g.output_only ? `<select onclick="event.stopPropagation()" data-game="${esc(g.id)}" onchange="if(this.value)act('community',null,{game:this.dataset.game,result:this.value})">
           <option value="">${g.ps5 ? esc(PS5_SV[g.ps5]) : 'ej testat'}</option>
           ${Object.entries(PS5_SV).map(([k, s]) => `<option value="${k}">${s}</option>`).join('')}</select>` : '<span class="mut">–</span>';
-      const action = g.can_queue && !g.running && !g.queued && !busy
-        ? `<button class="sm" data-game="${esc(g.id)}" onclick="act('start',null,{game:this.dataset.game})">Packa</button>` : '';
+      const waiting = pendingFor(g.id);
+      const action = waiting ? '<span class="pill p-run">väntar</span>' : g.can_queue && !g.running && !g.queued
+        ? `<button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game)">Komprimera</button>` : '';
       const why = g.verdict !== 'LZ4' && !g.running ? `<div class="why">${esc(g.why)}</div>` : '';
-      return `<tr><td>${esc(g.name)}<div class="why">${esc(g.title_id)}</div>${why}</td>
+      return `<tr class="row" data-id="${esc(g.id)}" onclick="openGame(this.dataset.id)"><td>${esc(g.name)}${g.output_only ? '<span class="mine">LZ4-MAPPEN</span>' : ''}<div class="why">${esc(g.title_id)}</div>${why}</td>
         <td><span class="pill ${v[0]}">${v[1]}</span></td>
         <td class="num">${gb(g.source_bytes)}</td><td class="num">${gb(g.output_bytes)}</td>
         <td class="num">${g.saved_percent != null ? `<b>${gb(g.source_bytes - g.output_bytes)}</b> · ${Math.round(g.saved_percent)} %
@@ -181,7 +191,8 @@ function render() {
 
   const log = document.getElementById('log');
   const items = d.requests.recent;
-  const pending = d.requests.pending ? `<div class="mut">${d.requests.pending} åtgärd(er) väntar…</div>` : '';
+  const pend = d.requests.pending_list || [];
+  const pending = pend.length ? pend.map(r => `<div class="mut">⏳ ${esc(ACT_SV[r.action] || r.action)} ${esc(r.game || '')} – ${d.running && ['start', 'fix', 'resume'].includes(r.action) ? 'startar när pågående jobb är klart' : 'skickad'}</div>`).join('') : '';
   log.innerHTML = pending + (items.length ? items.map(r => {
     let url = (r.output || '').match(/https:\/\/github\.com\/\S+/);
     const fw = (localStorage.getItem('fw') || '').trim();
@@ -193,6 +204,61 @@ function render() {
   }).join('') : (pending ? '' : '<span class="mut">Inga ännu.</span>'));
 }
 
+function pendingFor(id) {
+  return data && (data.requests.pending_list || []).some(r => r.action === 'start' && r.game === id);
+}
+function compress(id) {
+  const g = (data.games || []).find(x => x.id === id) || {name: id};
+  const note = data.running ? '\n\nEtt annat spel packas nu; det här startar när det är klart.' : '';
+  act('start', `Komprimera ${g.name} med LZ4?${note}`, {game: id});
+}
+let openId = null;
+function closeGame() { openId = null; document.getElementById('modal').hidden = true; }
+async function openGame(id) {
+  openId = id;
+  const m = document.getElementById('modal'), body = document.getElementById('m-body');
+  m.hidden = false;
+  const g = (data.games || []).find(x => x.id === id) || {id, name: id};
+  body.innerHTML = gameHtml(g, null);
+  try {
+    const det = await (await fetch('/api/game?id=' + encodeURIComponent(id), {cache: 'no-store'})).json();
+    if (openId === id) body.innerHTML = gameHtml(g, det);
+  } catch (e) {}
+}
+function gameHtml(g, det) {
+  const r = det && det.report, f = det && det.folder, w = det && det.work;
+  const v = g.running ? 'packas nu' : g.queued ? 'i kö' : g.verdict;
+  const rows = [
+    ['Status', esc(v) + (g.why && g.verdict !== 'LZ4' ? `<div class="why">${esc(g.why)}</div>` : '')],
+    ['Title ID', esc(g.title_id || '–')],
+    ['Källa', g.output_only ? 'finns inte i biblioteket' : esc(g.rel || '–')],
+    ['Original', gb(g.source_bytes)],
+    ['LZ4', gb(g.output_bytes)],
+    ['Sparat', g.saved_percent != null ? `${gb(g.source_bytes - g.output_bytes)} (${Math.round(g.saved_percent)} %)` : '–'],
+  ];
+  if (f) rows.push(['LZ4-mapp', `${esc(f.path)}<div class="why">${f.files} filer · ${f.paks} LZ4-volymer · ${gb(f.bytes)}${f.problem ? ' · <span class="bad">' + esc(f.problem) + '</span>' : ' · format ok'}</div>`]);
+  if (r) {
+    rows.push(['Komprimering', `${esc(r.codec || '')}${r.profile ? `<div class="why">profil: ${esc(r.profile)}</div>` : ''}`]);
+    if (r.pack) rows.push(['Paket', `${r.pack.packed} filer packade, ${r.pack.loose} lösa · ${r.pack.lz4} LZ4-block`]);
+    rows.push(['Kontroller', `NAS: ${r.verified_on_nas ? '<span class="good">ok</span>' : 'nej'}${r.verification ? `<div class="why">${esc(r.verification.restore_test || '')}</div>` : ''}`]);
+    rows.push(['PS5', esc(r.playable_on_ps5 || 'ej testat')]);
+    rows.push(['Klar', esc(r.finished || '–')]);
+  }
+  if (w && w.error) rows.push(['Senaste fel', `<span class="bad">${esc(w.error)}</span><div class="why">steg ${esc(w.step || '')}</div>`]);
+  if (g.community && g.community.reports) rows.push(['Community', community(g.community)]);
+  const acts = [];
+  if (pendingFor(g.id)) acts.push('<span class="pill p-run">väntar på att starta</span>');
+  else if (g.can_queue && !g.running && !g.queued)
+    acts.push(`<button class="pri" data-game="${esc(g.id)}" onclick="compress(this.dataset.game)">Komprimera</button>`);
+  if (g.verdict === 'LZ4' && !g.output_only)
+    acts.push(`<select data-game="${esc(g.id)}" onchange="if(this.value)act('community',null,{game:this.dataset.game,result:this.value})">
+      <option value="">PS5-resultat: ${g.ps5 ? esc(PS5_SV[g.ps5]) : 'ej testat'}</option>
+      ${Object.entries(PS5_SV).map(([k, s]) => `<option value="${k}">${s}</option>`).join('')}</select>`);
+  if (g.running) acts.push(`<button onclick="act('stop', 'Stoppa jobbet? Det kan återupptas senare.')">Stoppa</button>`);
+  return `<h3>${esc(g.name)}</h3><div class="mut">${esc(g.title_id || '')}</div>
+    <div class="kv">${rows.map(([k, x]) => `<div>${k}</div><div>${x}</div>`).join('')}</div>
+    <div class="acts">${acts.join('') || '<span class="mut">Inget att göra för det här spelet.</span>'}</div>`;
+}
 let comm = null;
 function tab(t) {
   document.getElementById('p-mine').hidden = t !== 'mine';
@@ -250,6 +316,7 @@ async function load() {
     if (d.error) { err.hidden = false; err.textContent = 'Fel: ' + d.error; return; }
     err.hidden = true;
     data = d; render();
+    if (!window._hashOpened && location.hash.startsWith('#game=')) { window._hashOpened = 1; openGame(decodeURIComponent(location.hash.slice(6))); }
   } catch (e) {
     const err = document.getElementById('error');
     err.hidden = false; err.textContent = 'Når inte ps5-lz4-ui: ' + e;
