@@ -13,3 +13,8 @@ long
 lzc_power_guard_hold(long seconds) {
   return seconds < 0 ? 0 : seconds > 3600 ? 3600 : seconds;
 }
+
+int
+lzc_power_guard_rest(void) {
+  return -2;
+}

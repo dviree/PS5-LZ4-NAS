@@ -22,6 +22,7 @@ extern int sceShellCoreUtilSignalUserInput(void) __attribute__((weak));
 extern int sceShellCoreUtilIsScreenSaverOn(void) __attribute__((weak));
 extern int sceShellCoreUtilTurnOffScreenSaver(void) __attribute__((weak));
 extern int sceSystemServicePowerTick(void) __attribute__((weak));
+extern int sceSystemStateMgrEnterStandby(void) __attribute__((weak));
 
 static pthread_once_t g_power_guard_once = PTHREAD_ONCE_INIT;
 static _Atomic long long g_hold_until;  /* time() until which rest is held off */
@@ -34,6 +35,26 @@ lzc_power_guard_hold(long seconds) {
   atomic_store(&g_hold_until, seconds ? (long long)now + seconds : 0);
   lzc_power_guard_start();
   return seconds;
+}
+
+static void *
+rest_thread_main(void *arg) {
+  (void)arg;
+  sleep(2);  /* let the HTTP answer go out first */
+  int rc = sceSystemStateMgrEnterStandby();
+  lzc_log("power guard enter rest mode rc=0x%08X", (unsigned)rc);
+  return NULL;
+}
+
+int
+lzc_power_guard_rest(void) {
+  if(atomic_load(&g_job.busy) != 0) return -1;
+  if(!sceSystemStateMgrEnterStandby) return -2;
+  atomic_store(&g_hold_until, 0);
+  pthread_t t;
+  if(pthread_create(&t, NULL, rest_thread_main, NULL) != 0) return -3;
+  pthread_detach(t);
+  return 0;
 }
 
 static void

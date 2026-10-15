@@ -90,6 +90,7 @@ select{font:inherit;padding:5px 8px;border-radius:8px;border:0;background:var(--
 .mine{font-size:10.5px;font-weight:700;color:var(--acc);background:var(--accbg);padding:1px 7px;border-radius:99px;margin-left:6px;vertical-align:2px}
 .cm{font-size:12px;margin-top:2px}.kind{font-weight:600}
 .csec{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:14px 0}
+.rowbtns{display:flex;flex-direction:column;gap:6px;align-items:stretch}
 .pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin:14px 0;clear:both}.pair .csec{margin:0}
 .pair .csec .kv{grid-template-columns:minmax(80px,auto) 1fr}
 .csec h4{margin:0 0 6px;font-size:14px}.cbar{display:flex;height:8px;border-radius:99px;overflow:hidden;background:var(--chip);margin:8px 0}
@@ -262,9 +263,9 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
   <div class="card"><h2>Packing</h2><div id="job"></div><div id="pq"></div></div>
   <div class="card" id="imgcard" hidden><h2>exFAT images</h2><div id="imgs"></div></div>
   <div class="card"><h2>Transfers to the PS5</h2><div id="xfer"></div><div id="xq"></div><div id="xstop"></div>
-    <div class="why" style="margin-top:10px">If the PS5 goes to rest mode during a transfer, it is woken (Remote Play key) and the
-    transfer continues, a half-sent file from where it stopped. To keep it awake: <i>Settings › System › Power Saving ›
-    Set Time Until PS5 Enters Rest Mode</i> › <b>Don't Put in Rest Mode</b>.</div></div>
+    <div class="why" style="margin-top:10px">While a game is sent, the LZ4 Compression engine on the PS5 keeps it awake. If it
+    goes to rest mode anyway, it is woken (Remote Play key) and the transfer continues where it stopped. When this page
+    woke the PS5 and everything is sent, it is put back in rest mode after a few minutes (Remote tab).</div></div>
   <div class="card" id="failed" hidden></div>
   <div class="card"><h2>Report</h2>
     <div class="mut">Pick the PS5 result in the <b>PS5</b> column for an LZ4 game. It is saved here, and
@@ -288,6 +289,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     <div class="filters" style="margin-top:0">
       <span class="pill p-no" id="ps5st">PS5: ?</span>
       <button id="b-wake" onclick="wakeNow()">Wake PS5 now</button>
+      <button onclick="restNow()">Rest mode now</button>
     </div>
     <div class="why" id="wake-msg"></div>
     <div class="mut" id="paired"></div>
@@ -299,7 +301,9 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     <div class="filters"><span class="pill p-no" id="eng-st">Engine: ?</span>
       <button class="sm" onclick="engCheck()">Check</button>
       <button class="sm" onclick="engRead()">Read the ELF on the PS5</button>
-      <label class="mut chk"><input type="checkbox" id="eng-auto" onchange="engAuto(this.checked)"> Update it automatically</label></div>
+      <label class="mut chk"><input type="checkbox" id="eng-auto" onchange="engAuto(this.checked)"> Update it automatically</label>
+      <label class="mut chk" title="Only when this page woke the PS5 to send games, never while someone may be playing"><input type="checkbox" id="rest-auto" onchange="restAuto(this.checked)"> Rest mode when everything is sent</label></div>
+    <div class="why" id="rest-info"></div>
     <div id="eng-inst"></div>
     <div class="mut" id="eng-info"></div>
     <div class="filters" id="eng-acts">
@@ -729,12 +733,12 @@ function render() {
       const waiting = pendingFor(g.id), sendNext = (d.send_after || []).includes(g.id);
       const txr = g.output ? (data.transfers || {})[g.output.split('/').pop()] : null;
       const action = waiting ? '<span class="pill p-run">waiting</span>' : g.can_queue && !g.running && !g.queued
-        ? `<button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game)">Compress</button>`
+        ? `<div class="rowbtns"><button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game)">Compress</button><button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game, true)" title="Compress, then send it to the PS5 by itself">Compress &amp; send</button></div>`
         : txr && txr.state === 'failed' && !d.transfer
         ? `<button class="sm pri" data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}" onclick="event.stopPropagation();push(this.dataset.id, this.dataset.name)">▶ Resume transfer</button>` : '';
       const why = g.verdict !== 'LZ4' && !g.running ? `<div class="why">${esc(g.why)}</div>` : '';
       const tx = txr && txr.state !== 'done' ? `<div class="cm">${xferText(txr)}</div>` : '';
-      return `<tr class="row" data-id="${esc(g.id)}" onclick="if(!event.target.closest('select,button,a'))openGame(this.dataset.id)"><td class="c-game"><img class="ico" alt="" loading="lazy" src="/api/icon?id=${encodeURIComponent(g.id)}" onerror="this.remove()"><span class="gname">${esc(g.name)}</span>${g.output_only ? '<span class="mine">LZ4 FOLDER</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_EN[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div>${placeHtml(g)}<div class="cm">${community(g.community)}</div>${tx}${sendNext ? '<div class="cm"><span class="chip ok">🎮 sent to the PS5 when packed</span></div>' : ''}${why}</td>
+      return `<tr class="row" data-id="${esc(g.id)}" onclick="if(!event.target.closest('select,button,a'))openGame(this.dataset.id)"><td class="c-game"><img class="ico" alt="" loading="lazy" src="/api/icon?id=${encodeURIComponent(g.id)}" onerror="this.remove()"><span class="gname">${esc(g.name)}</span>${g.output_only ? '<span class="mine">LZ4 FOLDER</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_EN[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div>${placeHtml(g)}<div class="cm">${community(g.community)}</div>${tx}${sendNext ? '<div class="cm"><span class="chip ok">⬆️ sent to the PS5 when packed</span></div>' : ''}${why}</td>
         <td class="c-status"><span class="pill ${v[0]}">${v[1]}</span></td>
         <td class="num c-src">${gb(g.source_bytes)}</td><td class="num c-out">${gb(g.output_bytes)}</td>
         <td class="num c-saved">${g.saved_percent != null ? `<b>${gb(g.source_bytes - g.output_bytes)}</b> saved · ${Math.round(g.saved_percent)} %<span class="mut mob"> · ${gb(g.source_bytes)} → ${gb(g.output_bytes)}</span>
@@ -1399,6 +1403,11 @@ async function engCheck() {
     engInfo = j; engInst(j);
     document.getElementById('eng-restore').hidden = !(j.installed && j.installed.orig);
     document.getElementById('eng-auto').checked = !!j.auto;
+    const rs = j.rest || {};
+    document.getElementById('rest-auto').checked = rs.on !== false;
+    document.getElementById('rest-info').innerHTML = rs.error ? `<span class="bad">Rest mode: ${esc(rs.error)}</span>`
+      : rs.woke_at ? 'This page woke the PS5: it goes back to rest mode a few minutes after the last game is sent.'
+      : rs.last ? `Last put in rest mode: ${esc(rs.last)}` : '';
     info.innerHTML = esc(why) + (j.running_version ? `<br>Running: <b>${esc(j.running_version)}</b> (process ${esc(String(j.pid))})` : '') + (j.host ? `<br>Engine at <code>http://${esc(j.host)}:${j.port}</code>` : '')
       + `<br>Installed to <code>${esc(j.path)}</code> from <code>${esc(j.repo)}</code>` + (j.cached ? ` · downloaded: ${esc(j.cached)}` : '');
   } catch (e) { st.textContent = 'Engine: ?'; }
@@ -1466,6 +1475,19 @@ async function engRead() {
   const r = await fetch('/api/engine/read', {cache: 'no-store'}), j = await r.json().catch(() => ({}));
   if (!r.ok) { el.innerHTML = `<div class="why bad">Could not read it: ${esc(j.error || r.status)}</div>`; return; }
   engCheck(); engHeader();
+}
+async function restAuto(on) {
+  await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'rest_auto', on})});
+}
+async function restNow() {
+  if (data.transfer && data.transfer.state === 'running' && !confirm('A game is being sent right now. Put the PS5 in rest mode anyway? The transfer is woken up and continued later.')) return;
+  if (!confirm('Put the PS5 in rest mode now?')) return;
+  const msg = document.getElementById('wake-msg');
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'ps5_rest'})});
+  const j = await r.json().catch(() => ({}));
+  msg.className = 'why ' + (r.ok ? 'good' : 'bad');
+  msg.textContent = r.ok ? 'The PS5 goes to rest mode in a few seconds.' : 'Not in rest mode: ' + (j.error || r.status);
+  setTimeout(ps5State, 8000);
 }
 async function engAuto(on) {
   await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'engine_auto', on})});

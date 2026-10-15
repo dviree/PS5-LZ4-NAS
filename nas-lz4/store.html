@@ -190,7 +190,11 @@ function showGame(id, refresh) {
     ['LZ4 reports', community(g.community)],
     ['On the PS5', it.copies.length ? it.copies.map(c => esc(c.path) + (c.version ? ' · v' + esc(c.version) : '')).join('<br>') : (ps5 ? 'not installed' : 'PS5 not answering')]];
   const acts = [];
-  if (s.k === 'available') acts.push(`<button class="btn pri" onclick="install('${esc(id)}')">⬇ Install</button>`);
+  if (s.k === 'available' && !it.lz4 && g.can_queue && !g.running && !g.queued)
+    acts.push(`<button class="btn pri" onclick="compressInstall('${esc(id)}')">⚡ Compress and install</button>`);
+  if (g.running || g.queued || (dash.send_after || []).includes(g.id))
+    acts.push(`<span class="meta">${g.running ? 'Being compressed' : 'Waiting to be compressed'}${(dash.send_after || []).includes(g.id) ? '; installs by itself when packed' : ''}</span>`);
+  if (s.k === 'available') acts.push(`<button class="btn ${!it.lz4 && g.can_queue ? 'ghost' : 'pri'}" onclick="install('${esc(id)}')">⬇ Install${!it.lz4 && g.can_queue ? ' as it is' : ''}</button>`);
   if (s.k === 'stopped') acts.push(`<button class="btn pri" onclick="install('${esc(id)}')">▶ Resume install</button>`);
   if (s.k === 'installed') acts.push(`<button class="btn ghost" onclick="install('${esc(id)}')">↻ Reinstall / repair</button>`);
   if (s.k === 'sending') acts.push(`<button class="btn ghost" onclick="stopIt()">⏸ Pause</button>`);
@@ -205,6 +209,15 @@ function showGame(id, refresh) {
   if (!refresh) { const b = sb.querySelector('.btn'); if (b) b.focus(); }
 }
 function closeSheet() { open = null; document.getElementById('sheet').hidden = true; }
+async function compressInstall(id) {
+  const it = items().find(x => x.g.id === id);
+  try {
+    await post({action: 'send_after', game: id});
+    await post({action: 'start', game: id});
+    toast(`Compressing ${it.g.name}; it installs by itself when it is packed`);
+    setTimeout(load, 800);
+  } catch (e) { toast('Failed: ' + e.message); }
+}
 async function install(id) {
   const it = items().find(x => x.g.id === id);
   try {

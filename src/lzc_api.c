@@ -14571,6 +14571,25 @@ keep_awake_request(const http_request_t *req) {
   return websrv_send(req->fd, 200, "application/json", body, (size_t)n);
 }
 
+/* GET /api/lzc/rest?confirm=1: put the PS5 in rest mode (for a NAS that woke
+ * it to send games and has nothing left to do). Refused while a job runs. */
+static int
+rest_request(const http_request_t *req) {
+  char confirm[8] = "";
+  websrv_get_query_arg(req, "confirm", confirm, sizeof(confirm));
+  const char *body;
+  int status;
+  if(strcmp(confirm, "1") != 0) {
+    status = 400, body = "{\"ok\":false,\"error\":\"add confirm=1\"}";
+  } else {
+    int rc = lzc_power_guard_rest();
+    if(rc == 0) status = 200, body = "{\"ok\":true}";
+    else if(rc == -1) status = 409, body = "{\"ok\":false,\"error\":\"a job is running\"}";
+    else status = 501, body = "{\"ok\":false,\"error\":\"rest mode is not available\"}";
+  }
+  return websrv_send(req->fd, status, "application/json", body, strlen(body));
+}
+
 void
 lzc_api_recover_on_startup(void) {
   lzc_image_mount_cleanup_stale();
@@ -14585,6 +14604,7 @@ lzc_api_request(const http_request_t *req, const char *url) {
   (void)url;
   if(!strcmp(req->path, "/api/lzc/games")) return games_request(req);
   if(!strcmp(req->path, "/api/lzc/keep-awake")) return keep_awake_request(req);
+  if(!strcmp(req->path, "/api/lzc/rest")) return rest_request(req);
   if(!strcmp(req->path, "/api/lzc/size-priority")) {
     return size_priority_request(req);
   }
