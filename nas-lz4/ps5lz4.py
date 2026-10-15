@@ -766,12 +766,23 @@ class Job:
         problems: list[str] = []
         notes: list[str] = []
         src_files: set[str] = set()
+        # The unpack reports its own progress; the byte compare after it is as
+        # long, so it writes the same kind of progress line for the web page.
+        compare_err = self.work / "restore-compare.err"
+        compared, last = 0, 0.0
         for dirpath, _dirs, names in os.walk(root):
             for name in names:
                 sp = Path(dirpath) / name
                 rel = sp.relative_to(root).as_posix()
                 src_files.add(rel)
                 rp = restore / rel
+                if time.monotonic() - last > 2:
+                    compare_err.write_text(f"[progress] {compared} / {total}\n")
+                    last = time.monotonic()
+                try:
+                    compared += sp.stat().st_size
+                except OSError:
+                    pass
                 if rel in expected_extra or rel.lower() == RUNTIME_REL.lower():
                     notes.append(f"{rel} replaced by the PackedStdio runtime"
                                  if rel.lower() == RUNTIME_REL.lower() else f"{rel} rebuilt")
@@ -794,6 +805,7 @@ class Job:
         remove_work_path(restore)
         remove_work_path(self.work / "restore.out")
         remove_work_path(self.work / "restore.err")
+        remove_work_path(compare_err)
         self.mark("restore", restore_test=f"passed: {same} files byte-identical after unpack",
                   restore_notes=sorted(set(notes)))
         self.log(f"restore test passed: {same} files byte-identical; {', '.join(sorted(set(notes)))}")
@@ -1973,7 +1985,12 @@ def job_running() -> tuple[bool, str]:
     return running, text
 
 
-def work_progress(w: Path) -> tuple[int, int] | None:
+# What a step's progress line measures, by the .err file it is in.
+PROGRESS_PHASE = {"pack": "packing", "verify": "checking every chunk", "restore": "unpacking",
+                  "restore-compare": "comparing with the original"}
+
+
+def work_progress(w: Path) -> tuple[int, int, str] | None:
     best = None
     for errf in sorted(w.glob("*.err"), key=lambda f: f.stat().st_mtime):
         try:
@@ -1984,7 +2001,7 @@ def work_progress(w: Path) -> tuple[int, int] | None:
             continue
         m = re.findall(r"\[progress\] (\d+) / (\d+)", tail)
         if m:
-            best = (int(m[-1][0]), int(m[-1][1]))
+            best = (int(m[-1][0]), int(m[-1][1]), PROGRESS_PHASE.get(errf.stem, ""))
     return best
 
 

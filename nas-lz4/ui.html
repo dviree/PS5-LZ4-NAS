@@ -149,6 +149,16 @@ function gb(n) {
   while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
   return (i ? n.toFixed(i >= 3 ? 1 : 0) : n) .toString() + ' ' + u[i];
 }
+// Time left from the progress seen over the last few minutes in this browser.
+const seen = {};
+function eta(key, prog) {
+  const now = Date.now(), h = seen[key] = (seen[key] || []).filter(x => now - x[0] < 300000 && x[1] <= prog[0]);
+  if (!h.length || h[h.length - 1][1] !== prog[0]) h.push([now, prog[0]]);
+  const [t0, b0] = h[0], rate = (prog[0] - b0) / ((now - t0) / 1000);
+  if (now - t0 < 20000 || !(rate > 0)) return '';
+  const s = (prog[1] - prog[0]) / rate, m = Math.round(s / 60);
+  return ' · about ' + (s < 90 ? '1 min' : m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min');
+}
 function community(c) {
   if (!c || !c.reports) return '<span class="mut">no reports</span>';
   const p = [];
@@ -234,7 +244,7 @@ function render() {
     job.innerHTML = `<h2>Running: ${esc(name)}</h2>
       <div class="steps">${j.steps.map(s => `<div class="st ${done.has(s) ? 'd' : s === j.step ? 'r' : ''}">${STEP_EN[s] || s}${done.has(s) ? ' ✓' : ''}</div>`).join('')}</div>
       <div class="bar"><i style="width:${pct}%"></i></div>
-      <div class="mut" style="margin-top:6px">${prog ? `${gb(prog[0])} / ${gb(prog[1])} (${pct.toFixed(0)} %)` : 'starting…'}${next.length ? ' · next: ' + esc(next.join(', ')) : ''}</div>
+      <div class="mut" style="margin-top:6px">${prog ? `${prog[2] ? esc(prog[2]) + ': ' : ''}${gb(prog[0])} / ${gb(prog[1])} (${pct.toFixed(0)} %) · ${gb(Math.max(0, prog[1] - prog[0]))} left${eta(j.step + (prog[2] || ''), prog)}` : 'starting…'}${next.length ? ' · next: ' + esc(next.map(x => (d.games.find(g => g.id === x) || {}).name || x).join(', ')) : ''}</div>
       <div style="margin-top:10px"><button onclick="act('stop', 'Stop the job? It can be resumed later.')">Stop (resumable)</button></div>`;
   } else job.hidden = true;
 
