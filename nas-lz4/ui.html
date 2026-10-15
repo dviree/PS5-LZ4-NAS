@@ -45,6 +45,7 @@ a{color:var(--acc)}
 .tabs button{background:none;border-radius:8px 8px 0 0;color:var(--mut);padding:8px 14px}
 .steps-list{margin:10px 0 0;padding-left:20px;line-height:1.5}.steps-list ul{padding-left:18px;margin:4px 0}.steps-list li{margin-bottom:4px}
 .ico{float:left;width:40px;height:40px;border-radius:8px;object-fit:cover;margin:0 10px 4px 0}.ico.big{width:72px;height:72px;border-radius:12px}.fi{display:inline-block;text-align:center;font-size:26px;line-height:40px}
+label.btn{display:inline-block;cursor:pointer;background:var(--chip);color:var(--txt);border-radius:8px;padding:8px 14px;font-weight:600}
 .tabs button.on{background:var(--card);color:var(--txt);box-shadow:inset 0 -2px 0 var(--acc)}
 .filters{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
 .filters input{font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--txt);flex:1;min-width:180px}
@@ -151,7 +152,8 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
 <main id="p-ftp" hidden>
   <div class="card"><h2>PS5 files (FTP)</h2>
     <div class="mut">Browse the PS5 over ftpsrv: the internal drive (<code>/data</code>), USB drives (<code>/mnt/usb0</code>)
-    and extended storage (<code>/mnt/ext0</code>). Tap a file to download it as it is on disk. <b>Delete</b> works only inside
+    and extended storage (<code>/mnt/ext0</code>). Tap a file to download it as it is on disk, or <b>ZIP</b> to download a whole folder. Upload files
+    and folders from this device into the folder you are in (inside <code>/data</code>, <code>/mnt/usbN</code> or <code>/mnt/extN</code>). <b>Delete</b> works only inside
     <code>/data</code>, <code>/mnt/usbN</code> and <code>/mnt/extN</code>, at least two folders down, and asks first.</div>
     <div class="filters">
       <button onclick="ftpGo(ftpPath.replace(/\/[^/]*$/, '') || '/')">⬆ Up</button>
@@ -159,6 +161,12 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
       <button onclick="ftpGo(document.getElementById('ftp-path').value)">Go</button>
     </div>
     <div class="filters" id="ftp-quick"></div>
+    <div class="filters" id="ftp-tools">
+      <label class="btn">Upload files<input type="file" multiple hidden onchange="ftpUpload(this.files); this.value=''"></label>
+      <label class="btn">Upload folder<input type="file" webkitdirectory multiple hidden onchange="ftpUpload(this.files); this.value=''"></label>
+      <button onclick="ftpMkdir()">New folder</button>
+      <button onclick="location.href='/api/ftp/zip?path=' + encodeURIComponent(ftpPath)">Download this folder (ZIP)</button>
+    </div>
     <div class="mut" id="ftp-addr"></div>
     <div class="mut" id="ftp-msg"></div>
     <table id="ftp-list" style="min-width:0"></table>
@@ -477,7 +485,7 @@ async function ftpGo(path) {
     const r = await fetch('/api/ftp/list?path=' + encodeURIComponent(path), {cache: 'no-store'});
     const j = await r.json();
     if (!r.ok) { msg.innerHTML = `<span class="bad">${esc(j.error || r.status)}</span>`; return; }
-    ftpPath = j.path; ftpLoaded = true;
+    ftpPath = j.path; ftpLoaded = true; ftpItems = j.items;
     const files = j.items.filter(i => !i.dir), bytes = files.reduce((n, i) => n + (i.size || 0), 0);
     msg.textContent = `${j.items.length - files.length} folders, ${files.length} files` + (files.length ? ` (${gb(bytes)})` : '');
     if (j.items.some(i => i.dir && i.name.toLowerCase() === 'fakelib'))
@@ -486,7 +494,7 @@ async function ftpGo(path) {
     const del = (p, dir) => /^\/(data|mnt\/(usb|ext)\d+)\/[^/]+\/.+/.test(p)
       ? `<button class="sm" style="float:right;margin-left:8px" data-p="${esc(p)}" data-dir="${dir ? 1 : ''}" onclick="ftpDelete(this.dataset.p, this.dataset.dir)">Delete</button>` : '';
     list.innerHTML = (j.items.length ? j.items.map(i => i.dir || i.link
-      ? `<tr class="row" data-p="${esc(join(i.name))}" onclick="if(!event.target.closest('button'))ftpGo(this.dataset.p)"><td style="white-space:normal">${i.link ? '' : del(join(i.name), true)}${folderIcon(join(i.name))}${esc(i.name)}${i.link ? ' ↪' : ''}<div class="why">${esc(i.modified)}</div></td></tr>`
+      ? `<tr class="row" data-p="${esc(join(i.name))}" onclick="if(!event.target.closest('button'))ftpGo(this.dataset.p)"><td style="white-space:normal">${i.link ? '' : del(join(i.name), true)}<button class="sm" style="float:right;margin-left:8px" data-p="${esc(join(i.name))}" onclick="location.href='/api/ftp/zip?path=' + encodeURIComponent(this.dataset.p)">ZIP</button>${folderIcon(join(i.name))}${esc(i.name)}${i.link ? ' ↪' : ''}<div class="why">${esc(i.modified)}</div></td></tr>`
       : `<tr><td style="white-space:normal">${del(join(i.name), false)}📄 <a href="/api/ftp/get?path=${encodeURIComponent(join(i.name))}" download>${esc(i.name)}</a><div class="why">${gb(i.size)} · ${esc(i.modified)}</div></td></tr>`
     ).join('') : '<tr><td class="mut">Empty folder.</td></tr>');
   } catch (e) { msg.innerHTML = `<span class="bad">${esc(String(e))}</span>`; }
@@ -534,6 +542,50 @@ function folderIcon(p) {
   return p.split('/').length > 3
     ? `<img class="ico" alt="" loading="lazy" src="/api/ftp/icon?path=${encodeURIComponent(p)}" onerror="this.outerHTML='<span class=&quot;ico fi&quot;>📁</span>'">`
     : '<span class="ico fi">📁</span>';
+}
+let ftpItems = [];
+const ftpWritable = p => /^\/(data|mnt\/(usb|ext)\d+)\/.+/.test(p);
+async function ftpUpload(files) {
+  files = [...files];
+  if (!files.length) return;
+  const msg = document.getElementById('ftp-msg'), base = ftpPath;
+  const rel = f => f.webkitRelativePath || f.name;
+  const target = f => (base === '/' ? '' : base) + '/' + rel(f);
+  if (!ftpWritable(target(files[0]))) { alert('Uploads go inside /data, /mnt/usbN or /mnt/extN. Open a folder there first.'); return; }
+  const tops = new Set(files.map(f => rel(f).split('/')[0]));
+  const clash = ftpItems.filter(i => tops.has(i.name)).map(i => i.name);
+  if (clash.length && !confirm(`Already in this folder: ${clash.join(', ')}\n\nReplace files with the same name?`)) return;
+  const total = files.reduce((n, f) => n + f.size, 0);
+  let done = 0, failed = [];
+  for (const [k, f] of files.entries()) {
+    try {
+      await new Promise((ok, bad) => {
+        const x = new XMLHttpRequest();
+        x.open('POST', '/api/ftp/put?path=' + encodeURIComponent(target(f)));
+        x.upload.onprogress = e => {
+          msg.textContent = `Uploading ${k + 1} of ${files.length}: ${rel(f)} · ${gb(done + e.loaded)} / ${gb(total)} (${total ? Math.round(100 * (done + e.loaded) / total) : 100} %)`;
+        };
+        x.onload = () => x.status === 200 ? ok() : bad(new Error((JSON.parse(x.responseText || '{}').error) || x.status));
+        x.onerror = () => bad(new Error('connection lost'));
+        x.send(f);
+      });
+    } catch (e) { failed.push(`${rel(f)}: ${e.message}`); }
+    done += f.size;
+  }
+  alert(failed.length ? `Uploaded ${files.length - failed.length} of ${files.length}.\n\nFailed:\n${failed.slice(0, 10).join('\n')}`
+                      : `Uploaded ${files.length} file${files.length === 1 ? '' : 's'} (${gb(total)}) to ${base}.`);
+  ftpGo(base);
+}
+async function ftpMkdir() {
+  const name = (prompt('New folder name in ' + ftpPath) || '').trim();
+  if (!name) return;
+  if (/[\/]/.test(name) || name === '.' || name === '..') { alert('A folder name, without /'); return; }
+  const path = (ftpPath === '/' ? '' : ftpPath) + '/' + name;
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'ftp_mkdir', path})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) alert('Not made: ' + (j.error || r.status));
+  ftpGo(ftpPath);
 }
 let comm = null;
 function tab(t) {

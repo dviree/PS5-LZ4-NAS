@@ -2067,6 +2067,86 @@ def nas_icon(game_id: str) -> bytes | None:
     return None
 
 
+# Uploads and new folders: anywhere inside /data, /mnt/usbN or /mnt/extN.
+FTP_WRITE_ROOTS = re.compile(r"^/(data|mnt/(usb|ext)\d+)/.+")
+
+
+def ps5_ftp_mkdirs(f, path: str) -> None:
+    import ftplib
+    cur = ""
+    for part in path.strip("/").split("/"):
+        cur += "/" + part
+        try:
+            f.mkd(cur)
+        except ftplib.error_perm:
+            pass  # exists
+
+
+def ps5_ftp_put(path: str, stream, length: int) -> dict:
+    """Store `length` bytes from stream as path on the PS5 (folders made as needed)."""
+    path = ps5_ftp_path(path)
+    if not FTP_WRITE_ROOTS.match(path):
+        raise ValueError("uploads go inside /data, /mnt/usbN or /mnt/extN")
+
+    class Exact:
+        def __init__(self):
+            self.left = length
+
+        def read(self, n=-1):
+            n = self.left if n < 0 else min(n, self.left)
+            data = stream.read(n) if n else b""
+            self.left -= len(data)
+            return data
+
+    f = ps5_ftp_connect()
+    try:
+        ps5_ftp_mkdirs(f, path.rsplit("/", 1)[0])
+        src = Exact()
+        f.storbinary(f"STOR {path}", src, blocksize=1 << 20)
+        if src.left:
+            raise ValueError("upload cut off")
+        try:
+            f.voidcmd("TYPE I")
+            got = f.size(path)
+        except Exception:
+            got = None
+        if got is not None and got != length:
+            raise ValueError(f"the PS5 has {got} bytes, expected {length}")
+        return {"path": path, "bytes": length}
+    finally:
+        try:
+            f.quit()
+        except Exception:
+            pass
+
+
+def ps5_ftp_zip(path: str, out) -> None:
+    """Write a folder on the PS5 to out as a ZIP (stored, streamed, zip64)."""
+    import zipfile
+    path = ps5_ftp_path(path)
+    f = ps5_ftp_connect()
+    base = path.rsplit("/", 1)[-1] or "ps5"
+    try:
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_STORED, allowZip64=True) as z:
+            def walk(p, rel):
+                items = ps5_ftp_list_conn(f, p)
+                if not items:
+                    z.writestr(rel + "/", b"")
+                for i in items:
+                    child, crel = f"{p}/{i['name']}", f"{rel}/{i['name']}"
+                    if i["dir"]:
+                        walk(child, crel)
+                    elif not i.get("link"):
+                        with z.open(crel, "w", force_zip64=True) as w:
+                            f.retrbinary(f"RETR {child}", w.write, blocksize=1 << 20)
+            walk(path, base)
+    finally:
+        try:
+            f.quit()
+        except Exception:
+            pass
+
+
 # Deleting is allowed only inside these, and never the drive or its top folders.
 FTP_DELETE_ROOTS = re.compile(r"^/(data|mnt/(usb|ext)\d+)/[^/]+/.+")
 
@@ -2727,6 +2807,39 @@ def cmd_ui(args) -> int:
                     return self.send(200, json.dumps(ps5_ftp_apr(path)).encode())
                 except Exception as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
+            if self.path.startswith("/api/ftp/zip?"):
+                from urllib.parse import parse_qs, urlparse, quote
+                try:
+                    path = ps5_ftp_path((parse_qs(urlparse(self.path).query).get("path") or [""])[0])
+                except ValueError as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+                name = (path.rsplit("/", 1)[-1] or "ps5") + ".zip"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/zip")
+                self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{quote(name)}")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.close_connection = True
+
+                class Sink:  # zipfile wants tell() on a stream it can't seek
+                    def __init__(self, w):
+                        self.w, self.pos = w, 0
+
+                    def write(self, b):
+                        self.w.write(b)
+                        self.pos += len(b)
+                        return len(b)
+
+                    def tell(self):
+                        return self.pos
+
+                    def flush(self):
+                        self.w.flush()
+                try:
+                    ps5_ftp_zip(path, Sink(self.wfile))
+                except Exception:
+                    pass  # the download ends short; the browser reports it
+                return
             if self.path.startswith("/api/ftp/get?"):
                 import ftplib
                 from urllib.parse import parse_qs, urlparse, quote
@@ -2768,6 +2881,15 @@ def cmd_ui(args) -> int:
             self.send(404, b'{"error":"not found"}')
 
         def do_POST(self):
+            if self.path.startswith("/api/ftp/put?"):
+                from urllib.parse import parse_qs, urlparse
+                path = (parse_qs(urlparse(self.path).query).get("path") or [""])[0]
+                try:
+                    n = int(self.headers.get("Content-Length") or 0)
+                    return self.send(200, json.dumps(ps5_ftp_put(path, self.rfile, n)).encode())
+                except Exception as err:
+                    self.close_connection = True  # the body may be unread
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if self.path != "/api/action":
                 return self.send(404, b'{"error":"not found"}')
             try:
@@ -2784,6 +2906,19 @@ def cmd_ui(args) -> int:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
                 cache["at"] = 0
                 return self.send(200, json.dumps(res).encode())
+            if req.get("action") == "ftp_mkdir":
+                try:
+                    path = ps5_ftp_path(str(req.get("path") or ""))
+                    if not FTP_WRITE_ROOTS.match(path):
+                        raise ValueError("new folders go inside /data, /mnt/usbN or /mnt/extN")
+                    f = ps5_ftp_connect()
+                    try:
+                        ps5_ftp_mkdirs(f, path)
+                    finally:
+                        f.quit()
+                    return self.send(200, json.dumps({"made": path}).encode())
+                except Exception as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if req.get("action") == "ftp_delete":
                 try:
                     return self.send(200, json.dumps(ps5_ftp_delete(str(req.get("path") or ""))).encode())
