@@ -1868,6 +1868,29 @@ def cmd_apr(args) -> int:
     return 1 if bad and not args.fix else 0
 
 
+def cmd_remove(args) -> int:
+    """Delete a finished LZ4 copy from the output folder (never an original).
+    Its report goes too, so the game shows as 'can be LZ4' again."""
+    ensure_dirs()
+    out = output_for(args.game)
+    if out.parent != OUTPUT or not out.name.endswith("-lz4") or not (out / "ampr_assets.index").is_file():
+        raise SystemExit(f"{out} is not an LZ4 copy in {OUTPUT}")
+    if under(out, LIBRARY):
+        raise SystemExit(f"refusing to delete inside the library: {out}")
+    running, _ = job_running()
+    q = read_json(QUEUE_PATH, {}) or {}
+    if running and q.get("current") and out.name == f"{q['current']}-lz4":
+        raise SystemExit("that game is being packed right now; stop the job first")
+    _files, size = tree_bytes(out)
+    shutil.rmtree(out)
+    for e in scan_library():
+        if e.output == out:
+            (REPORTS / f"{e.id}.json").unlink(missing_ok=True)
+    (REPORTS / f"{out.name[: -len('-lz4')]}.json").unlink(missing_ok=True)
+    print(f"deleted {out.name} ({human(size)}) from {HOST_OUTPUT}; the original is untouched")
+    return 0
+
+
 def cmd_clean(args) -> int:
     """Remove the work folder of a failed or skipped game."""
     ensure_dirs()
@@ -2440,9 +2463,20 @@ def ps5_games() -> dict:
             for sub in GAME_DIRS:
                 base = f"{drive}/{sub}"
                 try:
-                    folders = [i for i in ps5_ftp_list_conn(f, base) if i["dir"] and not i["name"].startswith(".")]
+                    listing = ps5_ftp_list_conn(f, base)
                 except ftplib.all_errors:
                     continue
+                folders = [i for i in listing if i["dir"] and not i["name"].startswith(".")]
+                # Images ShadowMountPlus mounts as they are.
+                for it in listing:
+                    if not it["dir"] and it["name"].lower().endswith((".exfat", ".ffpfs", ".ffpfsc")):
+                        m = TITLE_RE.search(it["name"])
+                        games.append({"path": f"{base}/{it['name']}", "folder": it["name"], "drive": drive,
+                                      "modified": it.get("modified", ""), "title_id": m.group(0).upper() if m else "",
+                                      "name": re.sub(r"\s*\[[^]]*\]", "", it["name"].rsplit(".", 1)[0]).strip() or it["name"],
+                                      "version": game_version(name=it["name"]).get("version", ""),
+                                      "lz4": False, "fakelib": False, "image": it["name"].rsplit(".", 1)[1].lower(),
+                                      "size": it.get("size"), "on_nas": []})
                 for it in sorted(folders, key=lambda i: i["name"].lower()):
                     path = f"{base}/{it['name']}"
                     g = {"path": path, "folder": it["name"], "drive": drive, "modified": it.get("modified", ""),
@@ -2696,17 +2730,29 @@ def push_queue(game: str, force: bool) -> int:
 def push_one(game: str, force: bool = False) -> int:
     import ftplib
     cfg = get_settings()
-    out = output_for(game)
-    problem = lz4_format_problem(out)
-    if problem:
-        raise SystemExit(f"{out.name} is not a complete LZ4 game: {problem}")
+    # "src:<id>" sends the original from the library as it is (a game folder,
+    # or an .exfat/.ffpfs/.ffpfsc image as one file); anything else is an LZ4 copy.
+    entry = None
+    if game.startswith("src:"):
+        entry = next((x for x in scan_library() if x.id == game[4:]), None)
+        if entry is None:
+            raise SystemExit(f"{game[4:]} is not in the library")
+        out = entry.path
+    else:
+        out = output_for(game)
+        problem = lz4_format_problem(out)
+        if problem:
+            raise SystemExit(f"{out.name} is not a complete LZ4 game: {problem}")
+    single = out.is_file()
     host, _, port = cfg["ps5_ftp"].partition(":")
     port = int(port or 2121)
-    dest = f"{cfg['ps5_dest']}/{out.name}"
-    files = sorted(p for p in out.rglob("*") if p.is_file())
+    dest = cfg["ps5_dest"] if single else f"{cfg['ps5_dest']}/{out.name}"
+    root = out.parent if single else out
+    files = [out] if single else sorted(p for p in out.rglob("*") if p.is_file())
     total = sum(p.stat().st_size for p in files)
     st_path = TRANSFERS / f"{out.name}.json"
-    st = {"game": out.name, "dest": f"{cfg['ps5_ftp']}{dest}", "state": "running", "pid": os.getpid(),
+    st = {"game": out.name, "dest": f"{cfg['ps5_ftp']}{cfg['ps5_dest']}/{out.name}", "state": "running",
+          "pid": os.getpid(), "source": "original" if entry else "lz4", "request": game,
           "bytes": 0, "total": total, "files": len(files), "files_done": 0, "skipped": 0,
           "current": "", "started": now(), "error": None, "verified": 0}
     write_json(st_path, st)
@@ -2796,8 +2842,10 @@ def push_one(game: str, force: bool = False) -> int:
         # Two copies of one title confuse ShadowMountPlus.
         tid = ""
         pj = out / "sce_sys" / "param.json"
-        if pj.is_file():
+        if not single and pj.is_file():
             tid = parse_param_json(pj.read_bytes())[0].upper()
+        if not tid and entry and entry.title_id:
+            tid = entry.title_id.upper()
         if not tid:
             m = TITLE_RE.search(out.name)
             tid = m.group(0).upper() if m else ""
@@ -2823,16 +2871,16 @@ def push_one(game: str, force: bool = False) -> int:
                         pass
                     made.add(cur)
 
-        boot = boot_files(out, repair=False)
+        boot = {"changed": [], "needed": [], "notes": []} if single else boot_files(out, repair=False)
         if any(n.startswith("runtime folder") for n in boot["needed"]):
             raise RuntimeError("the game's runtime folder has the wrong case for the PS5 "
                                "(HITMAN 3, 007 First Light): press Check all, then Repair, and send again")
         mkdirs(dest)
-        for d in sorted(q for q in out.rglob("*") if q.is_dir()):
+        for d in ([] if single else sorted(q for q in out.rglob("*") if q.is_dir())):
             mkdirs(f"{dest}/{d.relative_to(out).as_posix()}")  # empty folders too
         programs = []
         for p in files:
-            rel = p.relative_to(out).as_posix()
+            rel = p.relative_to(root).as_posix()
             remote = f"{dest}/{rel}"
             size = p.stat().st_size
             st["current"] = rel
@@ -2864,7 +2912,7 @@ def push_one(game: str, force: bool = False) -> int:
                     if got is not None and got != size:
                         st["bytes"] = start
                         raise RuntimeError(f"{rel}: PS5 has {got} bytes, expected {size}")
-                    if offset and (p, remote) not in programs:
+                    if offset and size <= 1 << 30 and (p, remote) not in programs:
                         programs.append((p, remote))  # a joined file is compared byte for byte below
                     break
                 except (*ftplib.all_errors, OSError, RuntimeError) as err:
@@ -2901,7 +2949,7 @@ def push_one(game: str, force: bool = False) -> int:
                               f"or the PS5; put one in {Path(HOST_STATE) / 'playgo'} and send again")
         # Byte check of the program files (the ones ftpsrv would decrypt).
         for p, remote in programs:
-            st["current"] = "checking " + p.relative_to(out).as_posix()
+            st["current"] = "checking " + p.relative_to(root).as_posix()
             save(True)
             want = hashlib.sha256(p.read_bytes()).hexdigest()
             for attempt in range(2):
@@ -2910,7 +2958,7 @@ def push_one(game: str, force: bool = False) -> int:
                 if h.hexdigest() == want:
                     break
                 if attempt:
-                    raise RuntimeError(f"{p.relative_to(out)} differs on the PS5 (SHA-256) after a second upload")
+                    raise RuntimeError(f"{p.relative_to(root)} differs on the PS5 (SHA-256) after a second upload")
                 with open(p, "rb") as fh:  # same size, other bytes: upload it again
                     ftp.storbinary(f"STOR {remote}", fh, blocksize=1 << 20)
             st["verified"] += 1
@@ -2941,6 +2989,7 @@ UI_ACTIONS = {  # action -> ps5lz4 arguments (game and result are checked separa
     "resume": ["start", "--resume"],
     "start": ["start"],
     "community": ["community"],
+    "remove": ["remove"],
 }
 
 
@@ -3029,7 +3078,8 @@ def dashboard_data() -> dict:
             src_size = None
         rep = read_json(REPORTS / f"{e.id}.json") or {}
         g = games.get((e.title_id or "").upper()) or {}
-        row = {"id": e.id, "rel": e.rel, "kind": e.kind, "source_size": src_size, "title_id": e.title_id,
+        row = {"id": e.id, "rel": e.rel, "source_path": str(Path(HOST_LIBRARY) / e.rel), "kind": e.kind,
+               "source_size": src_size, "title_id": e.title_id,
                "name": rep.get("title_name") or e.name or (e.path.stem if e.kind != "folder" else e.path.name),
                "verdict": verdict, "why": why,
                "can_queue": can, "running": e.id == current,
@@ -3150,7 +3200,7 @@ def run_request(req: dict) -> dict:
     if action not in UI_ACTIONS:
         return {"ok": False, "output": f"unknown action {action!r}"}
     argv = list(UI_ACTIONS[action])
-    if action in ("start", "community"):
+    if action in ("start", "community", "remove"):
         game = str(req.get("game") or "")
         if not game or game.startswith("-") or len(game) > 300:
             return {"ok": False, "output": "no game given"}
@@ -3580,6 +3630,9 @@ def main() -> int:
     sp = sub.add_parser("ui", help="serve the web page (own container, see install.sh)")
     sp.add_argument("--port", type=int, default=int(os.environ.get("PS5LZ4_UI_PORT", "5921")))
     sp.set_defaults(func=cmd_ui)
+    sp = sub.add_parser("remove", help="delete a finished LZ4 copy from the output folder (not the original)")
+    sp.add_argument("game")
+    sp.set_defaults(func=cmd_remove)
     sp = sub.add_parser("clean", help="delete the work folder of a failed game")
     sp.add_argument("ids", nargs="+")
     sp.set_defaults(func=cmd_clean)
