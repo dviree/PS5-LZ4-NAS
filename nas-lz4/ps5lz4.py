@@ -2369,6 +2369,10 @@ def ps5_ftp_du(path: str) -> dict:
         except Exception:
             pass
     tot["measured"] = now()
+    if re.match(r"^/(data|mnt/(usb|ext)\d+)/(homebrew|etaHEN/games)/[^/]+$", path):
+        sizes = read_json(GAME_SIZES, {}) or {}
+        sizes[path] = {"bytes": tot["bytes"], "measured": tot["measured"]}
+        write_json(GAME_SIZES, sizes)
     if DRIVE_ROOT.match(path):
         info = read_json(DRIVES_PATH, {}) or {}
         info.setdefault(path, {}).update(used=tot["bytes"], files=tot["files"], measured=tot["measured"])
@@ -2412,6 +2416,73 @@ def ps5_drives() -> dict:
     except Exception:
         pass
     return {"drives": drives}
+
+
+GAME_SIZES = STATE / "ps5_game_sizes.json"  # measured sizes of game folders on the PS5
+GAME_DIRS = ("homebrew", "etaHEN/games")  # where ShadowMountPlus / etaHEN look, per drive
+
+
+def ps5_games() -> dict:
+    """Every game folder on the PS5's drives: name, title ID and version from
+    param.json, LZ4 or not, APR-EMU present, measured size, duplicates."""
+    import ftplib
+    f = ps5_ftp_connect()
+    sizes = read_json(GAME_SIZES, {}) or {}
+    nas = {}
+    for e in scan_library():
+        if e.title_id:
+            nas.setdefault(e.title_id.upper(), []).append(e.output.name if e.output.is_dir() else None)
+    games = []
+    try:
+        mnt = ps5_ftp_names(f, "/mnt") or []
+        drives = ["/data"] + [f"/mnt/{n}" for n in sorted(mnt) if re.fullmatch(r"(usb|ext)\d+", n)]
+        for drive in drives:
+            for sub in GAME_DIRS:
+                base = f"{drive}/{sub}"
+                try:
+                    folders = [i for i in ps5_ftp_list_conn(f, base) if i["dir"] and not i["name"].startswith(".")]
+                except ftplib.all_errors:
+                    continue
+                for it in sorted(folders, key=lambda i: i["name"].lower()):
+                    path = f"{base}/{it['name']}"
+                    g = {"path": path, "folder": it["name"], "drive": drive, "modified": it.get("modified", ""),
+                         "title_id": "", "name": "", "version": ""}
+                    try:
+                        names = {i["name"].lower(): i for i in ps5_ftp_list_conn(f, path)}
+                    except ftplib.all_errors:
+                        names = {}
+                    g["lz4"] = "ampr_assets.index" in names
+                    g["fakelib"] = "fakelib" in names
+                    buf = bytearray()
+                    try:
+                        f.voidcmd("TYPE I")
+                        f.retrbinary(f"RETR {path}/sce_sys/param.json", buf.extend)
+                        j = json.loads(bytes(buf).decode("utf-8", "replace"))
+                        g["title_id"], g["name"] = parse_param_json(bytes(buf))
+                        g["version"] = str(j.get("contentVersion") or "")
+                    except (ftplib.all_errors, ValueError):
+                        m = TITLE_RE.search(it["name"])
+                        g["title_id"] = m.group(0).upper() if m else ""
+                    if not g["version"]:
+                        g["version"] = game_version(name=it["name"]).get("version", "")
+                    g["name"] = g["name"] or it["name"]
+                    g["size"] = (sizes.get(path) or {}).get("bytes")
+                    g["on_nas"] = [x for x in nas.get(g["title_id"].upper(), []) if x] if g["title_id"] else []
+                    games.append(g)
+    finally:
+        try:
+            f.quit()
+        except Exception:
+            pass
+    # ShadowMountPlus mounts one copy per title ID: flag the others.
+    seen = {}
+    for g in games:
+        if g["title_id"]:
+            seen.setdefault(g["title_id"].upper(), []).append(g["path"])
+    for g in games:
+        others = [p for p in seen.get(g["title_id"].upper(), []) if p != g["path"]] if g["title_id"] else []
+        g["duplicates"] = others
+    return {"games": games, "listed": now()}
 
 
 # Deleting is allowed only inside these, and never the drive or its top folders.
@@ -3188,6 +3259,11 @@ def cmd_ui(args) -> int:
                 self.end_headers()
                 self.wfile.write(png)
                 return
+            if self.path == "/api/ps5/games":
+                try:
+                    return self.send(200, json.dumps(ps5_games(), ensure_ascii=False).encode())
+                except Exception as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if self.path.startswith("/api/ftp/du?") or self.path == "/api/ps5/drives":
                 from urllib.parse import parse_qs, urlparse
                 try:
