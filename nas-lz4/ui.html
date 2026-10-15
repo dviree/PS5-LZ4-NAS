@@ -323,7 +323,7 @@ function render() {
       const action = waiting ? '<span class="pill p-run">waiting</span>' : g.can_queue && !g.running && !g.queued
         ? `<button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game)">Compress</button>` : '';
       const why = g.verdict !== 'LZ4' && !g.running ? `<div class="why">${esc(g.why)}</div>` : '';
-      return `<tr class="row" data-id="${esc(g.id)}" onclick="if(!event.target.closest('select,button,a'))openGame(this.dataset.id)"><td>${esc(g.name)}${g.output_only ? '<span class="mine">LZ4 FOLDER</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_EN[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div><div class="cm">${community(g.community)}</div>${g.output && (data.transfers || {})[g.output.split('/').pop()] ? `<div class="cm">${xferText(data.transfers[g.output.split('/').pop()])}</div>` : ''}${why}</td>
+      return `<tr class="row" data-id="${esc(g.id)}" onclick="if(!event.target.closest('select,button,a'))openGame(this.dataset.id)"><td>${esc(g.name)}${g.output_only ? '<span class="mine">LZ4 FOLDER</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_EN[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div>${placeHtml(g)}<div class="cm">${community(g.community)}</div>${g.output && (data.transfers || {})[g.output.split('/').pop()] ? `<div class="cm">${xferText(data.transfers[g.output.split('/').pop()])}</div>` : ''}${why}</td>
         <td><span class="pill ${v[0]}">${v[1]}</span></td>
         <td class="num">${gb(g.source_bytes)}</td><td class="num">${gb(g.output_bytes)}</td>
         <td class="num">${g.saved_percent != null ? `<b>${gb(g.source_bytes - g.output_bytes)}</b> · ${Math.round(g.saved_percent)} %
@@ -408,6 +408,11 @@ function gameHtml(g, det) {
     ['LZ4', gb(g.output_bytes)],
     ['Saved', g.saved_percent != null ? `${gb(g.source_bytes - g.output_bytes)} (${Math.round(g.saved_percent)} %)` : '–'],
   ];
+  const a = det && det.apr;
+  if (a) rows.push(['APR-EMU', `${a.ok ? '<span class="good">' + esc(a.build) + ' ✓</span>' : '<span class="bad">' + esc(a.build) + '</span> · Check all, then Repair'}${a.path ? `<div class="why">${esc(a.path)}</div>` : ''}`]);
+  const pp = ps5Place(g);
+  if (pp) rows.push(['On the PS5', `${esc(pp.path)}${pp.sent ? '' : '<div class="why">not sent yet: this is where Send to PS5 puts it</div>'}
+    <div class="why" id="apr-ps5"></div>`]);
   if (f) rows.push(['LZ4 folder', `${esc(f.path)}<div class="why">${f.files} files · ${f.paks} LZ4 volumes · ${gb(f.bytes)}${f.problem ? ' · <span class="bad">' + esc(f.problem) + '</span>' : ' · format ok'}</div>`]);
   if (r) {
     rows.push(['Compression', `${esc(r.codec || '')}${r.profile ? `<div class="why">profile: ${esc(r.profile)}</div>` : ''}`]);
@@ -430,6 +435,10 @@ function gameHtml(g, det) {
       ${Object.entries(PS5_EN).map(([k, s]) => `<option value="${k}">${s}</option>`).join('')}</select>`);
   if (g.running) acts.push(`<button onclick="act('stop', 'Stop the job? It can be resumed later.')">Stop</button>`);
   const tr = (data.transfers || {})[g.output ? g.output.split('/').pop() : g.id];
+  if (pp && pp.sent) {
+    acts.push(`<button data-p="${esc(pp.path)}" onclick="closeGame();tab('ftp');ftpGo(this.dataset.p)">Open on PS5</button>`);
+    acts.push(`<button data-p="${esc(pp.path)}" onclick="aprCheck(this.dataset.p, document.getElementById('apr-ps5'))">Check APR-EMU on PS5</button>`);
+  }
   if (g.verdict === 'LZ4' && g.output) {
     const busy = data.transfer && data.transfer.state === 'running';
     acts.push(`<button class="pri" ${busy ? 'disabled title="a transfer is running"' : ''} data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}"
@@ -456,6 +465,8 @@ async function ftpGo(path) {
     ftpPath = j.path; ftpLoaded = true;
     const files = j.items.filter(i => !i.dir), bytes = files.reduce((n, i) => n + (i.size || 0), 0);
     msg.textContent = `${j.items.length - files.length} folders, ${files.length} files` + (files.length ? ` (${gb(bytes)})` : '');
+    if (j.items.some(i => i.dir && i.name.toLowerCase() === 'fakelib'))
+      msg.innerHTML += ` · <button class="sm" onclick="aprCheck(ftpPath)">Check APR-EMU here</button>`;
     const join = n => (ftpPath === '/' ? '' : ftpPath) + '/' + n;
     const del = (p, dir) => /^\/(data|mnt\/(usb|ext)\d+)\/[^/]+\/.+/.test(p)
       ? `<button class="sm" style="float:right;margin-left:8px" data-p="${esc(p)}" data-dir="${dir ? 1 : ''}" onclick="ftpDelete(this.dataset.p, this.dataset.dir)">Delete</button>` : '';
@@ -478,6 +489,30 @@ async function ftpDelete(path, dir) {
   if (!r.ok) alert('Not deleted: ' + (j.error || r.status));
   else alert(`Deleted ${name}` + (dir ? ` (${j.files} files, ${j.folders} folders).` : '.'));
   ftpGo(ftpPath);
+}
+// Where a game's LZ4 folder is (NAS) and where it is or will be on the PS5.
+function ps5Place(g) {
+  if (!g.output) return null;
+  const name = g.output.split('/').pop(), t = (data.transfers || {})[name];
+  if (t && t.dest) return {path: t.dest.replace(/^[^/]*/, ''), sent: t.state === 'done'};
+  const dest = (data.settings || {}).ps5_dest;
+  return dest ? {path: dest.replace(/\/$/, '') + '/' + name, sent: false} : null;
+}
+function placeHtml(g) {
+  if (!g.output) return '';
+  const pp = ps5Place(g);
+  return `<div class="why">NAS: ${esc(g.output)}</div>` + (pp && pp.sent ? `<div class="why">PS5: ${esc(pp.path)}</div>` : '');
+}
+async function aprCheck(path, el) {
+  el = el || document.getElementById('ftp-msg');
+  el.textContent = 'Checking APR-EMU on the PS5…';
+  try {
+    const r = await fetch('/api/ftp/apr?path=' + encodeURIComponent(path), {cache: 'no-store'});
+    const j = await r.json();
+    el.innerHTML = !r.ok ? `<span class="bad">${esc(j.error || r.status)}</span>`
+      : j.ok ? `<span class="good">APR-EMU on the PS5: ${esc(j.build)} ✓</span> ${esc(j.path)}`
+      : `<span class="bad">APR-EMU on the PS5: ${esc(j.build)}</span>${j.path ? ' ' + esc(j.path) : ''}. Send the game again to replace it.`;
+  } catch (e) { el.innerHTML = `<span class="bad">${esc(String(e))}</span>`; }
 }
 let comm = null;
 function tab(t) {

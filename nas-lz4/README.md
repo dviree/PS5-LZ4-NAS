@@ -72,9 +72,13 @@ that container alone.
   `.ffpfsc`, `.ffpfs`) and size, LZ4 status (LZ4 / can be LZ4 / not LZ4 with
   the reason), original and LZ4 size with the saving, your PS5 result and the
   community reports. Games that exist only in the LZ4 folder are listed too.
+- **Where each game is:** the LZ4 folder on the NAS and, once sent, the
+  folder on the PS5, under the game's name.
 - **Click a game** for details (sizes, LZ4 folder, compression, checks, last
-  error, community reports) and the buttons **Compress**, **Send to PS5**
-  and the PS5 result.
+  error, community reports, the APR-EMU build in it) and the buttons
+  **Compress**, **Send to PS5**, **Open on PS5** (the FTP tab at the game),
+  **Check APR-EMU on PS5** (is the copy on the console the PackedStdio
+  build?) and the PS5 result.
 - **Check all:** read-only check of every LZ4 game (format, APR-EMU, files
   the PS5 reads from disk) and of what can still become LZ4. Results are kept
   in a small database (`state/ps5lz4.db`) keyed by each game's file sizes and
