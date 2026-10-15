@@ -257,6 +257,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
 </main>
 <main id="p-act" hidden>
   <div class="card"><h2>Packing</h2><div id="job"></div><div id="pq"></div></div>
+  <div class="card" id="imgcard" hidden><h2>exFAT images</h2><div id="imgs"></div></div>
   <div class="card"><h2>Transfers to the PS5</h2><div id="xfer"></div><div id="xq"></div><div id="xstop"></div>
     <div class="why" style="margin-top:10px">If the PS5 goes to rest mode during a transfer, it is woken (Remote Play key) and the
     transfer continues, a half-sent file from where it stopped. To keep it awake: <i>Settings › System › Power Saving ›
@@ -458,6 +459,21 @@ function jobEta(j, prog) {
   if (e.job_left != null && e.later) p.push(`whole game about <b>${dur(e.job_left)}</b>`);
   return ' · ' + p.join(' · ');
 }
+function renderImages(d) {
+  const jobs = (d.images || {}).jobs || {};
+  const list = Object.entries(jobs).filter(([k, j]) => (j.state === 'running' || (j.state !== 'done' && j.error)));
+  const card = document.getElementById('imgcard');
+  card.hidden = !list.length;
+  if (card.hidden) return;
+  const rows = list.map(([k, j]) => {
+    const pct = j.total ? Math.min(100, 100 * j.done / j.total) : 0;
+    return `<div style="margin-bottom:10px"><b>${esc(k)}</b> <span class="mut">LZ4 copy → .exfat</span>
+      ${j.state === 'running' ? `<div class="bar"><i style="width:${pct}%"></i></div><div class="mut">${esc(j.phase || '')}: ${gb(j.done)} / ${gb(j.total)} (${pct.toFixed(0)} %)</div>`
+        : `<div class="why bad">${esc(j.state)}: ${esc(j.error || '')}</div>`}</div>`;
+  });
+  if (list.some(([, j]) => j.state === 'running')) rows.push(`<button onclick="imageStop()">Stop</button>`);
+  document.getElementById('imgs').innerHTML = rows.join('');
+}
 function packLeft(j) {
   const e = j.eta || {}, l = e.job_left != null ? e.job_left : e.step_left;
   return (e.rate ? ' · ' + gb(e.rate) + '/s' : '') + (l != null ? ' · about ' + dur(l) + ' left' : '');
@@ -633,8 +649,11 @@ function render() {
   pqEl.innerHTML = pqs.length ? `<h4 class="qh">Queued (${pqs.length})</h4>` + pqs.map((x, i) =>
     `<div class="qrow"><span class="qn">${i + 1}</span><span class="qname">${esc(((d.games || []).find(g => g.id === x) || {}).name || x)}</span></div>`).join('') : '';
   const busyEl = document.getElementById('busy'), parts = [];
+  const ijobs = Object.entries((d.images || {}).jobs || {}).filter(([k, j]) => j.state === 'running');
+  ijobs.forEach(([k, j]) => parts.push(`💿 exFAT image <b>${esc(k)}</b> · ${esc(j.phase || '')} ${j.total ? Math.floor(100 * j.done / j.total) + ' %' : ''}`));
+  renderImages(d);
   if (d.job) parts.push(`📦 Packing <b>${esc(((d.games || []).find(g => g.id === d.job.id) || {}).name || d.job.id)}</b>${d.job.progress && d.job.progress[1] ? ' · ' + Math.round(100 * d.job.progress[0] / d.job.progress[1]) + ' %' : ''}${packLeft(d.job)}`);
-  if (tf) parts.push(`🎮 Sending <b>${esc(nameOf(tf.game))}</b> · ${tf.total ? Math.round(100 * tf.bytes / tf.total) : 0} %${tf.speed ? ' · ' + gb(tf.speed) + '/s · ' + dur(tf.eta) + ' left' : ''}`);
+  if (tf) parts.push(`⬆️ Sending <b>${esc(nameOf(tf.game))}</b> · ${tf.total ? Math.round(100 * tf.bytes / tf.total) : 0} %${tf.speed ? ' · ' + gb(tf.speed) + '/s · ' + dur(tf.eta) + ' left' : ''}`);
   const nq = pqs.length + tq.length;
   if (nq) parts.push(`${nq} queued`);
   const nStopped = tf ? 0 : Object.values(d.transfers || {}).filter(t => t && t.state === 'failed').length;
@@ -720,15 +739,31 @@ function render() {
 function pendingFor(id) {
   return data && (data.requests.pending_list || []).some(r => r.action === 'start' && r.game === id);
 }
-async function compress(id, send) {
+async function makeImage(on, name) {
+  if (!confirm(`Make an exFAT image of the LZ4 game ${name}?\n\nIt becomes one file, ${on}.exfat, next to the LZ4 folder (about as large as the LZ4 copy), and every file in it is compared byte for byte with the LZ4 folder. The LZ4 folder stays.`)) return;
+  act('make_exfat', null, {game: on});
+}
+function pushImage(file, name) {
+  const s = data.settings || {};
+  if (!s.ps5_ftp) { alert('Enter the PS5 address on the Remote tab first.'); tab('ps5'); return; }
+  act('push', `Send the exFAT image of ${name} to ${s.ps5_ftp}${s.ps5_dest}?\n\n${file}\n\nShadowMount+ mounts it from there.`, {game: 'img:' + file});
+}
+function removeImage(on, name) {
+  act('remove_exfat', `Delete the exFAT image of ${name} on the NAS?\n\n${on}.exfat\n\nThe LZ4 folder stays.`, {game: on});
+}
+function imageStop() {
+  act('image_stop', 'Stop making the exFAT image? The half-made image is thrown away; the LZ4 folder is not touched.');
+}
+async function compress(id, send, image) {
   const g = (data.games || []).find(x => x.id === id) || {name: id};
   const s = data.settings || {};
   if (send && !s.ps5_ftp) { alert('Enter the PS5 address on the Remote tab first.'); tab('ps5'); return; }
   const note = data.running ? '\n\nAnother game is being packed; this one starts when it is done.' : '';
   const pfsc = g.kind === 'ffpfsc' ? `\n\nThis .ffpfsc image is already compressed (${gb(g.source_size)}). The LZ4 copy is usually about as large or larger, so it saves little or no space; Compress all leaves these out.` : '';
-  const then = send ? `\n\nWhen it is packed and checked, it is sent to ${s.ps5_ftp}${s.ps5_dest} by itself (queued if another transfer runs).` : '';
+  const then = image ? `\n\nThen an exFAT image of the LZ4 game is made and checked byte for byte, and the image is sent to ${s.ps5_ftp}${s.ps5_dest} by itself. Some games only start from an image.`
+    : send ? `\n\nWhen it is packed and checked, it is sent to ${s.ps5_ftp}${s.ps5_dest} by itself (queued if another transfer runs).` : '';
   if (!confirm(`Compress ${g.name} with LZ4${send ? ' and send it to the PS5' : ''}?${pfsc}${note}${then}`)) return;
-  if (send) await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'send_after', game: id})});
+  if (send) await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'send_after', game: id, image: !!image})});
   act('start', null, {game: id});
 }
 function reportLink(repo, tid, name, status, extra = {}) {
@@ -821,13 +856,20 @@ function gameHtml(g, det) {
   }
   const tx = (data.transfers || {})[g.output ? g.output.split('/').pop() : g.id];
   if (tx) rows.push(['PS5 transfer', `${xferText(tx)}<div class="why">${esc(tx.dest || '')}${tx.verified ? ` · ${tx.verified} program files checked` : ''}${tx.playgo ? `<br>${esc(tx.playgo)}` : ''}${tx.note ? `<br><span class="bad">${esc(tx.note)}</span>` : ''}${tx.error ? `<br><span class="bad">${esc(tx.error)}</span>` : ''}</div>`]);
+  if (g.output) {
+    const on = g.output.split('/').pop(), im = data.images || {}, job = (im.jobs || {})[on], ready = (im.ready || {})[on];
+    if (ready) rows.push(['exFAT image', `${gb(ready)}<div class="why">${esc(on)}.exfat · checked byte for byte</div>`]);
+    else if (job && job.state !== 'done') rows.push(['exFAT image', job.state === 'running'
+      ? `${esc(job.phase || '')}: ${gb(job.done)} / ${gb(job.total)}` : `<span class="bad">${esc(job.state)}: ${esc(job.error || '')}</span>`]);
+  }
   if (w && w.error) rows.push(['Last error', `<span class="bad">${esc(w.error)}</span><div class="why">step ${esc(w.step || '')}</div>`]);
 
   const acts = [];
   if (pendingFor(g.id)) acts.push('<span class="pill p-run">waiting to start</span>');
   else if (g.can_queue && !g.running && !g.queued)
     acts.push(`<button class="pri" data-game="${esc(g.id)}" onclick="compress(this.dataset.game)">Compress</button>`,
-      `<button class="pri" data-game="${esc(g.id)}" onclick="compress(this.dataset.game, true)">Compress and send to PS5</button>`);
+      `<button class="pri" data-game="${esc(g.id)}" onclick="compress(this.dataset.game, true)">Compress and send to PS5</button>`,
+      `<button class="pri" data-game="${esc(g.id)}" onclick="compress(this.dataset.game, true, true)" title="LZ4, then an exFAT image of the LZ4 game, then the image to the PS5">Compress, make exFAT and send to PS5</button>`);
   if (g.verdict === 'LZ4' && !g.output_only)
     acts.push(`<select data-game="${esc(g.id)}" onchange="this.blur();if(this.value)act('community',null,{game:this.dataset.game,result:this.value})">
       <option value="">PS5 result: ${g.ps5 ? esc(PS5_EN[g.ps5]) : 'not tested'}</option>
@@ -842,7 +884,7 @@ function gameHtml(g, det) {
   const dels = [];
   if (pp && pp.sent) dels.push(`<button class="danger" data-p="${esc(pp.path)}" data-n="${esc(g.name)}" onclick="deleteFromPs5(this.dataset.p, this.dataset.n)">🗑 Delete from PS5</button>`);
   if (!g.output_only && g.rel && !g.running) dels.push(data.delete_originals
-    ? `<button class="danger" data-g="${esc(g.id)}" onclick="deleteOriginal(this.dataset.g)">🗑 Delete original on NAS</button>`
+    ? `<button class="danger" data-g="${esc(g.id)}" onclick="deleteOriginal(this.dataset.g)">🗑 Delete original on NAS${g.verdict === 'LZ4' && (g.ps5 === 'works' || g.ps5 === 'issues') ? ' <small>(the LZ4 copy works on the PS5)</small>' : ''}</button>`
     : `<button class="ghost" onclick="alert(ORIG_OFF)">🗑 Delete original…</button>`);
   if (g.output && (g.verdict === 'LZ4' || g.output_only) && !g.running)
     dels.push(`<button class="danger" data-g="${esc(g.id)}" data-n="${esc(g.name)}" onclick="deleteLz4(this.dataset.g, this.dataset.n)">🗑 Delete LZ4 copy on NAS</button>`);
@@ -854,6 +896,20 @@ function gameHtml(g, det) {
     const busy = data.transfer && data.transfer.state === 'running';
     acts.push(`<button class="pri" ${busy ? 'disabled title="a transfer is running"' : ''} data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}"
       onclick="push(this.dataset.id, this.dataset.name)">${tr && tr.state === 'done' ? 'Send again' : 'Send to PS5'}</button>`);
+  }
+  // exFAT image of the LZ4 copy (some games only start from an image).
+  if (g.verdict === 'LZ4' && g.output && !g.running) {
+    const on = g.output.split('/').pop(), im = data.images || {}, job = (im.jobs || {})[on], ready = (im.ready || {})[on];
+    if (job && job.state === 'running') {
+      acts.push(`<span class="pill p-run">exFAT image: ${esc(job.phase || '')} ${job.total ? Math.floor(100 * job.done / job.total) + '%' : ''}</span>`,
+        `<button onclick="imageStop()">Stop image</button>`);
+    } else if (ready) {
+      acts.push(`<button class="pri" data-f="${esc(on + '.exfat')}" data-n="${esc(g.name)}" onclick="pushImage(this.dataset.f, this.dataset.n)">Send exFAT image to PS5</button>`);
+      dels.push(`<button class="danger" data-g="${esc(on)}" data-n="${esc(g.name)}" onclick="removeImage(this.dataset.g, this.dataset.n)">🗑 Delete exFAT image</button>`);
+    } else {
+      acts.push(`<button data-g="${esc(on)}" data-n="${esc(g.name)}" onclick="makeImage(this.dataset.g, this.dataset.n)" title="One .exfat file of the LZ4 game, checked byte for byte">Make exFAT image</button>`,
+        `<button data-g="${esc(g.id)}" onclick="compress(this.dataset.g, true, true)">Make exFAT and send to PS5</button>`);
+    }
   }
   return `<img class="ico big" alt="" src="/api/icon?id=${encodeURIComponent(g.id)}" onerror="this.remove()"><h3>${esc(g.name)}</h3><div class="mut">${esc(g.title_id || '')}</div>
     ${communityHtml(g, det)}

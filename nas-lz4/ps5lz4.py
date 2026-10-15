@@ -3102,6 +3102,170 @@ def output_for(game: str) -> Path:
     raise SystemExit(f"no finished LZ4 folder for {game!r} in {OUTPUT}")
 
 
+# --------------------------------------------------------------------------
+# exFAT images: an LZ4 copy as one .exfat file (some games only start from an
+# image), checked byte for byte against the LZ4 folder. One at a time; the
+# progress is in state/images so the page (another container) can show it.
+# Originals in the library are never converted or touched.
+
+IMAGES = STATE / "images"
+IMAGES_LOCK = STATE / "images.lock"
+IMAGE_STOP = IMAGES / "stop"
+
+
+class ImageStopped(Exception):
+    """Stop pressed on the page."""
+
+
+def image_state(key: str, **st) -> None:
+    IMAGES.mkdir(parents=True, exist_ok=True)
+    p = IMAGES / f"{key}.json"
+    cur = read_json(p, {}) or {}
+    cur.update(st, updated=time.time())
+    write_json(p, cur)
+
+
+def exfat_build(src: Path, final: Path, key: str, tmpdir: Path) -> int:
+    """Pack folder src into the image final (through tmpdir on the same disk),
+    then compare every file in the image with src byte for byte. Returns the
+    image size. On failure the half-made image stays in tmpdir."""
+    from mkpfs.exfat import ExfatReader  # pinned MkPFS 1.1.0
+    links = [p for p in src.rglob("*") if p.is_symlink()]
+    if links:
+        raise SystemExit(f"{src.name} has symlinks ({links[0].relative_to(src)}); exFAT can't hold them")
+    files = {str(p.relative_to(src)): p for p in sorted(src.rglob("*")) if p.is_file()}
+    total = sum(p.stat().st_size for p in files.values())
+    need = int(total * 1.03) + (1 << 30)
+    tmpdir.mkdir(parents=True, exist_ok=True)
+    if free_bytes(tmpdir) < need:
+        raise SystemExit(f"not enough free space for the image: {human(need)} needed, "
+                         f"{human(free_bytes(tmpdir))} free")
+    tmp = tmpdir / final.name
+    image_state(key, state="running", phase="building the image", done=0, total=total,
+                source=str(src), image=str(final), started=now(), error=None)
+    with open(tmpdir / "mkpfs.log", "w") as log:
+        proc = subprocess.Popen([MKPFS, "pack", "exfat", "--no-progress", "--overwrite", str(src), str(tmp)],
+                                stdout=log, stderr=subprocess.STDOUT)
+        while proc.poll() is None:
+            time.sleep(3)
+            try:
+                got = tmp.stat().st_blocks * 512
+            except OSError:
+                got = 0
+            image_state(key, done=min(got, total))
+            if IMAGE_STOP.exists():
+                proc.terminate()
+                proc.wait()
+                raise ImageStopped()
+    if proc.returncode != 0:
+        tail = (tmpdir / "mkpfs.log").read_text(errors="replace")[-600:]
+        raise SystemExit(f"MkPFS could not build the image: {tail.strip()}")
+    # Check: the same files, the same sizes, the same bytes.
+    image_state(key, phase="checking the image byte for byte", done=0, total=total)
+    done = 0
+    last = time.time()
+    with open(tmp, "rb") as fh:
+        reader = ExfatReader(fh)
+        inside = {e.rel_path: e for e in reader.iter_files()}
+        missing = sorted(set(files) - set(inside))
+        extra = sorted(set(inside) - set(files))
+        if missing or extra:
+            raise SystemExit(f"the image doesn't hold the same files (missing: {missing[:3]}, extra: {extra[:3]})")
+        for rel, p in files.items():
+            e = inside[rel]
+            if e.length != p.stat().st_size:
+                raise SystemExit(f"{rel}: {e.length} bytes in the image, {p.stat().st_size} in the folder")
+            with open(p, "rb") as f:
+                for chunk in reader.read_file(e):
+                    if f.read(len(chunk)) != chunk:
+                        raise SystemExit(f"{rel} differs between the image and the folder")
+                    done += len(chunk)
+                    if time.time() - last > 3:
+                        last = time.time()
+                        image_state(key, done=done)
+                        if IMAGE_STOP.exists():
+                            raise ImageStopped()
+                if f.read(1):
+                    raise SystemExit(f"{rel} is shorter in the image than in the folder")
+    size = tmp.stat().st_size
+    os.replace(tmp, final)
+    shutil.rmtree(tmpdir, ignore_errors=True)
+    return size
+
+
+def _image_lock():
+    IMAGES.mkdir(parents=True, exist_ok=True)
+    fh = open(IMAGES_LOCK, "a+")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise SystemExit("an exFAT image is already being made; wait for it or stop it")
+    IMAGE_STOP.unlink(missing_ok=True)
+    return fh
+
+
+def lz4_image_path(out: Path) -> Path:
+    return OUTPUT / f"{out.name}.exfat"
+
+
+def cmd_make_exfat(args) -> int:
+    """Make an .exfat image of a finished LZ4 copy, next to it in the output folder."""
+    ensure_dirs()
+    out = output_for(args.game)
+    problem = lz4_format_problem(out)
+    if problem:
+        raise SystemExit(f"{out.name} is not a complete LZ4 game: {problem}")
+    q = read_json(QUEUE_PATH, {}) or {}
+    if job_running()[0] and q.get("current") and out.name == f"{q['current']}-lz4":
+        raise SystemExit("that game is being packed right now")
+    lock = _image_lock()
+    key = out.name
+    try:
+        size = exfat_build(out, lz4_image_path(out), key, WORK / f"img-{out.name}")
+    except ImageStopped:
+        image_state(key, state="stopped", error="stopped; press again to start over")
+        return 1
+    except (SystemExit, OSError) as err:
+        image_state(key, state="failed", error=str(err))
+        raise
+    finally:
+        lock.close()
+    image_state(key, state="done", done=size, total=size, finished=now(), bytes=size,
+                image=str(Path(HOST_OUTPUT) / lz4_image_path(out).name))
+    print(f"{lz4_image_path(out).name}: {human(size)}, every file checked byte for byte against {out.name}")
+    return 0
+
+
+def cmd_remove_exfat(args) -> int:
+    """Delete the .exfat image of an LZ4 copy (the LZ4 folder stays)."""
+    ensure_dirs()
+    name = args.game if args.game.endswith("-lz4") else output_for(args.game).name
+    img = OUTPUT / f"{name}.exfat"
+    if img.parent != OUTPUT or not img.is_file():
+        raise SystemExit(f"no image {img.name} in {OUTPUT}")
+    img.unlink()
+    (IMAGES / f"{name}.json").unlink(missing_ok=True)
+    print(f"deleted {img.name}; the LZ4 folder {name} stays")
+    return 0
+
+
+def images_data() -> dict:
+    """For the page: image jobs (running ones with no news for 2 minutes were
+    interrupted) and the LZ4 images in the output folder."""
+    jobs = {}
+    if IMAGES.is_dir():
+        for f in IMAGES.glob("*.json"):
+            st = read_json(f, {}) or {}
+            if st.get("state") == "running" and time.time() - st.get("updated", 0) > 120:
+                st["state"] = "interrupted"
+            jobs[f.stem] = st
+    ready = {}
+    if OUTPUT.is_dir():
+        for f in OUTPUT.glob("*-lz4.exfat"):
+            ready[f.name[: -len(".exfat")]] = f.stat().st_size
+    return {"jobs": jobs, "ready": ready}
+
+
 class TransferStopped(Exception):
     """Stop pressed: not retried like a network error."""
 
@@ -3157,7 +3321,13 @@ def push_one(game: str, force: bool = False) -> int:
     # "src:<id>" sends the original from the library as it is (a game folder,
     # or an .exfat/.ffpfs/.ffpfsc image as one file); anything else is an LZ4 copy.
     entry = None
-    if game.startswith("src:"):
+    image = game.startswith("img:")
+    if image:
+        # An LZ4 copy's .exfat image from the output folder, as one file.
+        out = OUTPUT / game[4:]
+        if "/" in game[4:] or not out.name.endswith("-lz4.exfat") or not out.is_file():
+            raise SystemExit(f"{game[4:]} is not an LZ4 image in the output folder")
+    elif game.startswith("src:"):
         entry = next((x for x in scan_library() if x.id == game[4:]), None)
         if entry is None:
             raise SystemExit(f"{game[4:]} is not in the library")
@@ -3176,7 +3346,7 @@ def push_one(game: str, force: bool = False) -> int:
     total = sum(p.stat().st_size for p in files)
     st_path = TRANSFERS / f"{out.name}.json"
     st = {"game": out.name, "dest": f"{cfg['ps5_ftp']}{cfg['ps5_dest']}/{out.name}", "state": "running",
-          "pid": os.getpid(), "source": "original" if entry else "lz4", "request": game,
+          "pid": os.getpid(), "source": "original" if entry else "lz4 image" if image else "lz4", "request": game,
           "bytes": 0, "total": total, "files": len(files), "files_done": 0, "skipped": 0,
           "current": "", "started": now(), "error": None, "verified": 0}
     write_json(st_path, st)
@@ -3437,6 +3607,8 @@ UI_ACTIONS = {  # action -> ps5lz4 arguments (game and result are checked separa
     "community": ["community"],
     "remove": ["remove"],
     "delete_original": ["delete-original"],
+    "make_exfat": ["make-exfat"],
+    "remove_exfat": ["remove-exfat"],
 }
 
 
@@ -3651,6 +3823,7 @@ def dashboard_data() -> dict:
             "lz4c_version": lz4c_version(),
             "delete_originals": DELETE_ORIGINALS,
             "send_after": list(read_json(SEND_AFTER, {}) or {}),
+            "images": images_data(),
             "level": int(os.environ.get("PS5LZ4_LEVEL", "9")), "runtime": RUNTIME_NAME.removeprefix("APR-EMU "),
             "compat_updated": compat_data().get("updated"),
             "requests": {"pending": pending, "pending_list": pending_list, "recent": done_req[::-1]}, "version": VERSION,
@@ -3708,7 +3881,7 @@ def run_request(req: dict) -> dict:
     if action not in UI_ACTIONS:
         return {"ok": False, "output": f"unknown action {action!r}"}
     argv = list(UI_ACTIONS[action])
-    if action in ("start", "community", "remove", "delete_original"):
+    if action in ("start", "community", "remove", "delete_original", "make_exfat", "remove_exfat"):
         game = str(req.get("game") or "")
         if not game or game.startswith("-") or len(game) > 300:
             return {"ok": False, "output": "no game given"}
@@ -3719,6 +3892,13 @@ def run_request(req: dict) -> dict:
             return {"ok": False, "output": f"unknown result {result!r}"}
         argv.append(result)
     me = [sys.executable, os.path.abspath(__file__)]
+    if action == "make_exfat":
+        # Long jobs: they run on their own; the page follows state/images.
+        log = LOGS / f"exfat-{_dt.datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+        with open(log, "a") as fh:
+            subprocess.Popen(["nohup"] + me + argv, stdout=fh, stderr=subprocess.STDOUT,
+                             stdin=subprocess.DEVNULL, start_new_session=True)
+        return {"ok": True, "output": f"started; log: {log.name}"}
     if action in ("check", "check_full"):
         # "Check all": read-only. Format and APR-EMU of every LZ4 game, and
         # which games can still become LZ4. Nothing is changed.
@@ -3813,19 +3993,38 @@ def send_after_watcher() -> None:
             if lst:
                 keep = {}
                 entries = {e.id: e for e in scan_library()}
-                for gid in lst:
+                for gid, v in lst.items():
                     e = entries.get(gid)
                     res = result_for(e) if e else {"status": "gone"}
-                    if res["status"] == "done" and e.output.is_dir():
+                    at = v["at"] if isinstance(v, dict) else v
+                    if res["status"] == "done" and e.output.is_dir() and isinstance(v, dict) and v.get("image"):
+                        # Compress, make exFAT and send: the image of the LZ4 copy goes.
+                        img = lz4_image_path(e.output)
+                        job = read_json(IMAGES / f"{e.output.name}.json", {}) or {}
+                        stale = job.get("state") == "running" and time.time() - job.get("updated", 0) > 120
+                        if img.is_file() and job.get("state") in (None, "done"):
+                            if get_settings()["ps5_ftp"]:
+                                start_push("img:" + img.name)
+                            print(f"[{now()}] image made, sending to the PS5: {img.name}", flush=True)
+                        elif v.get("asked") and (job.get("state") in ("failed", "stopped") or stale
+                                                 or (not job and time.time() - v["asked"] > 600)):
+                            print(f"[{now()}] not sending {gid}: the exFAT image was not made", flush=True)
+                        else:
+                            if not v.get("asked"):
+                                req = {"action": "make_exfat", "game": e.output.name, "result": None, "asked": now()}
+                                write_json(REQUESTS / f"{int(time.time() * 1000)}-{os.getpid()}.req.json", req)
+                                v = {**v, "asked": time.time()}
+                            keep[gid] = v
+                    elif res["status"] == "done" and e.output.is_dir():
                         if get_settings()["ps5_ftp"]:
                             start_push(e.output.name)
                         print(f"[{now()}] packed, sending to the PS5: {e.output.name}", flush=True)
                     elif res["status"] in ("skipped", "exists", "gone"):
                         print(f"[{now()}] not sending {gid}: {res['status']}", flush=True)
-                    elif res["status"] == "failed" and not job_running()[0] and time.time() - lst[gid] > 180:
+                    elif res["status"] == "failed" and not job_running()[0] and time.time() - at > 180:
                         print(f"[{now()}] not sending {gid}: packing failed", flush=True)
                     else:
-                        keep[gid] = lst[gid]
+                        keep[gid] = v
                 if keep != lst:
                     write_json(SEND_AFTER, keep)
         except Exception as err:
@@ -4127,13 +4326,18 @@ def cmd_ui(args) -> int:
                 res = start_push(game, bool(req.get("force")))
                 cache["at"] = 0
                 return self.send(200, json.dumps(res).encode())
+            if req.get("action") == "image_stop":
+                IMAGES.mkdir(parents=True, exist_ok=True)
+                IMAGE_STOP.touch()
+                cache["at"] = 0
+                return self.send(200, b'{"stopping":true}')
             if req.get("action") == "send_after":
                 game = str(req.get("game") or "")
                 if not game or "/" in game:
                     return self.send(400, b'{"error":"no game"}')
                 lst = read_json(SEND_AFTER, {}) or {}
                 lst = lst if isinstance(lst, dict) else {}
-                lst.setdefault(game, time.time())
+                lst[game] = {"at": time.time(), "image": True} if req.get("image") else lst.get(game, time.time())
                 write_json(SEND_AFTER, lst)
                 cache["at"] = 0
                 return self.send(200, b'{"send_after":true}')
@@ -4240,6 +4444,12 @@ def main() -> int:
     sp = sub.add_parser("ui", help="serve the web page (own container, see install.sh)")
     sp.add_argument("--port", type=int, default=int(os.environ.get("PS5LZ4_UI_PORT", "5921")))
     sp.set_defaults(func=cmd_ui)
+    sp = sub.add_parser("make-exfat", help="make a checked .exfat image of a finished LZ4 copy")
+    sp.add_argument("game")
+    sp.set_defaults(func=cmd_make_exfat)
+    sp = sub.add_parser("remove-exfat", help="delete the .exfat image of an LZ4 copy")
+    sp.add_argument("game")
+    sp.set_defaults(func=cmd_remove_exfat)
     sp = sub.add_parser("delete-original", help="delete an original game from the library (needs DELETE_ORIGINALS=yes)")
     sp.add_argument("game")
     sp.set_defaults(func=cmd_delete_original)
