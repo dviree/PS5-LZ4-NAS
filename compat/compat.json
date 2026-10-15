@@ -1,24 +1,62 @@
 {
  "version": 1,
- "updated": "2026-10-15T04:25:20Z",
+ "updated": "2026-10-15T14:54:50Z",
  "games": {
   "PPSA03671": {
    "name": "Marvel's Wolverine",
-   "works": 1,
+   "works": 2,
    "issues": 0,
    "noStart": 0,
    "crash": 0,
-   "reports": 1,
+   "reports": 2,
    "lastReport": {
     "status": "works",
     "game": "Marvel's Wolverine",
+    "gameVersion": "01.001.004",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-15T13:57:06Z",
+    "issue": 25
+   }
+  },
+  "PPSA15368": {
+   "name": "Contra: Operation Galuga",
+   "works": 0,
+   "issues": 0,
+   "noStart": 1,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "noStart",
+    "game": "Contra: Operation Galuga",
     "gameVersion": "",
     "level": "",
-    "source": "Downloaded already packed",
+    "source": "",
     "firmware": "",
-    "appVersion": "1.5.0",
-    "date": "2026-10-14T21:28:58Z",
-    "issue": 14
+    "appVersion": "1.5.0-6-g779",
+    "date": "2026-10-15T12:51:29Z",
+    "issue": 20
+   }
+  },
+  "PPSA15512": {
+   "name": "The Last of Us™ Part II Remastered",
+   "works": 0,
+   "issues": 0,
+   "noStart": 1,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "noStart",
+    "game": "The Last of Us™ Part II Remastered",
+    "gameVersion": "",
+    "level": "",
+    "source": "",
+    "firmware": "",
+    "appVersion": "1.5.0-6-g779",
+    "date": "2026-10-15T13:32:34Z",
+    "issue": 22
    }
   },
   "PPSA16106": {
@@ -40,6 +78,63 @@
     "issue": 15
    }
   },
+  "PPSA17942": {
+   "name": "DRAGON QUEST VII Reimagined",
+   "works": 0,
+   "issues": 0,
+   "noStart": 1,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "noStart",
+    "game": "DRAGON QUEST VII Reimagined",
+    "gameVersion": "",
+    "level": "",
+    "source": "Folder",
+    "firmware": "12.2",
+    "appVersion": "1.5.0-6-g779",
+    "date": "2026-10-15T13:36:58Z",
+    "issue": 24
+   }
+  },
+  "PPSA18054": {
+   "name": "STAR WARS Zero Company™",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "STAR WARS Zero Company™",
+    "gameVersion": "01.000.003",
+    "level": "",
+    "source": "Folder",
+    "firmware": "13.42",
+    "appVersion": "ps5-lz4 NAS",
+    "date": "2026-10-15T14:19:58Z",
+    "issue": 26
+   }
+  },
+  "PPSA25286": {
+   "name": "Crimson Desert",
+   "works": 0,
+   "issues": 0,
+   "noStart": 1,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "noStart",
+    "game": "Crimson Desert",
+    "gameVersion": "",
+    "level": "",
+    "source": "Folder",
+    "firmware": "",
+    "appVersion": "1.5.0-6-g779",
+    "date": "2026-10-15T13:33:13Z",
+    "issue": 23
+   }
+  },
   "PPSA26344": {
    "name": "Ghost of Yōtei",
    "works": 1,
@@ -57,6 +152,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-15T04:25:09Z",
     "issue": 19
+   }
+  },
+  "PPSA28997": {
+   "name": "God of War Sons of Sparta",
+   "works": 1,
+   "issues": 0,
+   "noStart": 1,
+   "crash": 0,
+   "reports": 2,
+   "lastReport": {
+    "status": "works",
+    "game": "God of War Sons of Sparta",
+    "gameVersion": "01.008.001",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-15T14:54:37Z",
+    "issue": 27
    }
   },
   "PPSA35399": {
