@@ -277,6 +277,20 @@ a packed game's sheet:
 Making an exFAT image of the original first changes nothing: the NAS unpacks
 it again before LZ4 packing. Originals are never converted.
 
+## PS4 packages (.pkg)
+
+PS4 games can't be LZ4 (APR-EMU is PS5 only), but their `.pkg` files can be
+sent to the PS5 and installed there. The install script mounts
+`PS4_LIBRARY` (default `/volume1/games/roms/ps4`, read-only) into the web
+page container; `.pkg` files in the PS5 library are listed too.
+
+The **PS4 packages** card on My games lists each package with its name,
+CUSA ID, version, type (Game, Update, DLC) and icon, read from the package
+itself. **⬆️ Send to PS5** copies it as one file to the PS4 package folder on
+the PS5 (default `/data/pkg`, set on the Remote tab), resumable like every
+transfer. Install it from there with ItemzFlow or etaHEN's package
+installer.
+
 ## Rest mode when everything is sent
 
 When this page wakes the PS5 to send games (Remote Play wake-up), it puts it
