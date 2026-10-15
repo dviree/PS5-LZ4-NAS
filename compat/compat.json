@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-15T19:31:54Z",
+ "updated": "2026-10-15T21:48:06Z",
  "games": {
   "PPSA03396": {
    "name": "The Last of Us Part I",
@@ -76,6 +76,25 @@
     "appVersion": "1.5.0-6-g779",
     "date": "2026-10-15T13:32:34Z",
     "issue": 22
+   }
+  },
+  "PPSA15595": {
+   "name": "MARVEL Tokon Fighting Souls",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "MARVEL Tokon Fighting Souls",
+    "gameVersion": "01.003.000",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-15T21:47:55Z",
+    "issue": 30
    }
   },
   "PPSA16106": {
