@@ -1872,10 +1872,7 @@ def fetch_playgo_emu(ftp, rsize, skip: str) -> Path | None:
         if not src.startswith("games:"):
             cands.append(f"{src}/{PLAYGO_LIB}")
             continue
-        try:
-            games = sorted(n.rsplit("/", 1)[-1] for n in ftp.nlst(src[6:]))
-        except ftplib.all_errors:
-            continue
+        games = sorted(ps5_ftp_names(ftp, src[6:]) or [])
         cands += [f"{src[6:]}/{g}/fakelib/{PLAYGO_LIB}" for g in games
                   if not g.startswith(".") and f"{src[6:]}/{g}" != skip]
     for path in cands:
@@ -1895,6 +1892,26 @@ def fetch_playgo_emu(ftp, rsize, skip: str) -> Path | None:
             os.replace(tmp, dst)
             return dst
     return None
+
+
+def ps5_ftp_names(ftp, path: str) -> list[str] | None:
+    """Names in a folder on the PS5, or None when it can't be listed (missing).
+    MLSD, then LIST, then NLST: ftpsrv builds differ in what they take."""
+    import ftplib
+    try:
+        return [i["name"] for i in ps5_ftp_list_conn(ftp, path)]
+    except ftplib.all_errors:
+        pass
+    try:
+        return [n.rsplit("/", 1)[-1] for n in ftp.nlst(path) if n.rsplit("/", 1)[-1] not in (".", "..")]
+    except ftplib.all_errors:
+        pass
+    try:
+        ftp.cwd(path)
+        ftp.cwd("/")
+        return []  # it exists but can't be listed
+    except ftplib.all_errors:
+        return None
 
 
 def ps5_ftp_path(path: str) -> str:
@@ -2361,11 +2378,11 @@ def cmd_push(args) -> int:
         if not tid:
             m = TITLE_RE.search(out.name)
             tid = m.group(0).upper() if m else ""
-        try:
-            names = [n.rsplit("/", 1)[-1] for n in ftp.nlst(cfg["ps5_dest"])]
-        except ftplib.error_perm:
+        names = ps5_ftp_names(ftp, cfg["ps5_dest"])
+        if names is None:  # the folder isn't there yet
             names = []
-            ftp.mkd(cfg["ps5_dest"])
+            ps5_ftp_mkdirs(ftp, cfg["ps5_dest"])
+            ftp.voidcmd("TYPE I")
         dupes = [n for n in names if tid and tid in n.upper() and n != out.name]
         if dupes and not args.force:
             raise RuntimeError(f"{cfg['ps5_dest']} on the PS5 already has {tid}: {', '.join(dupes)}. "
