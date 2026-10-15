@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-15T13:33:26Z",
+ "updated": "2026-10-15T13:34:26Z",
  "games": {
   "PPSA03671": {
    "name": "Marvel's Wolverine",
@@ -44,11 +44,11 @@
    "name": "The Last of Us™ Part II Remastered",
    "works": 0,
    "issues": 0,
-   "noStart": 0,
-   "crash": 1,
+   "noStart": 1,
+   "crash": 0,
    "reports": 1,
    "lastReport": {
-    "status": "crash",
+    "status": "noStart",
     "game": "The Last of Us™ Part II Remastered",
     "gameVersion": "",
     "level": "",
