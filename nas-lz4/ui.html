@@ -124,6 +124,10 @@ button.danger{background:var(--badbg);color:var(--bad)}
 .hgrid b,.hgrid i{color:var(--txt)}
 .tag{font-size:10.5px;font-weight:700;color:var(--mut);background:var(--chip);padding:1px 7px;border-radius:99px;margin-left:6px;vertical-align:1px}
 button.two{flex-direction:column;align-items:flex-start;gap:0;text-align:left;padding:7px 14px;max-width:210px}
+label.chk{display:inline-flex;align-items:center;gap:6px;flex:none;cursor:pointer}.filters label.chk input{width:auto;min-width:0;flex:none;margin:0;padding:0}
+button.upd{background:color-mix(in srgb,#22c55e 14%,var(--card));color:var(--txt);box-shadow:inset 0 0 0 1.5px rgba(34,197,94,.55)}
+.updot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#22c55e;margin-right:7px;vertical-align:1px;box-shadow:0 0 0 0 rgba(34,197,94,.7);animation:upblink 1.2s infinite}
+@keyframes upblink{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(34,197,94,.7)}50%{opacity:.25;box-shadow:0 0 0 5px rgba(34,197,94,0)}}
 button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;white-space:normal}
 .badge{display:inline-block;min-width:18px;padding:0 6px;margin-left:6px;border-radius:99px;background:var(--acc);color:#fff;font-size:11px;line-height:18px;text-align:center}
 .busy{cursor:pointer;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;background:var(--accbg);border-color:transparent}
@@ -173,6 +177,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;whi
   <a class="storelink" href="/store" title="Open the store view, made for the PS5 browser and a controller">🛒 Store</a><span class="sp"></span>
   <div class="hacts">
   <button class="two" id="b-resume" hidden onclick="act('resume')">Continue queue<small>resume interrupted packing</small></button>
+  <button class="two" id="b-elf" onclick="engOneClick()"><span id="b-elf-t">Install ELF on PS5</span><small id="b-elf-st">put the LZ4 engine on the PS5 and start it</small></button>
   <button class="two" onclick="act('check')">Check all<small>check every game, read-only; unchanged ones from the saved results</small></button>
   <button class="two ghost" onclick="act('check_full', 'Check every game again, ignoring earlier results?\n\nThis reads every LZ4 game in full and can take a while.')">Full re-check<small>check every game again from scratch</small></button>
   <button class="two pri" id="b-fix"
@@ -279,10 +284,13 @@ button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;whi
     sent, the page asks the engine to keep the PS5 out of rest mode. That needs this project's build of the engine,
     which answers <i>keep-awake</i>; the original build runs fine but can't be asked.</div>
     <div class="filters"><span class="pill p-no" id="eng-st">Engine: ?</span>
-      <button class="sm" onclick="engCheck()">Check</button></div>
+      <button class="sm" onclick="engCheck()">Check</button>
+      <button class="sm" onclick="engRead()">Read the ELF on the PS5</button>
+      <label class="mut chk"><input type="checkbox" id="eng-auto" onchange="engAuto(this.checked)"> Update it automatically</label></div>
+    <div id="eng-inst"></div>
     <div class="mut" id="eng-info"></div>
     <div class="filters" id="eng-acts">
-      <button class="two" onclick="engAct('engine_install', 'Download the newest engine from GitHub and install it in the Payload Manager on the PS5? The engine there now is kept as lz4-compression.elf.orig.')">Install this build on the PS5<small>download from GitHub, copy over FTP, keep the old one</small></button>
+      <button class="two" onclick="engAct('engine_install', 'Download the newest engine from GitHub and install it in the Payload Manager on the PS5? The engine there now is kept as lz4-compression.elf.orig.')">Install ELF on PS5<small>download from GitHub, copy over FTP, keep the old one</small></button>
       <button class="two" onclick="engAct('engine_start')">Start it now<small>send it to the ELF loader (port 9021)</small></button>
       <button class="two danger" onclick="engAct('engine_restore', 'Put the saved original engine (.orig) back?')">Restore the original<small>undo the install</small></button>
     </div>
@@ -1251,9 +1259,80 @@ async function engCheck() {
       original: 'The engine runs but is the original build, so it can\'t keep the PS5 awake. Install this build, then restart the PS5 (or Start it now).',
       off: 'Nothing answers on port 5920. Start LZ4 Compression from the Payload Manager on the PS5, or press Start it now.',
       'no-address': 'Save the PS5 address below first.'}[j.state] || '';
+    engInfo = j; engInst(j);
+    document.getElementById('eng-auto').checked = !!j.auto;
     info.innerHTML = esc(why) + (j.host ? `<br>Engine at <code>http://${esc(j.host)}:${j.port}</code>` : '')
       + `<br>Installed to <code>${esc(j.path)}</code> from <code>${esc(j.repo)}</code>` + (j.cached ? ` · downloaded: ${esc(j.cached)}` : '');
   } catch (e) { st.textContent = 'Engine: ?'; }
+}
+// One click from the header: install the engine ELF, then try to start it.
+async function engOneClick() {
+  const upd = engInfo && engInfo.update;
+  if (!confirm((upd ? `Update the LZ4 Compression engine on the PS5 from ${engInfo.installed.tag} to ${engInfo.latest}?`
+    : 'Install the LZ4 Compression engine (ELF) on the PS5?') + `\n\nThe newest release is downloaded from GitHub (${engInfo ? engInfo.repo : 'your repository'}), `
+    + 'copied over FTP into the Payload Manager (the old one is kept as .orig) and started through the ELF loader (port 9021).')) return;
+  const b = document.getElementById('b-elf'), small = document.getElementById('b-elf-st'), was = small.textContent;
+  b.disabled = true; small.textContent = 'downloading and copying…';
+  const post = action => fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action})}).then(async r => ({ok: r.ok, j: await r.json().catch(() => ({}))}));
+  try {
+    const ins = await post('engine_install');
+    if (!ins.ok) { alert('Not installed: ' + (ins.j.error || '?')); return; }
+    // An engine already on port 5920 keeps the port: a second copy can't start,
+    // so the new file runs from the next start of the PS5 / Payload Manager.
+    const st = (await (await fetch('/api/engine', {cache: 'no-store'})).json().catch(() => ({}))).state;
+    if (st === 'connected' || st === 'original') {
+      alert(`Installed ${ins.j.tag} on the PS5` + (ins.j.backup ? ' (the old file is kept as .orig)' : '') + '.\n\n'
+        + 'The engine that runs now keeps going until the PS5 restarts; the new one starts after that '
+        + '(or start LZ4 Compression again from the Payload Manager).');
+      return;
+    }
+    small.textContent = 'starting…';
+    const run = await post('engine_start');
+    let state = '';
+    for (let i = 0; run.ok && i < 6 && state !== 'connected'; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      state = (await (await fetch('/api/engine', {cache: 'no-store'})).json().catch(() => ({}))).state;
+    }
+    alert(`Installed ${ins.j.tag} on the PS5` + (ins.j.backup ? ' (the old engine is kept as .orig)' : '') + '.\n\n'
+      + (state === 'connected' ? 'The engine runs and is connected: transfers now keep the PS5 awake.'
+        : run.ok ? 'Sent to the ELF loader, but the engine does not answer yet. Check again on the Remote tab in a moment.'
+        : 'It could not be started from here (' + (run.j.error || '?') + '). Start LZ4 Compression from the Payload Manager on the PS5, or restart the PS5.'));
+  } finally { b.disabled = false; small.textContent = was; engHeader(); if (!document.getElementById('p-ps5').hidden) engCheck(); }
+}
+let engInfo = null;
+async function engHeader() {
+  try {
+    const j = engInfo = await (await fetch('/api/engine', {cache: 'no-store'})).json();
+    const inst = j.installed || {};
+    document.getElementById('b-elf').classList.toggle('pri', !j.update && (j.state === 'original' || j.state === 'off'));
+    document.getElementById('b-elf').classList.toggle('upd', !!j.update);
+    document.getElementById('b-elf-t').innerHTML = j.update ? '<span class="updot"></span>Update available' : 'Install ELF on PS5';
+    document.getElementById('b-elf-st').textContent = j.update ? `${inst.tag} on the PS5 → ${j.latest}: click to update`
+      : {connected: `connected ✓${inst.tag ? ' · ' + inst.tag : ''}`,
+         original: 'original engine runs: install this one', off: 'engine not running: install and start'}[j.state]
+      || 'put the LZ4 engine on the PS5 and start it';
+  } catch (e) {}
+}
+function engInst(j) {
+  const i = j.installed, el = document.getElementById('eng-inst');
+  if (!i) { el.innerHTML = '<div class="mut">The ELF on the PS5 hasn\'t been read yet: press <b>Read the ELF on the PS5</b>.</div>'; return; }
+  const when = new Date(i.at * 1000).toLocaleString();
+  const what = i.state === 'missing' ? '<span class="bad">No engine ELF in the Payload Manager.</span>'
+    : i.state === 'other' ? `<b>Not one of your releases</b> (probably the original engine), ${(i.bytes / 1048576).toFixed(1)} MB. Auto-update leaves it alone; Install ELF on PS5 replaces it.`
+    : j.update || i.state === 'outdated' ? `<span class="updot"></span><b>${esc(i.tag)}</b>, update available: <b>${esc(j.latest || i.latest)}</b>`
+    : `<span class="good"><b>${esc(i.tag)}</b>, the newest ✓</span>`;
+  el.innerHTML = `<div class="why">On the PS5: ${what}${i.orig ? ' · previous file kept as .orig' : ''} <span class="mut">(read ${esc(when)})</span></div>`;
+}
+async function engRead() {
+  const el = document.getElementById('eng-inst');
+  el.innerHTML = '<div class="mut">Reading the ELF on the PS5 over FTP…</div>';
+  const r = await fetch('/api/engine/read', {cache: 'no-store'}), j = await r.json().catch(() => ({}));
+  if (!r.ok) { el.innerHTML = `<div class="why bad">Could not read it: ${esc(j.error || r.status)}</div>`; return; }
+  engCheck(); engHeader();
+}
+async function engAuto(on) {
+  await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'engine_auto', on})});
 }
 async function engAct(action, confirmText) {
   if (confirmText && !confirm(confirmText)) return;
@@ -1268,7 +1347,7 @@ async function engAct(action, confirmText) {
   msg.textContent = action === 'engine_install' ? `Installed ${j.tag} (${(j.bytes / 1048576).toFixed(1)} MB).`
       + (j.backup ? ' The old engine is kept as .orig.' : '') + ' Restart the PS5 or press Start it now to run it.'
     : action === 'engine_start' ? `Sent ${j.tag}; it starts in a few seconds.` : 'The original engine is back; it runs after the next start.';
-  setTimeout(engCheck, action === 'engine_start' ? 5000 : 500);
+  setTimeout(() => { engCheck(); engHeader(); }, action === 'engine_start' ? 5000 : 500);
 }
 async function ps5State() {
   try {
@@ -1279,7 +1358,7 @@ async function ps5State() {
   } catch (e) {}
 }
 load(); setInterval(load, 5000);
-setInterval(() => { if (!document.getElementById('p-comm').hidden) loadComm(); }, 60000); ps5State(); setInterval(ps5State, 15000);
+setInterval(() => { if (!document.getElementById('p-comm').hidden) loadComm(); }, 60000); ps5State(); setInterval(ps5State, 15000); engHeader(); setInterval(engHeader, 60000);
 try {
   const saved = {'#community': 'comm', '#remote': 'ps5', '#ftp': 'ftp', '#activity': 'act', '#games': 'pg'}[location.hash] || localStorage.getItem('tab');
   if (['comm', 'ps5', 'ftp', 'act', 'pg'].includes(saved)) tab(saved);

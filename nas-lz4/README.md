@@ -208,7 +208,22 @@ running) and can:
   runs without a restart.
 - **Restore the original**: puts the `.orig` file back.
 
-`PS5LZ4_ENGINE_REPO` picks another repository for the download.
+The header has the same install as one button, **Install ELF on PS5**
+(install, then start it if no engine runs yet).
+
+**Reading and updating it:** *Read the ELF on the PS5* fetches the file over
+FTP and compares its SHA-256 with every release of this repository, so the
+card says which release is on the PS5, whether it is the newest, or that it
+isn't one of these releases (the original engine). When a newer release is
+out, the header button turns green and blinks: **Update available**. With
+*Update it automatically* on (the default), the web page container reads the
+ELF every 6 hours (`PS5LZ4_ENGINE_CHECK`, seconds; `0` turns it off) and
+replaces an older release of this repository with the newest one over FTP.
+An engine that isn't from this repository is never replaced by itself. A
+running engine keeps going; the new file runs from the next start.
+
+Updates come from this repository (`dviree/PS5-LZ4-NAS`);
+`PS5LZ4_ENGINE_REPO` picks another one.
 
 ## Deleting originals
 
