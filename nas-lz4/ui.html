@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ps5-lz4</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--line:#e3e6eb;--txt:#16181d;--mut:#667085;--ok:#18794e;--okbg:#e3f5ec;--acc:#3563e9;--accbg:#e7edfd;--warn:#9a6700;--warnbg:#fdf3dc;--bad:#c4320a;--badbg:#fdeae5;--chip:#eef0f3}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#171a21;--line:#262b35;--txt:#e6e8ec;--mut:#8b93a3;--ok:#3fb68b;--okbg:#1d3a30;--acc:#5b8cff;--accbg:#1f2c4d;--warn:#e0a43a;--warnbg:#3a3220;--bad:#f0776f;--badbg:#3a2224;--chip:#232835}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 -apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:14px 16px;border-bottom:1px solid var(--line)}
+header h1{font-size:18px;margin:0}.sub{color:var(--mut)}.sp{flex:1}
+button{font:inherit;border:0;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer;background:var(--chip);color:var(--txt)}
+button.pri{background:var(--acc);color:#fff}button:disabled{opacity:.5;cursor:default}
+button.sm{padding:4px 10px;font-size:12px}
+main{padding:16px;display:grid;grid-template-columns:minmax(0,1fr);gap:14px;max-width:1280px;margin:0 auto}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.k,.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+.k b{font-size:22px;display:block}.k span,.mut{color:var(--mut)}
+h2{font-size:15px;margin:0 0 10px}
+.steps{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:10px 0}
+.st{padding:6px 4px;border-radius:6px;background:var(--chip);color:var(--mut);text-align:center;font-size:12px}
+.st.d{background:var(--okbg);color:var(--ok)}.st.r{background:var(--accbg);color:var(--acc);font-weight:600}
+.bar{height:8px;background:var(--chip);border-radius:4px;overflow:hidden}.bar i{display:block;height:100%;background:var(--acc);transition:width .5s}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:820px}
+th,td{text-align:left;padding:9px 8px;border-top:1px solid var(--line);vertical-align:top}
+th{color:var(--mut);font-weight:500;border-top:0}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;font-weight:600;white-space:nowrap}
+.p-LZ4{background:var(--okbg);color:var(--ok)}.p-kan{background:var(--accbg);color:var(--acc)}
+.p-inte{background:var(--chip);color:var(--mut)}.p-FEL{background:var(--badbg);color:var(--bad)}
+.p-run{background:var(--warnbg);color:var(--warn)}
+.why{font-size:12px;color:var(--mut);max-width:360px}
+select{font:inherit;padding:3px 6px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--txt)}
+.good{color:var(--ok)}.bad{color:var(--bad)}
+.log div{overflow-wrap:anywhere;padding:6px 0;border-top:1px solid var(--line);font-size:13px}.log div:first-child{border-top:0}
+.log pre{margin:4px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;color:var(--mut);max-height:120px;overflow:auto}
+a{color:var(--acc)}
+.err{background:var(--badbg);color:var(--bad);border-radius:8px;padding:10px 12px}
+@media (max-width:640px){.steps{grid-template-columns:repeat(3,1fr)}}
+</style>
+</head>
+<body>
+<header>
+  <h1>ps5-lz4</h1><span class="sub" id="sub"></span><span class="sp"></span>
+  <button id="b-resume" hidden onclick="act('resume')">Fortsätt kön</button>
+  <button onclick="act('apr', 'Reparera alla LZ4-spel (APR-EMU och filer på disk)?')">Reparera alla</button>
+  <button class="pri" id="b-fix" onclick="act('fix', 'Packa alla spel som kan bli LZ4?')">Packa allt som kan bli LZ4</button>
+</header>
+<main>
+  <div id="error" class="err" hidden></div>
+  <div class="kpis" id="kpis"></div>
+  <div class="card" id="job" hidden></div>
+  <div class="card" id="failed" hidden></div>
+  <div class="card"><h2>Bibliotek</h2><div class="scroll"><table id="games"></table></div></div>
+  <div class="card"><h2>Senaste åtgärder</h2><div class="log" id="log"><span class="mut">Inga ännu.</span></div></div>
+</main>
+<script>
+const STEP_SV = {source: 'Källa', check: 'Kontroll', pack: 'Packning', verify: 'Verifiering', restore: 'Återställningstest', publish: 'Publicering'};
+const PS5_SV = {works: 'fungerar', issues: 'med problem', nostart: 'startar inte', crash: 'kraschar'};
+const ACT_SV = {fix: 'Packa allt', apr: 'Reparera alla', stop: 'Stoppa', resume: 'Fortsätt kön', start: 'Packa', community: 'PS5-resultat'};
+let data = null;
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+function gb(n) {
+  if (n == null) return '–';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i ? n.toFixed(i >= 3 ? 1 : 0) : n) .toString().replace('.', ',') + ' ' + u[i];
+}
+function community(c) {
+  if (!c || !c.reports) return '<span class="mut">inga rapporter</span>';
+  const p = [];
+  if (c.works) p.push(`<span class="good">${c.works} fungerar</span>`);
+  if (c.issues) p.push(`${c.issues} med problem`);
+  if (c.noStart) p.push(`<span class="bad">${c.noStart} startar inte</span>`);
+  if (c.crash) p.push(`<span class="bad">${c.crash} kraschar</span>`);
+  return p.join(', ');
+}
+
+async function act(action, confirmText, extra = {}) {
+  if (confirmText && !confirm(confirmText)) return;
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action, ...extra})});
+  if (!r.ok) alert('Kunde inte skicka: ' + r.status);
+  setTimeout(load, 800);
+}
+
+function render() {
+  const d = data;
+  document.getElementById('sub').textContent = `LZ4 HC nivå ${d.level} · APR-EMU ${d.runtime}`;
+  document.getElementById('b-resume').hidden = !d.interrupted;
+  const t = d.totals, saved = t.source - t.output;
+  document.getElementById('kpis').innerHTML = [
+    [t.lz4, 'spel LZ4-packade'],
+    [gb(saved), t.source ? `sparat (${(100 * saved / t.source).toFixed(1).replace('.', ',')} %)` : 'sparat'],
+    [d.running ? d.queue.length : 0, d.running ? 'i kö' : 'inget jobb körs'],
+    [gb(d.free_bytes), 'ledigt för utdata'],
+  ].map(([b, s]) => `<div class="k"><b>${esc(b)}</b><span>${esc(s)}</span></div>`).join('');
+
+  const job = document.getElementById('job');
+  if (d.job) {
+    const j = d.job, done = new Set(j.done), prog = j.progress;
+    const pct = prog && prog[1] ? Math.min(100, 100 * prog[0] / prog[1]) : 0;
+    const name = (d.games.find(g => g.id === j.id) || {}).name || j.id;
+    const next = d.queue.filter(x => x !== j.id);
+    job.hidden = false;
+    job.innerHTML = `<h2>Pågår: ${esc(name)}</h2>
+      <div class="steps">${j.steps.map(s => `<div class="st ${done.has(s) ? 'd' : s === j.step ? 'r' : ''}">${STEP_SV[s] || s}${done.has(s) ? ' ✓' : ''}</div>`).join('')}</div>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <div class="mut" style="margin-top:6px">${prog ? `${gb(prog[0])} / ${gb(prog[1])} (${pct.toFixed(0)} %)` : 'startar…'}${next.length ? ' · sedan: ' + esc(next.join(', ')) : ''}</div>
+      <div style="margin-top:10px"><button onclick="act('stop', 'Stoppa jobbet? Det kan återupptas senare.')">Stoppa (kan återupptas)</button></div>`;
+  } else job.hidden = true;
+
+  const failed = document.getElementById('failed');
+  failed.hidden = !d.failed.length;
+  failed.innerHTML = '<h2>Misslyckade (arbetsmappen sparas för felsökning)</h2>' +
+    d.failed.map(f => `<div><b>${esc(f.id)}</b> <span class="mut">${esc(f.step)}</span><div class="why">${esc(f.error)}</div></div>`).join('');
+
+  const busy = d.running;
+  document.getElementById('b-fix').disabled = busy;
+  document.getElementById('games').innerHTML =
+    '<tr><th>Spel</th><th>Status</th><th class="num">Original</th><th class="num">LZ4</th><th class="num">Sparat</th><th>PS5</th><th>Community</th><th></th></tr>' +
+    d.games.map(g => {
+      const v = g.running ? ['p-run', 'packas'] : g.queued ? ['p-run', 'i kö'] :
+        g.verdict === 'LZ4' ? ['p-LZ4', 'LZ4'] : g.verdict === 'kan bli LZ4' ? ['p-kan', 'kan bli LZ4'] :
+        g.verdict === 'FEL' ? ['p-FEL', 'fel'] : ['p-inte', 'inte LZ4'];
+      const lz4 = g.verdict === 'LZ4' && g.output_bytes;
+      const ps5 = lz4 ? `<select data-game="${esc(g.id)}" onchange="if(this.value)act('community',null,{game:this.dataset.game,result:this.value})">
+          <option value="">${g.ps5 ? esc(PS5_SV[g.ps5]) : 'ej testat'}</option>
+          ${Object.entries(PS5_SV).map(([k, s]) => `<option value="${k}">${s}</option>`).join('')}</select>` : '<span class="mut">–</span>';
+      const action = g.can_queue && !g.running && !g.queued && !busy
+        ? `<button class="sm" data-game="${esc(g.id)}" onclick="act('start',null,{game:this.dataset.game})">Packa</button>` : '';
+      const why = g.verdict !== 'LZ4' && !g.running ? `<div class="why">${esc(g.why)}</div>` : '';
+      return `<tr><td>${esc(g.name)}<div class="why">${esc(g.title_id)}</div>${why}</td>
+        <td><span class="pill ${v[0]}">${v[1]}</span></td>
+        <td class="num">${gb(g.source_bytes)}</td><td class="num">${gb(g.output_bytes)}</td>
+        <td class="num">${g.saved_percent != null ? Math.round(g.saved_percent) + ' %' : '–'}</td>
+        <td>${ps5}</td><td>${community(g.community)}</td><td>${action}</td></tr>`;
+    }).join('');
+
+  const log = document.getElementById('log');
+  const items = d.requests.recent;
+  const pending = d.requests.pending ? `<div class="mut">${d.requests.pending} åtgärd(er) väntar…</div>` : '';
+  log.innerHTML = pending + (items.length ? items.map(r => {
+    const url = (r.output || '').match(/https:\/\/github\.com\/\S+/);
+    return `<div><b class="${r.ok ? 'good' : 'bad'}">${r.ok ? '✓' : '✗'}</b> ${esc(ACT_SV[r.action] || r.action)}
+      ${r.game ? esc(r.game) : ''}${r.result ? ': ' + esc(PS5_SV[r.result]) : ''} <span class="mut">${esc(r.finished)}</span>
+      ${url ? `<div><a href="${esc(url[0])}" target="_blank" rel="noopener">Dela resultatet med communityn</a></div>` : ''}
+      <pre>${esc((r.output || '').split('\n').slice(-6).join('\n'))}</pre></div>`;
+  }).join('') : (pending ? '' : '<span class="mut">Inga ännu.</span>'));
+}
+
+async function load() {
+  try {
+    const r = await fetch('/api/dashboard', {cache: 'no-store'});
+    const d = await r.json();
+    const err = document.getElementById('error');
+    if (d.error) { err.hidden = false; err.textContent = 'Fel: ' + d.error; return; }
+    err.hidden = true;
+    data = d; render();
+  } catch (e) {
+    const err = document.getElementById('error');
+    err.hidden = false; err.textContent = 'Når inte ps5-lz4-ui: ' + e;
+  }
+}
+load(); setInterval(load, 5000);
+</script>
+</body>
+</html>

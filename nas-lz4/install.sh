@@ -19,6 +19,7 @@ LOCAL_IMAGE="ps5-lz4:local"                       # fallback: built on the NAS
 CONTAINER="${CONTAINER:-ps5-lz4}"
 LEVEL="${LEVEL:-9}"
 FREE_MARGIN_GB="${FREE_MARGIN_GB:-20}"
+UI_PORT="${UI_PORT:-5921}"                         # web page: http://<NAS>:$UI_PORT
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 CHECK_ONLY=0
@@ -100,6 +101,13 @@ if [ -n "$existing" ]; then
 else
   ok "no container named $CONTAINER yet"
 fi
+ui_owner="$(docker ps --format '{{.Names}} {{.Ports}}' | grep -E ":$UI_PORT->" | awk '{print $1}' | grep -vx "$CONTAINER-ui" || true)"
+if [ -n "$ui_owner" ]; then
+  die "port $UI_PORT is used by $ui_owner; pick another with UI_PORT=..."
+elif command -v ss >/dev/null && ss -ltnH 2>/dev/null | awk '{print $4}' | grep -q ":$UI_PORT\$" && ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER-ui"; then
+  die "port $UI_PORT is already in use on the NAS; pick another with UI_PORT=..."
+fi
+ok "web page port $UI_PORT is free"
 ok "other containers: $(docker ps --format '{{.Names}}' | grep -vx "$CONTAINER" | tr '\n' ' ') (not touched)"
 
 if [ "$CHECK_ONLY" = 1 ]; then
@@ -166,6 +174,32 @@ services:
       - "$BASE/state:/state"
       - "$BASE/logs:/state/logs"
       - "$BASE/reports:/state/reports"
+
+  # Web page. Reads state and leaves requests for the ps5-lz4 agent; it
+  # never runs jobs, sees the library and the LZ4 games read-only, and has
+  # no Docker socket.
+  ps5-lz4-ui:
+    image: $IMAGE
+    container_name: $CONTAINER-ui
+    restart: unless-stopped
+    init: true
+    user: "$PUID:$PGID"
+    command: ["ps5lz4", "ui", "--port", "5921"]
+    ports:
+      - "$UI_PORT:5921"
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+    environment:
+      PS5LZ4_HOST_LIBRARY: "$LIBRARY"
+      PS5LZ4_HOST_OUTPUT: "$OUTPUT"
+      PS5LZ4_LEVEL: "$LEVEL"
+      TZ: "$TZ_NAME"
+    volumes:
+      - "$LIBRARY:/library:ro"
+      - "$OUTPUT:/output:ro"
+      - "$BASE/state:/state"
+      - "$BASE/logs:/state/logs:ro"
+      - "$BASE/reports:/state/reports:ro"
 EOF
 
 install -m 755 "$REPO/nas-lz4/lz4-ps5.sh" "$BASE/lz4-ps5.sh"
@@ -189,6 +223,7 @@ sed -i "s|^    image: .*|    image: $IMAGE|; s|watchtower.enable: \".*\"|watchto
 
 say "Starting container $CONTAINER"
 if [ -n "$existing" ]; then docker rm -f "$CONTAINER" >/dev/null; fi
+docker rm -f "$CONTAINER-ui" >/dev/null 2>&1 || true
 if [ -n "$COMPOSE" ]; then
   (cd "$BASE" && $COMPOSE -p ps5-lz4 up -d)
 else
@@ -201,10 +236,18 @@ else
     -v "$LIBRARY:/library:ro" -v "$OUTPUT:/output" -v "$BASE/state:/state" \
     -v "$BASE/logs:/state/logs" -v "$BASE/reports:/state/reports" \
     "$IMAGE" >/dev/null
+  docker run -d --name "$CONTAINER-ui" --restart unless-stopped --init --user "$PUID:$PGID" \
+    -p "$UI_PORT:5921" --label com.centurylinklabs.watchtower.enable="$WATCHTOWER" \
+    -e PS5LZ4_HOST_LIBRARY="$LIBRARY" -e PS5LZ4_HOST_OUTPUT="$OUTPUT" -e PS5LZ4_LEVEL="$LEVEL" -e TZ="$TZ_NAME" \
+    -v "$LIBRARY:/library:ro" -v "$OUTPUT:/output:ro" -v "$BASE/state:/state" \
+    -v "$BASE/logs:/state/logs:ro" -v "$BASE/reports:/state/reports:ro" \
+    "$IMAGE" ps5lz4 ui --port 5921 >/dev/null
 fi
 sleep 2
 [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER")" = true ] || die "container did not start"
 ok "container running"
+NAS_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+ok "web page: http://${NAS_IP:-<NAS IP>}:$UI_PORT"
 
 say "Self-check"
 "$BASE/lz4-ps5.sh" doctor

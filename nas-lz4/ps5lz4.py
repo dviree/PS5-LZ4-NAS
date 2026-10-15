@@ -1175,6 +1175,54 @@ def lz4_format_problem(game: Path) -> str | None:
     return None
 
 
+CHECKS_PATH = STATE / "checks.json"
+
+
+def classify(e: "Entry", res: dict, cache: dict | None = None) -> tuple[str, str, bool]:
+    """(verdict, why, can_queue) for one library entry. verdict is one of
+    LZ4 / kan bli LZ4 / inte LZ4 / FEL. AMPR checks of unpacked games are
+    cached by path, size and mtime (reading eboot.bin from a 100 GB image
+    takes a moment)."""
+    st = res["status"]
+    if st == "done":
+        problem = lz4_format_problem(e.output) if e.output.is_dir() else "output folder missing"
+        return ("LZ4", res["detail"], False) if not problem else ("FEL", problem, False)
+    if st == "skipped":
+        return "inte LZ4", res["detail"], False
+    if st == "exists":
+        return "FEL", res["detail"], False
+    key = sig = None
+    if cache is not None:
+        try:
+            stt = e.path.stat()
+            key, sig = str(e.path), f"{stt.st_size}:{int(stt.st_mtime)}"
+        except OSError:
+            pass
+    hit = cache.get(key) if key else None
+    if hit and hit.get("sig") == sig:
+        ok, why = hit["ok"], hit["why"]
+    else:
+        try:
+            if e.kind == "folder":
+                ok, why = ampr_status_folder(e.path)
+            elif e.kind == "exfat":
+                meta = exfat_inspect(e.path)
+                ok, why = meta["status"], meta["reason"]
+            else:
+                ok, why = "compatible", "checked after extraction"
+        except Exception as err:
+            ok, why = "compatible", f"checked when packed ({err})"
+        if key:
+            cache[key] = {"sig": sig, "ok": ok, "why": why}
+    if ok == "compatible":
+        if st in ("partial", "failed"):
+            why = f"{st}: {res['detail']}"
+        return "kan bli LZ4", why, True
+    if ok == "packed":
+        return "LZ4", why, False
+    return "inte LZ4", why, False
+
+
 def cmd_lz4(args) -> int:
     """One line per game: LZ4 already, can become LZ4, or why not. --fix queues the rest."""
     ensure_dirs()
@@ -1187,33 +1235,9 @@ def cmd_lz4(args) -> int:
         st = res["status"]
         if e.duplicate_of and st != "done":
             continue  # the folder copy of the same game is listed instead
-        if st == "done":
-            problem = lz4_format_problem(e.output) if e.output.is_dir() else "output folder missing"
-            verdict, why = ("LZ4", res["detail"]) if not problem else ("FEL", problem)
-        elif st == "skipped":
-            verdict, why = "inte LZ4", res["detail"]
-        elif st == "exists":
-            verdict, why = "FEL", res["detail"]
-        else:
-            try:
-                if e.kind == "folder":
-                    ok, why = ampr_status_folder(e.path)
-                elif e.kind == "exfat":
-                    meta = exfat_inspect(e.path)
-                    ok, why = meta["status"], meta["reason"]
-                else:
-                    ok, why = "compatible", "checked after extraction"
-            except Exception as err:
-                ok, why = "compatible", f"checked when packed ({err})"
-            if ok == "compatible":
-                verdict = "kan bli LZ4"
-                if st in ("partial", "failed"):
-                    why = f"{st}: {res['detail']}"
-                todo.append(e)
-            elif ok == "packed":
-                verdict = "LZ4"
-            else:
-                verdict = "inte LZ4"
+        verdict, why, can = classify(e, res)
+        if can:
+            todo.append(e)
         counts[verdict] += 1
         print(f"{verdict:12} {e.title_id or '-':9}  {e.rel}  ({why})")
         c = community_text(e.title_id or "", games)
@@ -1502,6 +1526,215 @@ def cmd_doctor(_args) -> int:
     return 0 if ok else 1
 
 
+# --------------------------------------------------------------------------
+# web page: `ui` serves it (own container, LAN only), `agent` runs in the
+# ps5-lz4 container and carries out what the page asks for. The page never
+# runs jobs itself and needs no Docker socket.
+
+REQUESTS = STATE / "requests"
+STEPS = ["source", "check", "pack", "verify", "restore", "publish"]
+UI_ACTIONS = {  # action -> ps5lz4 arguments (game and result are checked separately)
+    "fix": ["lz4", "--fix"],
+    "apr": ["apr", "--fix"],
+    "stop": ["stop"],
+    "resume": ["start", "--resume"],
+    "start": ["start"],
+    "community": ["community"],
+}
+
+
+def job_running() -> tuple[bool, str]:
+    running = False
+    try:
+        with open(LOCK_PATH, "a+") as fh:
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                running = True
+    except OSError:
+        pass
+    text = LOCK_PATH.read_text().strip() if LOCK_PATH.exists() else ""
+    return running, text
+
+
+def work_progress(w: Path) -> tuple[int, int] | None:
+    best = None
+    for errf in sorted(w.glob("*.err"), key=lambda f: f.stat().st_mtime):
+        try:
+            with open(errf, "rb") as f:
+                f.seek(max(0, f.seek(0, 2) - 4096))
+                tail = f.read().decode(errors="replace")
+        except OSError:
+            continue
+        m = re.findall(r"\[progress\] (\d+) / (\d+)", tail)
+        if m:
+            best = (int(m[-1][0]), int(m[-1][1]))
+    return best
+
+
+def dashboard_data() -> dict:
+    ensure_dirs()
+    running, lock_text = job_running()
+    queue = read_json(QUEUE_PATH, {}) or {}
+    cache = read_json(CHECKS_PATH, {}) or {}
+    games = compat_games()
+    rows, totals = [], {"lz4": 0, "source": 0, "output": 0}
+    entries = scan_library()
+    current = queue.get("current") if running else None
+    for e in entries:
+        res = result_for(e)
+        if e.duplicate_of and res["status"] != "done":
+            continue
+        verdict, why, can = classify(e, res, cache)
+        rep = read_json(REPORTS / f"{e.id}.json") or {}
+        g = games.get((e.title_id or "").upper()) or {}
+        row = {"id": e.id, "rel": e.rel, "kind": e.kind, "title_id": e.title_id,
+               "name": rep.get("title_name") or e.name or e.rel, "verdict": verdict, "why": why,
+               "can_queue": can, "running": e.id == current,
+               "queued": e.id in (queue.get("remaining") or []) and running,
+               "source_bytes": rep.get("source_bytes"), "output_bytes": rep.get("output_bytes"),
+               "saved_percent": rep.get("saved_percent"), "ps5": rep.get("ps5_result"),
+               "community": {k: g.get(k, 0) for k in ("works", "issues", "noStart", "crash", "reports")}}
+        if verdict == "LZ4" and rep:
+            totals["lz4"] += 1
+            totals["source"] += rep.get("source_bytes", 0)
+            totals["output"] += rep.get("output_bytes", 0)
+        rows.append(row)
+    write_json(CHECKS_PATH, cache)
+    job = None
+    if running and current:
+        st = read_json(WORK / current / "state.json", {}) or {}
+        step = str(st.get("step", "")).split(" ")[0]
+        job = {"id": current, "step": step, "done": st.get("done", []), "steps": STEPS,
+               "progress": work_progress(WORK / current), "since": lock_text}
+    failed = []
+    if WORK.is_dir():
+        for w in sorted(WORK.iterdir()):
+            st = read_json(w / "state.json", {}) or {}
+            if st.get("error") and w.name != current:
+                failed.append({"id": w.name, "step": st.get("step"), "error": st["error"]})
+    done_req = []
+    if REQUESTS.is_dir():
+        for f in sorted(REQUESTS.glob("*.done.json"), key=lambda f: f.stat().st_mtime)[-5:]:
+            done_req.append(read_json(f, {}))
+    pending = len(list(REQUESTS.glob("*.req.json"))) if REQUESTS.is_dir() else 0
+    return {"running": running, "job": job, "queue": queue.get("remaining") or [] if running else [],
+            "interrupted": (not running) and bool(queue.get("remaining")),
+            "free_bytes": free_bytes(OUTPUT), "games": rows, "totals": totals, "failed": failed,
+            "level": int(os.environ.get("PS5LZ4_LEVEL", "9")), "runtime": "PackedStdio 0.4.2.1",
+            "compat_updated": (read_json(COMPAT_FILE, {}) or {}).get("updated"),
+            "requests": {"pending": pending, "recent": done_req[::-1]}, "version": VERSION}
+
+
+def cmd_dashboard(_args) -> int:
+    print(json.dumps(dashboard_data(), ensure_ascii=False, indent=1))
+    return 0
+
+
+def run_request(req: dict) -> dict:
+    action = req.get("action")
+    if action not in UI_ACTIONS:
+        return {"ok": False, "output": f"unknown action {action!r}"}
+    argv = list(UI_ACTIONS[action])
+    if action in ("start", "community"):
+        game = str(req.get("game") or "")
+        if not game or game.startswith("-") or len(game) > 300:
+            return {"ok": False, "output": "no game given"}
+        argv.append(game)
+    if action == "community":
+        result = req.get("result")
+        if result not in PLAY_STATES:
+            return {"ok": False, "output": f"unknown result {result!r}"}
+        argv.append(result)
+    out = subprocess.run([sys.executable, os.path.abspath(__file__)] + argv,
+                         capture_output=True, text=True, timeout=6 * 3600)
+    text = (out.stdout + out.stderr).strip()
+    return {"ok": out.returncode == 0, "output": text[-3000:]}
+
+
+def cmd_agent(_args) -> int:
+    """Runs in the ps5-lz4 container: carries out requests from the web page."""
+    ensure_dirs()
+    REQUESTS.mkdir(exist_ok=True)
+    print(f"[{now()}] agent: watching {REQUESTS}", flush=True)
+    while True:
+        for f in sorted(REQUESTS.glob("*.req.json")):
+            req = read_json(f, {}) or {}
+            f.unlink(missing_ok=True)
+            print(f"[{now()}] agent: {req.get('action')} {req.get('game') or ''}", flush=True)
+            try:
+                res = run_request(req)
+            except Exception as err:
+                res = {"ok": False, "output": str(err)}
+            res.update(action=req.get("action"), game=req.get("game"), result=req.get("result"),
+                       asked=req.get("asked"), finished=now())
+            write_json(REQUESTS / (f.name[: -len(".req.json")] + ".done.json"), res)
+        olds = sorted(REQUESTS.glob("*.done.json"), key=lambda f: f.stat().st_mtime)
+        for f in olds[:-20]:
+            f.unlink(missing_ok=True)
+        time.sleep(2)
+
+
+def cmd_ui(args) -> int:
+    """Serves the web page. Reads state, writes only request files."""
+    import http.server
+    ensure_dirs()
+    REQUESTS.mkdir(exist_ok=True)
+    cache = {"at": 0.0, "body": b""}
+    lock = __import__("threading").Lock()
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def send(self, code, body, ctype="application/json"):
+            self.send_response(code)
+            self.send_header("Content-Type", ctype + "; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            if self.path in ("/", "/index.html"):
+                return self.send(200, UI_HTML.encode(), "text/html")
+            if self.path == "/api/dashboard":
+                with lock:
+                    if time.time() - cache["at"] > 4:
+                        try:
+                            cache["body"] = json.dumps(dashboard_data(), ensure_ascii=False).encode()
+                        except Exception as err:
+                            cache["body"] = json.dumps({"error": str(err)}).encode()
+                        cache["at"] = time.time()
+                    return self.send(200, cache["body"])
+            self.send(404, b'{"error":"not found"}')
+
+        def do_POST(self):
+            if self.path != "/api/action":
+                return self.send(404, b'{"error":"not found"}')
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                req = json.loads(self.rfile.read(min(n, 4096)) or b"{}")
+            except ValueError:
+                return self.send(400, b'{"error":"bad request"}')
+            if req.get("action") not in UI_ACTIONS:
+                return self.send(400, b'{"error":"unknown action"}')
+            req = {k: req.get(k) for k in ("action", "game", "result")}
+            req["asked"] = now()
+            name = f"{int(time.time() * 1000)}-{os.getpid()}"
+            write_json(REQUESTS / f"{name}.req.json", req)
+            cache["at"] = 0
+            self.send(200, json.dumps({"queued": name}).encode())
+
+    srv = http.server.ThreadingHTTPServer(("0.0.0.0", args.port), H)
+    print(f"[{now()}] ui on port {args.port}", flush=True)
+    srv.serve_forever()
+    return 0
+
+
+UI_HTML = (Path(__file__).with_name("ui.html").read_text()
+           if Path(__file__).with_name("ui.html").is_file() else "<p>ui.html missing</p>")
+
+
 def main() -> int:
     p = argparse.ArgumentParser(prog="ps5lz4", description="LZ4 HC packing of PS5 games for APR-EMU, on the NAS.")
     p.add_argument("--version", action="version", version=VERSION)
@@ -1556,6 +1789,13 @@ def main() -> int:
     sp.add_argument("game", nargs="?", help="# from scan, name or title ID")
     sp.add_argument("result", nargs="?", help="works | issues | nostart | crash")
     sp.set_defaults(func=cmd_community)
+    sp = sub.add_parser("dashboard", help="everything the web page shows, as JSON")
+    sp.set_defaults(func=cmd_dashboard)
+    sp = sub.add_parser("agent", help=argparse.SUPPRESS)
+    sp.set_defaults(func=cmd_agent)
+    sp = sub.add_parser("ui", help="serve the web page (own container, see install.sh)")
+    sp.add_argument("--port", type=int, default=int(os.environ.get("PS5LZ4_UI_PORT", "5921")))
+    sp.set_defaults(func=cmd_ui)
     sp = sub.add_parser("clean", help="delete the work folder of a failed game")
     sp.add_argument("ids", nargs="+")
     sp.set_defaults(func=cmd_clean)
