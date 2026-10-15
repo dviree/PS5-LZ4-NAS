@@ -23,10 +23,13 @@ Full guide: [nas-lz4/README.md](../nas-lz4/README.md).
   don't use AMPR are skipped with the reason.
 - **Originals are never changed:** the library is mounted read-only.
 - **Web page** (port 5921): library with LZ4 status, source type and size,
-  live job steps and progress, savings per game, one-click **Komprimera**,
-  **Kontrollera allt** (read-only check, with a **Reparera** button when
-  something is wrong) and **Komprimera allt** (compress every game that can be LZ4), and the **community game reports** from the original project
-  on every title and in their own tab.
+  live job steps and progress, savings per game, one-click **Compress**,
+  **Check all** (read-only check, with a **Repair** button when something is
+  wrong), **Full re-check** and **Compress all** (every game that can be LZ4),
+  and the **community game reports** from the original project on every title
+  and in their own tab.
+- **Check cache:** results are stored in a small SQLite database keyed by file
+  size and date, so **Check all** only reads new or changed games.
 - **Send to the PS5** over FTP (ftpsrv, port 2121): SELF decryption turned off,
   every file size checked, program files compared by SHA-256, duplicate title
   IDs refused (ShadowMountPlus mounts one copy per title), interrupted

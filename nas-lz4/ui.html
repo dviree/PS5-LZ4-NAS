@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="sv">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -30,8 +30,8 @@ th,td{text-align:left;padding:9px 8px;border-top:1px solid var(--line);vertical-
 th{color:var(--mut);font-weight:500;border-top:0}
 .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;font-weight:600;white-space:nowrap}
-.p-LZ4{background:var(--okbg);color:var(--ok)}.p-kan{background:var(--accbg);color:var(--acc)}
-.p-inte{background:var(--chip);color:var(--mut)}.p-FEL{background:var(--badbg);color:var(--bad)}
+.p-LZ4{background:var(--okbg);color:var(--ok)}.p-can{background:var(--accbg);color:var(--acc)}
+.p-no{background:var(--chip);color:var(--mut)}.p-err{background:var(--badbg);color:var(--bad)}
 .p-run{background:var(--warnbg);color:var(--warn)}
 .why{font-size:12px;color:var(--mut);max-width:360px}
 .sz{height:6px;margin-top:5px;min-width:90px;border-radius:3px;background:var(--okbg)}
@@ -64,13 +64,14 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
 <body>
 <header>
   <h1>ps5-lz4</h1><span class="sub" id="sub"></span><span class="sp"></span>
-  <button id="b-resume" hidden onclick="act('resume')">Fortsätt kön</button>
-  <button title="Kontrollerar alla spel utan att ändra något" onclick="act('check')">Kontrollera allt</button>
-  <button class="pri" id="b-fix" title="Komprimerar alla spel som kan bli LZ4, ett i taget"
-    onclick="act('fix', 'Komprimera alla spel som kan bli LZ4?\n\nDe köas och komprimeras ett i taget. Pågår ett jobb startar det här när jobbet är klart.')">Komprimera allt</button>
+  <button id="b-resume" hidden onclick="act('resume')">Continue queue</button>
+  <button title="Checks every game without changing anything. Games unchanged since their last check are taken from the database." onclick="act('check')">Check all</button>
+  <button title="Checks every game again, ignoring the database" onclick="act('check_full', 'Check every game again, ignoring earlier results?\n\nThis reads every LZ4 game in full and can take a while.')">Full re-check</button>
+  <button class="pri" id="b-fix" title="Compresses every game that can be LZ4, one at a time"
+    onclick="act('fix', 'Compress every game that can be LZ4?\n\nThey are queued and compressed one at a time. If a job is running, this starts when it is done.')">Compress all</button>
 </header>
 <nav class="tabs">
-  <button id="t-mine" class="on" onclick="tab('mine')">Mina spel</button>
+  <button id="t-mine" class="on" onclick="tab('mine')">My games</button>
   <button id="t-comm" onclick="tab('comm')">Community</button>
 </nav>
 <main id="p-mine">
@@ -79,66 +80,66 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
   <div class="card" id="job" hidden></div>
   <div class="card" id="xfer" hidden></div>
   <div class="card" id="failed" hidden></div>
-  <div class="card"><h2>Bibliotek</h2><div class="scroll"><table id="games"></table></div></div>
-  <div class="card"><h2>Överföring till PS5</h2>
-    <div class="mut">Direkt via FTP till PS5:ans ftpsrv (port 2121), inte via monteringen. Varje fil storlekskontrolleras och
-    programfilerna jämförs byte för byte. Avbruten överföring fortsätter där den slutade när du trycker igen.</div>
+  <div class="card"><h2>Library</h2><div class="scroll"><table id="games"></table></div></div>
+  <div class="card"><h2>Send to PS5</h2>
+    <div class="mut">Straight over FTP to the PS5's ftpsrv (port 2121), not through a mount. Every file's size is checked and
+    program files are compared byte for byte. An interrupted transfer continues where it stopped when you press again.</div>
     <div class="filters">
-      <input id="s-ftp" placeholder="PS5 FTP, t.ex. 192.168.50.90:2121">
-      <input id="s-dest" placeholder="Mål på PS5:an, t.ex. /mnt/usb0/homebrew">
+      <input id="s-ftp" placeholder="PS5 FTP, e.g. 192.168.50.90:2121">
+      <input id="s-dest" placeholder="Folder on the PS5, e.g. /mnt/usb0/homebrew">
     </div>
-    <h2 style="margin-top:14px">Koppla PS5:an (Remote Play, som Chiaki)</h2>
-    <div class="mut">Kopplingen gör att sidan kan väcka PS5:an från viloläge när du trycker <b>Överför till PS5</b>.
-    Öppna <i>Inställningar › System › Fjärrspel › Länka enhet</i> på PS5:an och skriv in PIN-koden som visas, och kontots
-    PSN-konto-ID. Med fake sign-in på en jailbreakad PS5 är det ID:t som aktiveringsverktyget satte (base64 som i Chiaki,
-    decimalt eller 0x-hex). <span id="paired"></span></div>
+    <h2 style="margin-top:14px">Pair with the PS5 (Remote Play, like Chiaki)</h2>
+    <div class="mut">Pairing lets this page wake the PS5 from rest mode when you press <b>Send to PS5</b>.
+    On the PS5 open <i>Settings › System › Remote Play › Pair Device</i> and enter the PIN shown there, plus the
+    PSN account ID. With fake sign-in on a jailbroken PS5 it is the ID the activation tool set (base64 as in Chiaki,
+    decimal or 0x hex). <span id="paired"></span></div>
     <div class="filters">
-      <input id="p-acc" placeholder="PSN-konto-ID" autocomplete="off">
-      <input id="p-pin" placeholder="PIN (8 siffror)" inputmode="numeric" autocomplete="off" style="max-width:180px">
-      <button class="pri" onclick="pair()">Koppla</button>
+      <input id="p-acc" placeholder="PSN account ID" autocomplete="off">
+      <input id="p-pin" placeholder="PIN (8 digits)" inputmode="numeric" autocomplete="off" style="max-width:180px">
+      <button class="pri" onclick="pair()">Pair</button>
     </div>
-    <div class="mut">Redan kopplad i Chiaki? Du kan i stället skriva in <code>rp_regist_key</code> därifrån (8 hextecken).</div>
+    <div class="mut">Already paired in Chiaki? Enter its <code>rp_regist_key</code> (8 hex characters) instead.</div>
     <div class="filters">
-      <input id="s-key" placeholder="Remote Play-nyckel (rp_regist_key)" autocomplete="off">
-      <button onclick="saveSettings()">Spara</button>
-      <button onclick="act('wake')">Väck PS5 nu</button>
-      <span class="pill p-inte" id="ps5st">PS5: ?</span>
+      <input id="s-key" placeholder="Remote Play key (rp_regist_key)" autocomplete="off">
+      <button onclick="saveSettings()">Save</button>
+      <button onclick="act('wake')">Wake PS5 now</button>
+      <span class="pill p-no" id="ps5st">PS5: ?</span>
     </div>
   </div>
-  <div class="card"><h2>Rapportera</h2>
-    <div class="mut">Välj PS5-resultat i kolumnen <b>PS5</b> för ett LZ4-spel. Resultatet sparas här, och under
-    <i>Senaste åtgärder</i> kommer en ifylld länk för att dela det med communityn (originalprojektets spelrapporter).</div>
-    <label style="display:inline-flex;gap:8px;align-items:center;margin-top:10px">Din firmware
-      <input id="fw" placeholder="t.ex. 13.40" size="8" style="font:inherit;padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--txt)"
+  <div class="card"><h2>Report</h2>
+    <div class="mut">Pick the PS5 result in the <b>PS5</b> column for an LZ4 game. It is saved here, and
+    <i>Recent actions</i> then shows a filled-in link to share it with the community (the original project's game reports).</div>
+    <label style="display:inline-flex;gap:8px;align-items:center;margin-top:10px">Your firmware
+      <input id="fw" placeholder="e.g. 13.40" size="8" style="font:inherit;padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--txt)"
         oninput="localStorage.setItem('fw', this.value); render()"></label>
   </div>
-  <div class="card"><h2>Senaste åtgärder</h2><div class="log" id="log"><span class="mut">Inga ännu.</span></div></div>
+  <div class="card"><h2>Recent actions</h2><div class="log" id="log"><span class="mut">None yet.</span></div></div>
 </main>
 <div id="modal" class="modal" hidden onclick="if(event.target===this)closeGame()">
-  <div class="sheet"><button class="x" onclick="closeGame()">✕</button><div id="m-body">Läser…</div></div>
+  <div class="sheet"><button class="x" onclick="closeGame()">✕</button><div id="m-body">Loading…</div></div>
 </div>
 <main id="p-comm" hidden>
   <div class="card">
-    <h2>Communityrapporter</h2>
+    <h2>Community reports</h2>
     <div class="mut" id="c-sub"></div>
     <div class="filters">
-      <input id="c-q" placeholder="Sök spel eller Title ID" oninput="renderComm()">
+      <input id="c-q" placeholder="Search game or Title ID" oninput="renderComm()">
       <select id="c-f" onchange="renderComm()">
-        <option value="">Alla</option><option value="works">Fungerar</option>
-        <option value="problems">Problem (startar inte / kraschar)</option><option value="mine">Bara mina spel</option>
+        <option value="">All</option><option value="works">Works</option>
+        <option value="problems">Problems (won't start / crashes)</option><option value="mine">Only my games</option>
       </select>
       <select id="c-s" onchange="renderComm()">
-        <option value="reports">Flest rapporter</option><option value="date">Senaste rapport</option><option value="name">Namn</option>
+        <option value="reports">Most reports</option><option value="date">Latest report</option><option value="name">Name</option>
       </select>
     </div>
     <div class="scroll"><table id="comm"></table></div>
   </div>
 </main>
 <script>
-const STEP_SV = {source: 'Källa', check: 'Kontroll', pack: 'Packning', verify: 'Verifiering', restore: 'Återställningstest', publish: 'Publicering'};
-const PS5_SV = {works: 'fungerar', issues: 'med problem', nostart: 'startar inte', crash: 'kraschar'};
-const KIND_SV = {folder: 'spelmapp', exfat: 'exFAT-image', ffpfsc: '.ffpfsc-image (PFSC-komprimerad)', ffpfs: '.ffpfs-image', lz4: 'LZ4-mapp'};
-const ACT_SV = {check: 'Kontrollera allt', fix: 'Komprimera allt', apr: 'Reparera alla', stop: 'Stoppa', resume: 'Fortsätt kön', start: 'Packa', community: 'PS5-resultat'};
+const STEP_EN = {source: 'Source', check: 'Check', pack: 'Pack', verify: 'Verify', restore: 'Restore test', publish: 'Publish'};
+const PS5_EN = {works: 'works', issues: 'with issues', nostart: "won't start", crash: 'crashes'};
+const KIND_EN = {folder: 'game folder', exfat: 'exFAT image', ffpfsc: '.ffpfsc image (PFSC compressed)', ffpfs: '.ffpfs image', lz4: 'LZ4 folder'};
+const ACT_EN = {check: 'Check all', check_full: 'Full re-check', fix: 'Compress all', apr: 'Repair', stop: 'Stop', resume: 'Continue queue', start: 'Compress', community: 'PS5 result'};
 let data = null;
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -146,15 +147,15 @@ function gb(n) {
   if (n == null) return '–';
   const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0;
   while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-  return (i ? n.toFixed(i >= 3 ? 1 : 0) : n) .toString().replace('.', ',') + ' ' + u[i];
+  return (i ? n.toFixed(i >= 3 ? 1 : 0) : n) .toString() + ' ' + u[i];
 }
 function community(c) {
-  if (!c || !c.reports) return '<span class="mut">inga rapporter</span>';
+  if (!c || !c.reports) return '<span class="mut">no reports</span>';
   const p = [];
-  if (c.works) p.push(`<span class="good">${c.works} fungerar</span>`);
-  if (c.issues) p.push(`${c.issues} med problem`);
-  if (c.noStart) p.push(`<span class="bad">${c.noStart} startar inte</span>`);
-  if (c.crash) p.push(`<span class="bad">${c.crash} kraschar</span>`);
+  if (c.works) p.push(`<span class="good">${c.works} work</span>`);
+  if (c.issues) p.push(`${c.issues} with issues`);
+  if (c.noStart) p.push(`<span class="bad">${c.noStart} won't start</span>`);
+  if (c.crash) p.push(`<span class="bad">${c.crash} crash</span>`);
   return p.join(', ');
 }
 
@@ -162,7 +163,7 @@ async function act(action, confirmText, extra = {}) {
   if (confirmText && !confirm(confirmText)) return;
   const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action, ...extra})});
-  if (!r.ok) { let m = r.status; try { m = (await r.json()).error || m; } catch (e) {} alert('Gick inte: ' + m); }
+  if (!r.ok) { let m = r.status; try { m = (await r.json()).error || m; } catch (e) {} alert('Failed: ' + m); }
   setTimeout(load, 800);
 }
 
@@ -172,23 +173,23 @@ async function saveSettings() {
       ps5_dest: document.getElementById('s-dest').value,
       ps5_wake_key: document.getElementById('s-key').value.trim() || (data.settings.ps5_wake_key ? 'set' : '')})});
   const j = await r.json().catch(() => ({}));
-  alert(r.ok ? 'Sparat.' : 'Gick inte: ' + (j.error || r.status));
+  alert(r.ok ? 'Saved.' : 'Failed: ' + (j.error || r.status));
   settingsFilled = false; load();
 }
 let settingsFilled = false;
 function push(id, name) {
   const s = data.settings || {};
-  if (!s.ps5_ftp) { alert('Fyll i PS5:ans FTP-adress under "Överföring till PS5" först.'); return; }
+  if (!s.ps5_ftp) { alert('Enter the PS5 FTP address under "Send to PS5" first.'); return; }
   const t = (data.transfers || {})[id];
-  act('push', `Överför ${name} till ${s.ps5_ftp}${s.ps5_dest}?\n\n` +
-    (s.ps5_wake_key ? 'Är PS5:an i viloläge väcks den först.' : 'PS5:an måste vara på med FTP-servern igång.') +
-    (t && t.state === 'failed' ? '\n\nDen förra överföringen avbröts; den fortsätter där den slutade.' : ''), {game: id});
+  act('push', `Send ${name} to ${s.ps5_ftp}${s.ps5_dest}?\n\n` +
+    (s.ps5_wake_key ? 'If the PS5 is in rest mode it is woken first.' : 'The PS5 must be on with the FTP server running.') +
+    (t && t.state === 'failed' ? '\n\nThe last transfer was interrupted; it continues where it stopped.' : ''), {game: id});
 }
 function xferText(t) {
   if (!t) return '';
-  if (t.state === 'running') return `överförs ${t.total ? Math.round(100 * t.bytes / t.total) : 0} %`;
-  if (t.state === 'done') return `<span class="good">på PS5:an</span> ${esc((t.finished || '').slice(0, 16))}`;
-  return `<span class="bad">överföring misslyckades</span>`;
+  if (t.state === 'running') return `sending ${t.total ? Math.round(100 * t.bytes / t.total) : 0} %`;
+  if (t.state === 'done') return `<span class="good">on the PS5</span> ${esc((t.finished || '').slice(0, 16))}`;
+  return `<span class="bad">transfer failed</span>`;
 }
 
 function render() {
@@ -198,29 +199,29 @@ function render() {
     document.getElementById('s-dest').value = d.settings.ps5_dest || '';
     const kf = document.getElementById('s-key');
     kf.value = '';
-    kf.placeholder = d.settings.ps5_wake_key ? 'Remote Play-nyckel sparad (lämna tomt för att behålla)' : 'Remote Play-nyckel (rp_regist_key)';
+    kf.placeholder = d.settings.ps5_wake_key ? 'Remote Play key saved (leave empty to keep it)' : 'Remote Play key (rp_regist_key)';
     const pd = d.settings.paired || {};
     document.getElementById('paired').innerHTML = pd.ps5_paired
-      ? `<span class="good">Kopplad till ${esc(pd.ps5_nickname || 'PS5')} (${esc(pd.ps5_paired)}).</span>` : '';
+      ? `<span class="good">Paired with ${esc(pd.ps5_nickname || 'PS5')} (${esc(pd.ps5_paired)}).</span>` : '';
     settingsFilled = true;
   }
   const xf = document.getElementById('xfer'), tf = d.transfer;
   if (tf) {
     const pct = tf.total ? 100 * tf.bytes / tf.total : 0;
     xf.hidden = false;
-    xf.innerHTML = `<h2>Överför till PS5: ${esc(tf.game)}</h2>
+    xf.innerHTML = `<h2>Sending to PS5: ${esc(tf.game)}</h2>
       <div class="bar"><i style="width:${pct}%"></i></div>
-      <div class="mut" style="margin-top:6px">${gb(tf.bytes)} / ${gb(tf.total)} (${pct.toFixed(0)} %) · fil ${tf.files_done} av ${tf.files} · ${esc(tf.current || '')}</div>
+      <div class="mut" style="margin-top:6px">${gb(tf.bytes)} / ${gb(tf.total)} (${pct.toFixed(0)} %) · file ${tf.files_done} of ${tf.files} · ${esc(tf.current || '')}</div>
       <div class="why">${esc(tf.dest)}</div>`;
   } else xf.hidden = true;
-  document.getElementById('sub').textContent = `LZ4 HC nivå ${d.level} · APR-EMU ${d.runtime}`;
+  document.getElementById('sub').textContent = `LZ4 HC level ${d.level} · APR-EMU ${d.runtime}`;
   document.getElementById('b-resume').hidden = !d.interrupted;
   const t = d.totals, saved = t.source - t.output;
   document.getElementById('kpis').innerHTML = [
-    [t.lz4, 'spel LZ4-packade'],
-    [gb(saved), t.source ? `sparat (${(100 * saved / t.source).toFixed(1).replace('.', ',')} %)` : 'sparat'],
-    [d.running ? d.queue.length : 0, d.running ? 'i kö' : 'inget jobb körs'],
-    [gb(d.free_bytes), 'ledigt för utdata'],
+    [t.lz4, 'games LZ4 packed'],
+    [gb(saved), t.source ? `saved (${(100 * saved / t.source).toFixed(1)} %)` : 'saved'],
+    [d.running ? d.queue.length : 0, d.running ? 'queued' : 'no job running'],
+    [gb(d.free_bytes), 'free for output'],
   ].map(([b, s]) => `<div class="k"><b>${esc(b)}</b><span>${esc(s)}</span></div>`).join('');
 
   const job = document.getElementById('job');
@@ -230,57 +231,57 @@ function render() {
     const name = (d.games.find(g => g.id === j.id) || {}).name || j.id;
     const next = d.queue.filter(x => x !== j.id);
     job.hidden = false;
-    job.innerHTML = `<h2>Pågår: ${esc(name)}</h2>
-      <div class="steps">${j.steps.map(s => `<div class="st ${done.has(s) ? 'd' : s === j.step ? 'r' : ''}">${STEP_SV[s] || s}${done.has(s) ? ' ✓' : ''}</div>`).join('')}</div>
+    job.innerHTML = `<h2>Running: ${esc(name)}</h2>
+      <div class="steps">${j.steps.map(s => `<div class="st ${done.has(s) ? 'd' : s === j.step ? 'r' : ''}">${STEP_EN[s] || s}${done.has(s) ? ' ✓' : ''}</div>`).join('')}</div>
       <div class="bar"><i style="width:${pct}%"></i></div>
-      <div class="mut" style="margin-top:6px">${prog ? `${gb(prog[0])} / ${gb(prog[1])} (${pct.toFixed(0)} %)` : 'startar…'}${next.length ? ' · sedan: ' + esc(next.join(', ')) : ''}</div>
-      <div style="margin-top:10px"><button onclick="act('stop', 'Stoppa jobbet? Det kan återupptas senare.')">Stoppa (kan återupptas)</button></div>`;
+      <div class="mut" style="margin-top:6px">${prog ? `${gb(prog[0])} / ${gb(prog[1])} (${pct.toFixed(0)} %)` : 'starting…'}${next.length ? ' · next: ' + esc(next.join(', ')) : ''}</div>
+      <div style="margin-top:10px"><button onclick="act('stop', 'Stop the job? It can be resumed later.')">Stop (resumable)</button></div>`;
   } else job.hidden = true;
 
   const failed = document.getElementById('failed');
   failed.hidden = !d.failed.length;
-  failed.innerHTML = '<h2>Misslyckade (arbetsmappen sparas för felsökning)</h2>' +
+  failed.innerHTML = '<h2>Failed (work folder kept for troubleshooting)</h2>' +
     d.failed.map(f => `<div><b>${esc(f.id)}</b> <span class="mut">${esc(f.step)}</span><div class="why">${esc(f.error)}</div></div>`).join('');
 
   const busy = d.running;
   document.getElementById('b-fix').disabled = false;
   document.getElementById('games').innerHTML =
-    '<tr><th>Spel</th><th>Status</th><th class="num">Original</th><th class="num">LZ4</th><th class="num">Sparat</th><th>PS5</th><th></th></tr>' +
+    '<tr><th>Game</th><th>Status</th><th class="num">Original</th><th class="num">LZ4</th><th class="num">Saved</th><th>PS5</th><th></th></tr>' +
     d.games.map(g => {
-      const v = g.running ? ['p-run', 'packas'] : g.queued ? ['p-run', 'i kö'] :
-        g.verdict === 'LZ4' ? ['p-LZ4', 'LZ4'] : g.verdict === 'kan bli LZ4' ? ['p-kan', 'kan bli LZ4'] :
-        g.verdict === 'FEL' ? ['p-FEL', 'fel'] : ['p-inte', 'inte LZ4'];
+      const v = g.running ? ['p-run', 'packing'] : g.queued ? ['p-run', 'queued'] :
+        g.verdict === 'LZ4' ? ['p-LZ4', 'LZ4'] : g.verdict === 'can be LZ4' ? ['p-can', 'can be LZ4'] :
+        g.verdict === 'error' ? ['p-err', 'error'] : ['p-no', 'not LZ4'];
       const lz4 = g.verdict === 'LZ4' && g.output_bytes;
       const ps5 = lz4 && !g.output_only ? `<select onclick="event.stopPropagation()" data-game="${esc(g.id)}" onchange="if(this.value)act('community',null,{game:this.dataset.game,result:this.value})">
-          <option value="">${g.ps5 ? esc(PS5_SV[g.ps5]) : 'ej testat'}</option>
-          ${Object.entries(PS5_SV).map(([k, s]) => `<option value="${k}">${s}</option>`).join('')}</select>` : '<span class="mut">–</span>';
+          <option value="">${g.ps5 ? esc(PS5_EN[g.ps5]) : 'not tested'}</option>
+          ${Object.entries(PS5_EN).map(([k, s]) => `<option value="${k}">${s}</option>`).join('')}</select>` : '<span class="mut">–</span>';
       const waiting = pendingFor(g.id);
-      const action = waiting ? '<span class="pill p-run">väntar</span>' : g.can_queue && !g.running && !g.queued
-        ? `<button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game)">Komprimera</button>` : '';
+      const action = waiting ? '<span class="pill p-run">waiting</span>' : g.can_queue && !g.running && !g.queued
+        ? `<button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game)">Compress</button>` : '';
       const why = g.verdict !== 'LZ4' && !g.running ? `<div class="why">${esc(g.why)}</div>` : '';
-      return `<tr class="row" data-id="${esc(g.id)}" onclick="openGame(this.dataset.id)"><td>${esc(g.name)}${g.output_only ? '<span class="mine">LZ4-MAPPEN</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_SV[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div><div class="cm">${community(g.community)}</div>${g.output && (data.transfers || {})[g.output.split('/').pop()] ? `<div class="cm">${xferText(data.transfers[g.output.split('/').pop()])}</div>` : ''}${why}</td>
+      return `<tr class="row" data-id="${esc(g.id)}" onclick="openGame(this.dataset.id)"><td>${esc(g.name)}${g.output_only ? '<span class="mine">LZ4 FOLDER</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_EN[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div><div class="cm">${community(g.community)}</div>${g.output && (data.transfers || {})[g.output.split('/').pop()] ? `<div class="cm">${xferText(data.transfers[g.output.split('/').pop()])}</div>` : ''}${why}</td>
         <td><span class="pill ${v[0]}">${v[1]}</span></td>
         <td class="num">${gb(g.source_bytes)}</td><td class="num">${gb(g.output_bytes)}</td>
         <td class="num">${g.saved_percent != null ? `<b>${gb(g.source_bytes - g.output_bytes)}</b> · ${Math.round(g.saved_percent)} %
-          <div class="sz" title="LZ4 ${gb(g.output_bytes)} av original ${gb(g.source_bytes)}"><i style="width:${(100 - g.saved_percent).toFixed(1)}%"></i></div>` : '–'}</td>
+          <div class="sz" title="LZ4 ${gb(g.output_bytes)} of original ${gb(g.source_bytes)}"><i style="width:${(100 - g.saved_percent).toFixed(1)}%"></i></div>` : '–'}</td>
         <td>${ps5}</td><td>${action}</td></tr>`;
     }).join('');
 
   const log = document.getElementById('log');
   const items = d.requests.recent;
   const pend = d.requests.pending_list || [];
-  const pending = pend.length ? pend.map(r => `<div class="mut">⏳ ${esc(ACT_SV[r.action] || r.action)} ${esc(r.game || '')} – ${d.running && ['start', 'fix', 'resume'].includes(r.action) ? 'startar när pågående jobb är klart' : 'skickad'}</div>`).join('') : '';
+  const pending = pend.length ? pend.map(r => `<div class="mut">⏳ ${esc(ACT_EN[r.action] || r.action)} ${esc(r.game || '')} – ${d.running && ['start', 'fix', 'resume'].includes(r.action) ? 'starts when the running job is done' : 'sent'}</div>`).join('') : '';
   log.innerHTML = pending + (items.length ? items.map(r => {
     let url = (r.output || '').match(/https:\/\/github\.com\/\S+/);
     const fw = (localStorage.getItem('fw') || '').trim();
     if (url && fw && !/[?&]firmware=/.test(url[0])) url = [url[0] + '&firmware=' + encodeURIComponent(fw)];
-    return `<div><b class="${r.ok ? 'good' : 'bad'}">${r.ok ? '✓' : '✗'}</b> ${esc(ACT_SV[r.action] || r.action)}
-      ${r.game ? esc(r.game) : ''}${r.result ? ': ' + esc(PS5_SV[r.result]) : ''} <span class="mut">${esc(r.finished)}</span>
-      ${url ? `<div><a href="${esc(url[0])}" target="_blank" rel="noopener">Dela resultatet med communityn</a></div>` : ''}
-      ${r.action === 'check' && !r.ok ? `<div style="margin:6px 0"><span class="bad">Kontrollen hittade fel.</span>
-        <button class="sm pri" onclick="act('apr', 'Reparera LZ4-spelen som behöver det?\n\nRätt APR-EMU läggs tillbaka och filerna PS5:an läser direkt från disk skrivs ut ur paketen. Inget packas om.')">Reparera</button></div>` : ''}
+    return `<div><b class="${r.ok ? 'good' : 'bad'}">${r.ok ? '✓' : '✗'}</b> ${esc(ACT_EN[r.action] || r.action)}
+      ${r.game ? esc(r.game) : ''}${r.result ? ': ' + esc(PS5_EN[r.result]) : ''} <span class="mut">${esc(r.finished)}</span>
+      ${url ? `<div><a href="${esc(url[0])}" target="_blank" rel="noopener">Share the result with the community</a></div>` : ''}
+      ${(r.action === 'check' || r.action === 'check_full') && !r.ok ? `<div style="margin:6px 0"><span class="bad">The check found problems.</span>
+        <button class="sm pri" onclick="act('apr', 'Repair the LZ4 games that need it?\n\nThe right APR-EMU is put back and the files the PS5 reads straight from disk are written out of the packs. Nothing is repacked.')">Repair</button></div>` : ''}
       <pre>${esc((r.output || '').split('\n').slice(-6).join('\n'))}</pre></div>`;
-  }).join('') : (pending ? '' : '<span class="mut">Inga ännu.</span>'));
+  }).join('') : (pending ? '' : '<span class="mut">None yet.</span>'));
 }
 
 function pendingFor(id) {
@@ -288,8 +289,8 @@ function pendingFor(id) {
 }
 function compress(id) {
   const g = (data.games || []).find(x => x.id === id) || {name: id};
-  const note = data.running ? '\n\nEtt annat spel packas nu; det här startar när det är klart.' : '';
-  act('start', `Komprimera ${g.name} med LZ4?${note}`, {game: id});
+  const note = data.running ? '\n\nAnother game is being packed; this one starts when it is done.' : '';
+  act('start', `Compress ${g.name} with LZ4?${note}`, {game: id});
 }
 function reportLink(repo, tid, name, status) {
   const forms = {works: 'Works', issues: 'Works with issues', nostart: "Won't start (black screen or crash on launch)", crash: 'Crashes in game'};
@@ -300,22 +301,22 @@ function reportLink(repo, tid, name, status) {
   return `https://github.com/${repo}/issues/new?` + p.map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
 }
 function communityHtml(g, det) {
-  if (!det) return '<div class="csec mut">Läser communityrapporter…</div>';
+  if (!det) return '<div class="csec mut">Loading community reports…</div>';
   const c = det.community, repo = det.community_repo, tid = det.title_id || g.title_id || '';
-  const all = tid ? `<a href="https://github.com/${esc(repo)}/issues?q=label%3Acompat+${encodeURIComponent(tid)}" target="_blank" rel="noopener">Alla rapporter</a>` : '';
+  const all = tid ? `<a href="https://github.com/${esc(repo)}/issues?q=label%3Acompat+${encodeURIComponent(tid)}" target="_blank" rel="noopener">All reports</a>` : '';
   const mine = g.ps5 || (det.report || {}).ps5_result || 'works';
-  const report = tid ? `<a href="${esc(reportLink(repo, tid, g.name || tid, mine))}" target="_blank" rel="noopener">Rapportera hur det går</a>` : '';
+  const report = tid ? `<a href="${esc(reportLink(repo, tid, g.name || tid, mine))}" target="_blank" rel="noopener">Report how it runs</a>` : '';
   if (!c || !c.reports)
-    return `<div class="csec"><h4>Community</h4><div class="mut">Ingen har rapporterat ${esc(g.name || tid)} än.</div>
+    return `<div class="csec"><h4>Community</h4><div class="mut">Nobody has reported ${esc(g.name || tid)} yet.</div>
       <div class="acts">${report}</div></div>`;
   const n = c.reports, seg = (k, col) => c[k] ? `<i style="width:${100 * c[k] / n}%;background:${col}"></i>` : '';
   const l = c.lastReport || {};
   const link = l.issue ? ` · <a href="https://github.com/${esc(repo)}/issues/${esc(l.issue)}" target="_blank" rel="noopener">#${esc(l.issue)}</a>` : '';
-  return `<div class="csec"><h4>Community · ${n} rapport${n === 1 ? '' : 'er'}</h4>
+  return `<div class="csec"><h4>Community · ${n} report${n === 1 ? '' : 's'}</h4>
     <div>${community(c)}</div>
     <div class="cbar">${seg('works', 'var(--ok)')}${seg('issues', 'var(--warn)')}${seg('noStart', 'var(--bad)')}${seg('crash', 'var(--bad)')}</div>
-    <div class="why">Senast: <b>${esc(ST_SV[l.status] || l.status || '–')}</b> ${esc((l.date || '').slice(0, 10))}${link}
-      ${l.source ? ' · packat från ' + esc(l.source) : ''}${l.level ? ' · nivå ' + esc(l.level) : ''}${l.firmware ? ' · FW ' + esc(l.firmware) : ''}${l.appVersion ? ' · ' + esc(l.appVersion) : ''}</div>
+    <div class="why">Latest: <b>${esc(ST_EN[l.status] || l.status || '–')}</b> ${esc((l.date || '').slice(0, 10))}${link}
+      ${l.source ? ' · packed from ' + esc(l.source) : ''}${l.level ? ' · level ' + esc(l.level) : ''}${l.firmware ? ' · FW ' + esc(l.firmware) : ''}${l.appVersion ? ' · ' + esc(l.appVersion) : ''}</div>
     <div class="acts">${all}${report}</div></div>`;
 }
 let openId = null;
@@ -333,47 +334,47 @@ async function openGame(id) {
 }
 function gameHtml(g, det) {
   const r = det && det.report, f = det && det.folder, w = det && det.work;
-  const v = g.running ? 'packas nu' : g.queued ? 'i kö' : g.verdict;
+  const v = g.running ? 'packing now' : g.queued ? 'queued' : g.verdict;
   const rows = [
     ['Status', esc(v) + (g.why && g.verdict !== 'LZ4' ? `<div class="why">${esc(g.why)}</div>` : '')],
     ['Title ID', esc(g.title_id || '–')],
-    ['Källa', g.output_only ? 'finns inte i biblioteket' : `${esc(KIND_SV[g.kind] || g.kind)}${g.source_size ? ' · ' + gb(g.source_size) : ''}<div class="why">${esc(g.rel || '')}</div>` +
-      (g.verdict !== 'LZ4' && g.kind !== 'folder' && !g.output_only ? '<div class="why">Packas upp till en arbetsmapp på NAS:en före LZ4-packningen; originalet ändras inte.</div>' : '')],
+    ['Source', g.output_only ? 'not in the library' : `${esc(KIND_EN[g.kind] || g.kind)}${g.source_size ? ' · ' + gb(g.source_size) : ''}<div class="why">${esc(g.rel || '')}</div>` +
+      (g.verdict !== 'LZ4' && g.kind !== 'folder' && !g.output_only ? '<div class="why">Unpacked to a work folder on the NAS before LZ4 packing; the original is not changed.</div>' : '')],
     ['Original', gb(g.source_bytes)],
     ['LZ4', gb(g.output_bytes)],
-    ['Sparat', g.saved_percent != null ? `${gb(g.source_bytes - g.output_bytes)} (${Math.round(g.saved_percent)} %)` : '–'],
+    ['Saved', g.saved_percent != null ? `${gb(g.source_bytes - g.output_bytes)} (${Math.round(g.saved_percent)} %)` : '–'],
   ];
-  if (f) rows.push(['LZ4-mapp', `${esc(f.path)}<div class="why">${f.files} filer · ${f.paks} LZ4-volymer · ${gb(f.bytes)}${f.problem ? ' · <span class="bad">' + esc(f.problem) + '</span>' : ' · format ok'}</div>`]);
+  if (f) rows.push(['LZ4 folder', `${esc(f.path)}<div class="why">${f.files} files · ${f.paks} LZ4 volumes · ${gb(f.bytes)}${f.problem ? ' · <span class="bad">' + esc(f.problem) + '</span>' : ' · format ok'}</div>`]);
   if (r) {
-    rows.push(['Komprimering', `${esc(r.codec || '')}${r.profile ? `<div class="why">profil: ${esc(r.profile)}</div>` : ''}`]);
-    if (r.pack) rows.push(['Paket', `${r.pack.packed} filer packade, ${r.pack.loose} lösa · ${r.pack.lz4} LZ4-block`]);
-    rows.push(['Kontroller', `NAS: ${r.verified_on_nas ? '<span class="good">ok</span>' : 'nej'}${r.verification ? `<div class="why">${esc(r.verification.restore_test || '')}</div>` : ''}`]);
-    rows.push(['PS5', esc(r.playable_on_ps5 || 'ej testat')]);
-    rows.push(['Klar', esc(r.finished || '–')]);
+    rows.push(['Compression', `${esc(r.codec || '')}${r.profile ? `<div class="why">profile: ${esc(r.profile)}</div>` : ''}`]);
+    if (r.pack) rows.push(['Pack', `${r.pack.packed} files packed, ${r.pack.loose} loose · ${r.pack.lz4} LZ4 blocks`]);
+    rows.push(['Checks', `NAS: ${r.verified_on_nas ? '<span class="good">ok</span>' : 'no'}${r.verification ? `<div class="why">${esc(r.verification.restore_test || '')}</div>` : ''}`]);
+    rows.push(['PS5', esc(r.playable_on_ps5 || 'not tested')]);
+    rows.push(['Finished', esc(r.finished || '–')]);
   }
   const tx = (data.transfers || {})[g.output ? g.output.split('/').pop() : g.id];
-  if (tx) rows.push(['PS5-överföring', `${xferText(tx)}<div class="why">${esc(tx.dest || '')}${tx.verified ? ` · ${tx.verified} programfiler kontrollerade` : ''}${tx.error ? `<br><span class="bad">${esc(tx.error)}</span>` : ''}</div>`]);
-  if (w && w.error) rows.push(['Senaste fel', `<span class="bad">${esc(w.error)}</span><div class="why">steg ${esc(w.step || '')}</div>`]);
+  if (tx) rows.push(['PS5 transfer', `${xferText(tx)}<div class="why">${esc(tx.dest || '')}${tx.verified ? ` · ${tx.verified} program files checked` : ''}${tx.error ? `<br><span class="bad">${esc(tx.error)}</span>` : ''}</div>`]);
+  if (w && w.error) rows.push(['Last error', `<span class="bad">${esc(w.error)}</span><div class="why">step ${esc(w.step || '')}</div>`]);
 
   const acts = [];
-  if (pendingFor(g.id)) acts.push('<span class="pill p-run">väntar på att starta</span>');
+  if (pendingFor(g.id)) acts.push('<span class="pill p-run">waiting to start</span>');
   else if (g.can_queue && !g.running && !g.queued)
-    acts.push(`<button class="pri" data-game="${esc(g.id)}" onclick="compress(this.dataset.game)">Komprimera</button>`);
+    acts.push(`<button class="pri" data-game="${esc(g.id)}" onclick="compress(this.dataset.game)">Compress</button>`);
   if (g.verdict === 'LZ4' && !g.output_only)
     acts.push(`<select data-game="${esc(g.id)}" onchange="if(this.value)act('community',null,{game:this.dataset.game,result:this.value})">
-      <option value="">PS5-resultat: ${g.ps5 ? esc(PS5_SV[g.ps5]) : 'ej testat'}</option>
-      ${Object.entries(PS5_SV).map(([k, s]) => `<option value="${k}">${s}</option>`).join('')}</select>`);
-  if (g.running) acts.push(`<button onclick="act('stop', 'Stoppa jobbet? Det kan återupptas senare.')">Stoppa</button>`);
+      <option value="">PS5 result: ${g.ps5 ? esc(PS5_EN[g.ps5]) : 'not tested'}</option>
+      ${Object.entries(PS5_EN).map(([k, s]) => `<option value="${k}">${s}</option>`).join('')}</select>`);
+  if (g.running) acts.push(`<button onclick="act('stop', 'Stop the job? It can be resumed later.')">Stop</button>`);
   const tr = (data.transfers || {})[g.output ? g.output.split('/').pop() : g.id];
   if (g.verdict === 'LZ4' && g.output) {
     const busy = data.transfer && data.transfer.state === 'running';
-    acts.push(`<button class="pri" ${busy ? 'disabled title="en överföring pågår"' : ''} data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}"
-      onclick="push(this.dataset.id, this.dataset.name)">${tr && tr.state === 'done' ? 'Överför igen' : 'Överför till PS5'}</button>`);
+    acts.push(`<button class="pri" ${busy ? 'disabled title="a transfer is running"' : ''} data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}"
+      onclick="push(this.dataset.id, this.dataset.name)">${tr && tr.state === 'done' ? 'Send again' : 'Send to PS5'}</button>`);
   }
   return `<h3>${esc(g.name)}</h3><div class="mut">${esc(g.title_id || '')}</div>
     ${communityHtml(g, det)}
     <div class="kv">${rows.map(([k, x]) => `<div>${k}</div><div>${x}</div>`).join('')}</div>
-    <div class="acts">${acts.join('') || '<span class="mut">Inget att göra för det här spelet.</span>'}</div>`;
+    <div class="acts">${acts.join('') || '<span class="mut">Nothing to do for this game.</span>'}</div>`;
 }
 let comm = null;
 function tab(t) {
@@ -388,9 +389,9 @@ async function loadComm() {
   try {
     comm = await (await fetch('/api/community', {cache: 'no-store'})).json();
     renderComm();
-  } catch (e) { document.getElementById('c-sub').textContent = 'Kunde inte läsa rapporterna: ' + e; }
+  } catch (e) { document.getElementById('c-sub').textContent = 'Could not read the reports: ' + e; }
 }
-const ST_SV = {works: 'fungerar', issues: 'med problem', noStart: 'startar inte', crash: 'kraschar'};
+const ST_EN = {works: 'works', issues: 'with issues', noStart: "won't start", crash: 'crashes'};
 function renderComm() {
   if (!comm) return;
   const mine = new Set((data ? data.games : []).map(g => (g.title_id || '').toUpperCase()));
@@ -399,9 +400,9 @@ function renderComm() {
   let rows = Object.entries(comm.games || {}).map(([tid, g]) => ({tid, ...g}));
   const total = rows.reduce((n, r) => n + (r.reports || 0), 0);
   document.getElementById('c-sub').innerHTML =
-    `${rows.length} spel, ${total} rapporter från <a href="https://github.com/${esc(comm.repo)}/issues?q=label%3Acompat" target="_blank" rel="noopener">${esc(comm.repo)}</a>` +
-    (comm.updated ? ` · uppdaterad ${esc(comm.updated.replace('T', ' ').replace('Z', ' UTC'))}` : '') +
-    ' · följer med varje ny image';
+    `${rows.length} games, ${total} reports from <a href="https://github.com/${esc(comm.repo)}/issues?q=label%3Acompat" target="_blank" rel="noopener">${esc(comm.repo)}</a>` +
+    (comm.updated ? ` · updated ${esc(comm.updated.replace('T', ' ').replace('Z', ' UTC'))}` : '') +
+    ' · shipped with every new image';
   if (q) rows = rows.filter(r => (r.name || '').toLowerCase().includes(q) || r.tid.toLowerCase().includes(q));
   if (f === 'works') rows = rows.filter(r => r.works);
   if (f === 'problems') rows = rows.filter(r => r.noStart || r.crash);
@@ -411,17 +412,17 @@ function renderComm() {
             sort === 'date' ? (a, b) => date(b).localeCompare(date(a)) :
             (a, b) => (b.reports || 0) - (a.reports || 0) || (a.name || '').localeCompare(b.name || ''));
   document.getElementById('comm').innerHTML =
-    '<tr><th>Spel</th><th>Resultat</th><th>Senaste rapport</th><th>Packat från</th><th>Firmware</th><th>Version</th></tr>' +
+    '<tr><th>Game</th><th>Result</th><th>Latest report</th><th>Packed from</th><th>Firmware</th><th>Version</th></tr>' +
     (rows.length ? rows.map(r => {
       const l = r.lastReport || {};
       const link = l.issue ? `https://github.com/${comm.repo}/issues/${l.issue}` : '';
-      return `<tr><td>${esc(r.name || r.tid)}${mine.has(r.tid) ? '<span class="mine">I DITT BIBLIOTEK</span>' : ''}<div class="why">${esc(r.tid)}</div></td>
+      return `<tr><td>${esc(r.name || r.tid)}${mine.has(r.tid) ? '<span class="mine">IN YOUR LIBRARY</span>' : ''}<div class="why">${esc(r.tid)}</div></td>
         <td>${community(r)}</td>
-        <td>${l.status ? `<span class="${l.status === 'works' ? 'good' : (l.status === 'noStart' || l.status === 'crash') ? 'bad' : ''}">${esc(ST_SV[l.status] || l.status)}</span>` : '–'}
+        <td>${l.status ? `<span class="${l.status === 'works' ? 'good' : (l.status === 'noStart' || l.status === 'crash') ? 'bad' : ''}">${esc(ST_EN[l.status] || l.status)}</span>` : '–'}
           <div class="why">${esc((l.date || '').slice(0, 10))}${link ? ` · <a href="${esc(link)}" target="_blank" rel="noopener">#${esc(l.issue)}</a>` : ''}</div></td>
-        <td>${esc(l.source || '–')}${l.level ? `<div class="why">nivå ${esc(l.level)}</div>` : ''}</td>
+        <td>${esc(l.source || '–')}${l.level ? `<div class="why">level ${esc(l.level)}</div>` : ''}</td>
         <td>${esc(l.firmware || '–')}</td><td>${esc(l.appVersion || '–')}</td></tr>`;
-    }).join('') : '<tr><td colspan="6" class="mut">Inga rapporter matchar.</td></tr>');
+    }).join('') : '<tr><td colspan="6" class="mut">No reports match.</td></tr>');
 }
 
 async function load() {
@@ -429,33 +430,33 @@ async function load() {
     const r = await fetch('/api/dashboard', {cache: 'no-store'});
     const d = await r.json();
     const err = document.getElementById('error');
-    if (d.error) { err.hidden = false; err.textContent = 'Fel: ' + d.error; return; }
+    if (d.error) { err.hidden = false; err.textContent = 'Error: ' + d.error; return; }
     err.hidden = true;
     data = d; render();
     if (!window._hashOpened && location.hash.startsWith('#game=')) { window._hashOpened = 1; openGame(decodeURIComponent(location.hash.slice(6))); }
   } catch (e) {
     const err = document.getElementById('error');
-    err.hidden = false; err.textContent = 'Når inte ps5-lz4-ui: ' + e;
+    err.hidden = false; err.textContent = 'Cannot reach ps5-lz4-ui: ' + e;
   }
 }
 try { document.getElementById('fw').value = localStorage.getItem('fw') || ''; } catch (e) {}
 async function pair() {
   const acc = document.getElementById('p-acc').value.trim(), pin = document.getElementById('p-pin').value.trim();
-  if (!acc || !/^\d{8}$/.test(pin)) { alert('Fyll i konto-ID och PIN-koden (8 siffror) från PS5:an.'); return; }
-  const btn = event.target; btn.disabled = true; btn.textContent = 'Kopplar…';
+  if (!acc || !/^\d{8}$/.test(pin)) { alert('Enter the account ID and the PIN (8 digits) shown on the PS5.'); return; }
+  const btn = event.target; btn.disabled = true; btn.textContent = 'Pairing…';
   try {
     const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({action: 'pair', pin, account_id: acc})});
     const j = await r.json().catch(() => ({}));
-    alert(r.ok ? `Kopplad till ${j.nickname || 'PS5:an'}. Den kan nu väckas från viloläge.` : 'Kopplingen misslyckades: ' + (j.error || r.status));
+    alert(r.ok ? `Paired with ${j.nickname || 'the PS5'}. It can now be woken from rest mode.` : 'Pairing failed: ' + (j.error || r.status));
     if (r.ok) { document.getElementById('p-pin').value = ''; settingsFilled = false; load(); }
-  } finally { btn.disabled = false; btn.textContent = 'Koppla'; }
+  } finally { btn.disabled = false; btn.textContent = 'Pair'; }
 }
 async function ps5State() {
   try {
     const r = await (await fetch('/api/ps5', {cache: 'no-store'})).json();
-    const el = document.getElementById('ps5st'), m = {on: ['p-LZ4', 'PS5: på'], standby: ['p-run', 'PS5: viloläge'],
-      unknown: ['p-inte', 'PS5: svarar inte'], unset: ['p-inte', 'PS5: ingen adress']}[r.status] || ['p-inte', 'PS5: ?'];
+    const el = document.getElementById('ps5st'), m = {on: ['p-LZ4', 'PS5: on'], standby: ['p-run', 'PS5: rest mode'],
+      unknown: ['p-no', 'PS5: no answer'], unset: ['p-no', 'PS5: no address']}[r.status] || ['p-no', 'PS5: ?'];
     el.className = 'pill ' + m[0]; el.textContent = m[1];
   } catch (e) {}
 }
@@ -463,7 +464,7 @@ load(); setInterval(load, 5000); ps5State(); setInterval(ps5State, 15000);
 try { if (location.hash === '#community' || localStorage.getItem('tab') === 'comm') tab('comm'); } catch (e) {}
 </script>
 <footer class="mut" style="text-align:center;padding:16px;font-size:12px">ps5-lz4 ·
-  <a href="https://github.com/dviree/PS5-LZ4-NAS" target="_blank" rel="noopener">källkod</a> (GPL-3.0; Remote Play-kopplingen
-  är porterad från <a href="https://github.com/streetpea/chiaki-ng" target="_blank" rel="noopener">chiaki-ng</a>, AGPL-3.0)</footer>
+  <a href="https://github.com/dviree/PS5-LZ4-NAS" target="_blank" rel="noopener">source code</a> (GPL-3.0; Remote Play pairing
+  is ported from <a href="https://github.com/streetpea/chiaki-ng" target="_blank" rel="noopener">chiaki-ng</a>, AGPL-3.0)</footer>
 </body>
 </html>
