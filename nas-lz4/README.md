@@ -105,6 +105,11 @@ that container alone.
   icon, name, Title ID, version, drive, LZ4 or not, size (Measure), and a
   warning when two folders have the same Title ID (ShadowMountPlus mounts
   one). Buttons: Delete (one OK), Open in the FTP tab, APR-EMU check.
+- **Game sheet (tap a game):** where the original is on the NAS, every copy
+  of the game on the PS5 (found by Title ID, however it got there), and the
+  buttons **Send original to PS5** (the folder or image as it is, for games
+  that aren't LZ4), **🗑 Delete from PS5** and **🗑 Delete LZ4 copy on NAS**
+  (frees the space; the original is never touched).
 - **Remote tab:** the PS5 address, pairing and wake-up (see below), and the
   PS5's drives (internal SSD, USB, extended storage) with what ps5-lz4 sent
   there, how many game folders they hold, **Measure** (adds up the files)
