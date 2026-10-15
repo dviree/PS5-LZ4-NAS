@@ -239,6 +239,13 @@ running engine keeps going; the new file runs from the next start.
 Updates come from this repository (`dviree/PS5-LZ4-NAS`);
 `PS5LZ4_ENGINE_REPO` picks another one.
 
+**The app on the PS5:** the same card has **Install app on PS5**. It
+downloads `LZ4-Compression-PPSA99420.zip` from the original project's latest
+release (SHA-256 checked, `PS5LZ4_APP_REPO` picks another repository) and
+copies its `PPSA99420` folder over FTP to `/data/homebrew/PPSA99420`.
+ShadowMount+ then adds the LZ4 Compression tile: the console UI made for the
+controller, which uses the engine on the PS5.
+
 ## Deleting originals
 
 By default the library is mounted read-only, so nothing can change or delete

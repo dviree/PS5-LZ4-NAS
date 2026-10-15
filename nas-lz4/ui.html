@@ -296,6 +296,14 @@ button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;whi
       <button class="two danger" id="eng-restore" hidden onclick="engAct('engine_restore', 'Put the saved original engine (.orig) back?')">Restore the original<small>undo the install</small></button>
     </div>
     <div class="why" id="eng-msg"></div>
+    <h4 style="margin:16px 0 4px">App on the PS5 (the LZ4 Compression tile)</h4>
+    <div class="mut">The app is the UI on the PS5 itself, made for the controller: library, game pages and actions,
+    no browser needed. It talks to the engine and starts it when it isn't running. It comes from the original
+    project's release and goes to <code>/data/homebrew/PPSA99420</code>; ShadowMount+ then adds the tile
+    (close any running game if it doesn't show up).</div>
+    <div class="filters"><span class="pill p-no" id="app-st" style="align-self:center">App: ?</span>
+      <button class="two" onclick="appInstall()">Install app on PS5<small>download the tile and copy it over FTP</small></button></div>
+    <div class="why" id="app-msg"></div>
   </div>
   <div class="card"><h2>PS5 storage</h2>
     <div class="mut">ftpsrv can't tell a drive's size or free space, so: <b>Set size</b> once (as PS5 Settings › Storage
@@ -1163,7 +1171,7 @@ function tab(t) {
   try { localStorage.setItem('tab', t); } catch (e) {}
   if (t === 'comm') loadComm();
   if (t === 'pg' && !pgData) loadPg();
-  if (t === 'ps5') engCheck();
+  if (t === 'ps5') { engCheck(); appCheck(); }
   if (t === 'ps5' && !window._drives) { window._drives = 1; loadDrives(); }
   if (t === 'ftp' && !ftpLoaded) ftpGo(ftpPath);
 }
@@ -1352,6 +1360,25 @@ async function engRead() {
 }
 async function engAuto(on) {
   await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'engine_auto', on})});
+}
+async function appCheck() {
+  const st = document.getElementById('app-st');
+  try {
+    const j = await (await fetch('/api/app', {cache: 'no-store'})).json();
+    st.className = 'pill ' + (j.installed ? 'p-LZ4' : 'p-no');
+    st.textContent = j.installed ? 'App: installed ✓' : j.installed === false ? 'App: not installed' : 'App: PS5 not reachable';
+  } catch (e) { st.textContent = 'App: ?'; }
+}
+async function appInstall() {
+  if (!confirm('Install the LZ4 Compression app (tile) on the PS5?\n\nIt is downloaded from GitHub and copied over FTP to /data/homebrew/PPSA99420, overwriting an older copy.')) return;
+  const msg = document.getElementById('app-msg');
+  msg.className = 'why'; msg.textContent = 'Downloading and copying to the PS5…';
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'app_install'})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { msg.className = 'why bad'; msg.textContent = 'Failed: ' + (j.error || r.status); return; }
+  msg.className = 'why good';
+  msg.textContent = `Installed ${j.tag} (${j.files} files). The LZ4 Compression tile shows up on the home screen once ShadowMount+ has scanned (close any running game).`;
+  appCheck();
 }
 async function engAct(action, confirmText) {
   if (confirmText && !confirm(confirmText)) return;
