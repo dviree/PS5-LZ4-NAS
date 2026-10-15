@@ -1,24 +1,24 @@
 {
  "version": 1,
- "updated": "2026-10-15T13:37:10Z",
+ "updated": "2026-10-15T13:57:17Z",
  "games": {
   "PPSA03671": {
    "name": "Marvel's Wolverine",
-   "works": 1,
+   "works": 2,
    "issues": 0,
    "noStart": 0,
    "crash": 0,
-   "reports": 1,
+   "reports": 2,
    "lastReport": {
     "status": "works",
     "game": "Marvel's Wolverine",
-    "gameVersion": "",
-    "level": "",
-    "source": "Downloaded already packed",
-    "firmware": "",
+    "gameVersion": "01.001.004",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.60",
     "appVersion": "1.5.0",
-    "date": "2026-10-14T21:28:58Z",
-    "issue": 14
+    "date": "2026-10-15T13:57:06Z",
+    "issue": 25
    }
   },
   "PPSA15368": {
