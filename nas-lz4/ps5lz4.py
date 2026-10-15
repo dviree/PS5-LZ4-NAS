@@ -2476,6 +2476,8 @@ def cmd_ui(args) -> int:
                 return self.send(400, b'{"error":"bad request"}')
             if req.get("action") == "pair":
                 try:
+                    if req.get("ps5_ftp"):  # the address typed on the page, saved or not
+                        save_settings({k: req[k] for k in ("ps5_ftp", "ps5_dest") if req.get(k)})
                     res = ps5_pair(str(req.get("pin") or ""), str(req.get("account_id") or ""))
                 except ValueError as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
