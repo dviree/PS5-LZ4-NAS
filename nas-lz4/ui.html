@@ -8,6 +8,7 @@
 :root{--bg:#f5f6f8;--card:#fff;--line:#e3e6eb;--txt:#16181d;--mut:#667085;--ok:#18794e;--okbg:#e3f5ec;--acc:#3563e9;--accbg:#e7edfd;--warn:#9a6700;--warnbg:#fdf3dc;--bad:#c4320a;--badbg:#fdeae5;--chip:#eef0f3}
 @media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#171a21;--line:#262b35;--txt:#e6e8ec;--mut:#8b93a3;--ok:#3fb68b;--okbg:#1d3a30;--acc:#5b8cff;--accbg:#1f2c4d;--warn:#e0a43a;--warnbg:#3a3220;--bad:#f0776f;--badbg:#3a2224;--chip:#232835}}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 -apple-system,Segoe UI,Roboto,sans-serif}
 header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:14px 16px;border-bottom:1px solid var(--line)}
 header h1{font-size:18px;margin:0}.sub{color:var(--mut)}.sp{flex:1}
@@ -40,6 +41,12 @@ select{font:inherit;padding:3px 6px;border-radius:6px;border:1px solid var(--lin
 .log div{overflow-wrap:anywhere;padding:6px 0;border-top:1px solid var(--line);font-size:13px}.log div:first-child{border-top:0}
 .log pre{margin:4px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;color:var(--mut);max-height:120px;overflow:auto}
 a{color:var(--acc)}
+.tabs{display:flex;gap:4px;padding:10px 16px 0;max-width:1280px;margin:0 auto}
+.tabs button{background:none;border-radius:8px 8px 0 0;color:var(--mut);padding:8px 14px}
+.tabs button.on{background:var(--card);color:var(--txt);box-shadow:inset 0 -2px 0 var(--acc)}
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.filters input{font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--txt);flex:1;min-width:180px}
+.mine{font-size:11px;font-weight:600;color:var(--acc);margin-left:6px}
 .err{background:var(--badbg);color:var(--bad);border-radius:8px;padding:10px 12px}
 @media (max-width:640px){.steps{grid-template-columns:repeat(3,1fr)}}
 </style>
@@ -51,7 +58,11 @@ a{color:var(--acc)}
   <button onclick="act('apr', 'Reparera alla LZ4-spel (APR-EMU och filer på disk)?')">Reparera alla</button>
   <button class="pri" id="b-fix" onclick="act('fix', 'Packa alla spel som kan bli LZ4?')">Packa allt som kan bli LZ4</button>
 </header>
-<main>
+<nav class="tabs">
+  <button id="t-mine" class="on" onclick="tab('mine')">Mina spel</button>
+  <button id="t-comm" onclick="tab('comm')">Community</button>
+</nav>
+<main id="p-mine">
   <div id="error" class="err" hidden></div>
   <div class="kpis" id="kpis"></div>
   <div class="card" id="job" hidden></div>
@@ -65,6 +76,23 @@ a{color:var(--acc)}
         oninput="localStorage.setItem('fw', this.value); render()"></label>
   </div>
   <div class="card"><h2>Senaste åtgärder</h2><div class="log" id="log"><span class="mut">Inga ännu.</span></div></div>
+</main>
+<main id="p-comm" hidden>
+  <div class="card">
+    <h2>Communityrapporter</h2>
+    <div class="mut" id="c-sub"></div>
+    <div class="filters">
+      <input id="c-q" placeholder="Sök spel eller Title ID" oninput="renderComm()">
+      <select id="c-f" onchange="renderComm()">
+        <option value="">Alla</option><option value="works">Fungerar</option>
+        <option value="problems">Problem (startar inte / kraschar)</option><option value="mine">Bara mina spel</option>
+      </select>
+      <select id="c-s" onchange="renderComm()">
+        <option value="reports">Flest rapporter</option><option value="date">Senaste rapport</option><option value="name">Namn</option>
+      </select>
+    </div>
+    <div class="scroll"><table id="comm"></table></div>
+  </div>
 </main>
 <script>
 const STEP_SV = {source: 'Källa', check: 'Kontroll', pack: 'Packning', verify: 'Verifiering', restore: 'Återställningstest', publish: 'Publicering'};
@@ -165,6 +193,55 @@ function render() {
   }).join('') : (pending ? '' : '<span class="mut">Inga ännu.</span>'));
 }
 
+let comm = null;
+function tab(t) {
+  document.getElementById('p-mine').hidden = t !== 'mine';
+  document.getElementById('p-comm').hidden = t !== 'comm';
+  document.getElementById('t-mine').classList.toggle('on', t === 'mine');
+  document.getElementById('t-comm').classList.toggle('on', t === 'comm');
+  try { localStorage.setItem('tab', t); } catch (e) {}
+  if (t === 'comm') loadComm();
+}
+async function loadComm() {
+  try {
+    comm = await (await fetch('/api/community', {cache: 'no-store'})).json();
+    renderComm();
+  } catch (e) { document.getElementById('c-sub').textContent = 'Kunde inte läsa rapporterna: ' + e; }
+}
+const ST_SV = {works: 'fungerar', issues: 'med problem', noStart: 'startar inte', crash: 'kraschar'};
+function renderComm() {
+  if (!comm) return;
+  const mine = new Set((data ? data.games : []).map(g => (g.title_id || '').toUpperCase()));
+  const q = document.getElementById('c-q').value.trim().toLowerCase();
+  const f = document.getElementById('c-f').value, sort = document.getElementById('c-s').value;
+  let rows = Object.entries(comm.games || {}).map(([tid, g]) => ({tid, ...g}));
+  const total = rows.reduce((n, r) => n + (r.reports || 0), 0);
+  document.getElementById('c-sub').innerHTML =
+    `${rows.length} spel, ${total} rapporter från <a href="https://github.com/${esc(comm.repo)}/issues?q=label%3Acompat" target="_blank" rel="noopener">${esc(comm.repo)}</a>` +
+    (comm.updated ? ` · uppdaterad ${esc(comm.updated.replace('T', ' ').replace('Z', ' UTC'))}` : '') +
+    ' · följer med varje ny image';
+  if (q) rows = rows.filter(r => (r.name || '').toLowerCase().includes(q) || r.tid.toLowerCase().includes(q));
+  if (f === 'works') rows = rows.filter(r => r.works);
+  if (f === 'problems') rows = rows.filter(r => r.noStart || r.crash);
+  if (f === 'mine') rows = rows.filter(r => mine.has(r.tid));
+  const date = r => (r.lastReport || {}).date || '';
+  rows.sort(sort === 'name' ? (a, b) => (a.name || '').localeCompare(b.name || '') :
+            sort === 'date' ? (a, b) => date(b).localeCompare(date(a)) :
+            (a, b) => (b.reports || 0) - (a.reports || 0) || (a.name || '').localeCompare(b.name || ''));
+  document.getElementById('comm').innerHTML =
+    '<tr><th>Spel</th><th>Resultat</th><th>Senaste rapport</th><th>Packat från</th><th>Firmware</th><th>Version</th></tr>' +
+    (rows.length ? rows.map(r => {
+      const l = r.lastReport || {};
+      const link = l.issue ? `https://github.com/${comm.repo}/issues/${l.issue}` : '';
+      return `<tr><td>${esc(r.name || r.tid)}${mine.has(r.tid) ? '<span class="mine">I DITT BIBLIOTEK</span>' : ''}<div class="why">${esc(r.tid)}</div></td>
+        <td>${community(r)}</td>
+        <td>${l.status ? `<span class="${l.status === 'works' ? 'good' : (l.status === 'noStart' || l.status === 'crash') ? 'bad' : ''}">${esc(ST_SV[l.status] || l.status)}</span>` : '–'}
+          <div class="why">${esc((l.date || '').slice(0, 10))}${link ? ` · <a href="${esc(link)}" target="_blank" rel="noopener">#${esc(l.issue)}</a>` : ''}</div></td>
+        <td>${esc(l.source || '–')}${l.level ? `<div class="why">nivå ${esc(l.level)}</div>` : ''}</td>
+        <td>${esc(l.firmware || '–')}</td><td>${esc(l.appVersion || '–')}</td></tr>`;
+    }).join('') : '<tr><td colspan="6" class="mut">Inga rapporter matchar.</td></tr>');
+}
+
 async function load() {
   try {
     const r = await fetch('/api/dashboard', {cache: 'no-store'});
@@ -180,6 +257,7 @@ async function load() {
 }
 try { document.getElementById('fw').value = localStorage.getItem('fw') || ''; } catch (e) {}
 load(); setInterval(load, 5000);
+try { if (location.hash === '#community' || localStorage.getItem('tab') === 'comm') tab('comm'); } catch (e) {}
 </script>
 </body>
 </html>
