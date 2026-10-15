@@ -6,6 +6,11 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Publish a release with this tag (e.g. v1.5.0-nas.1); empty: build only"
+        required: false
+        default: ""
 
 jobs:
   build:
@@ -38,7 +43,9 @@ jobs:
       - name: Build ELF with firmware 13.60 support
         run: |
           python3 tools/check_sdk_fw1360.py "$PS5_PAYLOAD_SDK"
-          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+          if [[ -n "${{ inputs.release_tag }}" ]]; then
+            build_version="${{ inputs.release_tag }}"
+          elif [[ "$GITHUB_REF_TYPE" == tag ]]; then
             build_version="$GITHUB_REF_NAME"
           else
             build_version="$(git describe --tags --always --dirty)"
@@ -58,18 +65,23 @@ jobs:
             SHA256SUMS
 
       - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
-          notes="RELEASE_NOTES_${GITHUB_REF_NAME#v}.md"
+          notes="RELEASE_NOTES_${TAG#v}.md"
           if [[ -f "$notes" ]]; then notes_args=(--notes-file "$notes"); else notes_args=(--generate-notes); fi
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" lz4-compression.elf SHA256SUMS --clobber
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" lz4-compression.elf SHA256SUMS --clobber
+          elif [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            gh release create "$TAG" lz4-compression.elf SHA256SUMS \
+              --verify-tag "${notes_args[@]}" --title "LZ4 Compression $TAG"
           else
-            gh release create "$GITHUB_REF_NAME" lz4-compression.elf SHA256SUMS \
-              --verify-tag "${notes_args[@]}" --title "LZ4 Compression $GITHUB_REF_NAME"
+            # Run by hand: the tag is made at the commit that was built.
+            gh release create "$TAG" lz4-compression.elf SHA256SUMS --target "$GITHUB_SHA" \
+              "${notes_args[@]}" --title "LZ4 Compression $TAG"
           fi
 
   nas:
