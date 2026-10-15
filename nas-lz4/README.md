@@ -102,8 +102,9 @@ that container alone.
   filters and sorting.
 - **Remote tab:** the PS5 address, pairing and wake-up (see below), and the
   PS5's drives (internal SSD, USB, extended storage) with what ps5-lz4 sent
-  there and a **Measure** button that adds up their files (ftpsrv can't
-  report free space).
+  there, how many game folders they hold, **Measure** (adds up the files)
+  and **Set size** (ftpsrv can't report a drive's size or free space: enter
+  it once and the page shows free = size − measured, with a bar).
 - **FTP tab:** browse the PS5's drives over ftpsrv, game folders with their
   icon (`sce_sys/icon0.png`, cached in `state/icons/`) (`/data`, `/mnt/usb0`,
   `/mnt/ext0`, ...) download files as they are on disk (SELF decryption off)

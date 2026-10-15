@@ -94,6 +94,9 @@ select{font:inherit;padding:5px 8px;border-radius:8px;border:1px solid var(--lin
 .kv div{overflow-wrap:anywhere}.acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
 .err{background:var(--badbg);color:var(--bad);border-radius:10px;padding:10px 12px}
 footer{opacity:.8}
+.drive{padding:12px 0;border-top:1px solid var(--line)}.drive:first-child{border-top:0}
+.dhead{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-bottom:6px}
+.dbar{height:10px;margin:4px 0 6px}.dbar.full i{background:var(--bad)}
 .help summary{cursor:pointer;font-weight:700;font-size:15px;list-style:none}.help summary::-webkit-details-marker{display:none}
 .help summary::before{content:'ⓘ';color:var(--acc);margin-right:8px}.help summary::after{content:' ›';color:var(--mut)}.help[open] summary::after{content:' ⌄'}
 .hgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:4px 28px;margin-top:6px}
@@ -245,8 +248,9 @@ button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;whi
     <div class="mut" id="paired"></div>
   </div>
   <div class="card"><h2>PS5 storage</h2>
-    <div class="mut">Drives the PS5 shows over FTP and what is on them. ftpsrv can't report free space, so
-    <b>Measure</b> adds up the files on a drive (a full drive takes a minute or two).</div>
+    <div class="mut">ftpsrv can't tell a drive's size or free space, so: <b>Set size</b> once (as PS5 Settings › Storage
+    or the drive's label shows it), and <b>Measure</b> adds up the files on the drive. Free = size − measured.
+    Measurements are kept; measure again after big changes.</div>
     <div id="drives" style="margin-top:8px"><button class="sm" onclick="loadDrives()">Show drives</button></div>
   </div>
   <div class="card"><h2>1. Address</h2>
@@ -810,17 +814,39 @@ async function loadDrives() {
   try {
     const r = await fetch('/api/ps5/drives', {cache: 'no-store'}), j = await r.json();
     if (!r.ok) { el.innerHTML = `<span class="bad">${esc(j.error || r.status)}</span> <button class="sm" onclick="loadDrives()">Try again</button>`; return; }
-    el.innerHTML = j.drives.map((d, i) => `<div class="qrow"><span class="qname"><b>${esc(d.label)}</b> <span class="mut">${esc(d.path)}</span>
-        <div class="why">${d.games ? `${d.games} game${d.games === 1 ? '' : 's'} sent by this page · ${gb(d.game_bytes)}` : 'no games sent by this page'}</div>
-        <div class="why" id="du-${i}"></div></span>
-      <button class="sm" data-p="${esc(d.path)}" data-i="${i}" onclick="measure(this.dataset.p, document.getElementById('du-' + this.dataset.i))">Measure</button>
-      <button class="sm" data-p="${esc(d.path)}" onclick="tab('ftp');ftpGo(this.dataset.p)">Open</button></div>`).join('') || '<span class="mut">No drives answered.</span>';
+    el.innerHTML = j.drives.map((d, i) => {
+      const cap = d.capacity, used = d.used, pct = cap && used != null ? Math.min(100, 100 * used / cap) : null;
+      const usage = used == null ? '<span class="mut">not measured yet</span>'
+        : cap ? `<b>${gbd(Math.max(0, cap - used))} free</b> of ${gbd(cap)} · ${gbd(used)} used (${pct.toFixed(0)} %)`
+        : `<b>${gbd(used)} used</b> · <a href="#" data-p="${esc(d.path)}" onclick="driveSize(this.dataset.p);return false">enter the drive size</a> to see what is free`;
+      return `<div class="drive">
+        <div class="dhead"><b>${esc(d.label)}</b> <span class="mut">${esc(d.path)}</span><span class="sp"></span>
+          <button class="sm" data-p="${esc(d.path)}" data-i="${i}" onclick="measure(this.dataset.p, document.getElementById('du-' + this.dataset.i), true)">Measure</button>
+          <button class="sm" data-p="${esc(d.path)}" onclick="driveSize(this.dataset.p)">${cap ? 'Size: ' + gbd(cap) : 'Set size'}</button>
+          <button class="sm" data-p="${esc(d.path)}" onclick="tab('ftp');ftpGo(this.dataset.p)">Open</button></div>
+        ${pct != null ? `<div class="bar dbar${pct > 90 ? ' full' : ''}"><i style="width:${pct}%"></i></div>` : ''}
+        <div class="why" id="du-${i}">${usage}</div>
+        <div class="why">${d.game_folders != null ? `${d.game_folders} game folder${d.game_folders === 1 ? '' : 's'} in homebrew` : ''}${d.games ? ` · ${d.games} sent by this page (${gb(d.game_bytes)})` : ''}${d.measured ? ` · measured ${esc(d.measured.slice(5, 16))}` : ''}</div>
+      </div>`;
+    }).join('') || '<span class="mut">No drives answered.</span>';
   } catch (e) { el.innerHTML = `<span class="bad">${esc(String(e))}</span>`; }
 }
-async function measure(path, el) {
-  el.textContent = 'Measuring ' + path + '…';
+// Drive sizes as the PS5 and drive makers write them (1 TB = 1000 GB).
+function gbd(n) { return n >= 1e12 ? +(n / 1e12).toFixed(2) + ' TB' : n >= 1e11 ? Math.round(n / 1e9) + ' GB' : +(n / 1e9).toFixed(1) + ' GB'; }
+async function driveSize(path) {
+  const v = prompt(`Size of ${path} (as shown in PS5 Settings › Storage, or on the drive), e.g. 1 TB or 931 GB.\nLeave empty to clear.`);
+  if (v === null) return;
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'drive_size', path, size: v})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { alert(j.error || r.status); return; }
+  loadDrives();
+}
+async function measure(path, el, drive) {
+  el.textContent = 'Measuring ' + path + '… (a full drive takes a minute or two)';
   try {
     const r = await fetch('/api/ftp/du?path=' + encodeURIComponent(path), {cache: 'no-store'}), j = await r.json();
+    if (r.ok && drive) { loadDrives(); return; }
     el.innerHTML = r.ok ? `<b>${gb(j.bytes)}</b> used in ${esc(path)} · ${j.files.toLocaleString()} files, ${j.folders.toLocaleString()} folders`
                         : `<span class="bad">${esc(j.error || r.status)}</span>`;
   } catch (e) { el.innerHTML = `<span class="bad">${esc(String(e))}</span>`; }

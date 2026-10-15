@@ -2313,6 +2313,19 @@ def ps5_ftp_zip(path: str, out) -> None:
             pass
 
 
+DRIVES_PATH = STATE / "ps5_drives.json"  # per drive: size you entered, last measured use
+DRIVE_ROOT = re.compile(r"^/(data|mnt/(usb|ext)\d+)$")
+
+
+def parse_size(text: str) -> int:
+    """'1TB', '931.5 GB', '2000' (GB) -> bytes (decimal units, as the PS5 shows them)."""
+    m = re.fullmatch(r"\s*(\d+(?:[.,]\d+)?)\s*(tb|gb|t|g)?\s*", str(text).lower())
+    if not m:
+        raise ValueError("enter a size like 1 TB, 2TB or 931 GB")
+    n = float(m.group(1).replace(",", "."))
+    return int(n * (1000 ** 4 if (m.group(2) or "g").startswith("t") else 1000 ** 3))
+
+
 def ps5_ftp_du(path: str) -> dict:
     """Total size, files and folders under a folder on the PS5 (ftpsrv has no
     command for free space, so this adds up what is there)."""
@@ -2341,6 +2354,10 @@ def ps5_ftp_du(path: str) -> dict:
         except Exception:
             pass
     tot["measured"] = now()
+    if DRIVE_ROOT.match(path):
+        info = read_json(DRIVES_PATH, {}) or {}
+        info.setdefault(path, {}).update(used=tot["bytes"], files=tot["files"], measured=tot["measured"])
+        write_json(DRIVES_PATH, info)
     return tot
 
 
@@ -2365,6 +2382,20 @@ def ps5_drives() -> dict:
                 and t.get("dest", "").partition("/")[2].startswith(d["path"].lstrip("/") + "/")]
         d["games"] = len(sent)
         d["game_bytes"] = sum(t.get("total") or 0 for t in sent)
+        d.update((read_json(DRIVES_PATH, {}) or {}).get(d["path"], {}))
+    # Game folders on each drive, wherever they came from.
+    try:
+        f = ps5_ftp_connect()
+        try:
+            for d in drives:
+                n = 0
+                for sub in ("homebrew", "etaHEN/games"):
+                    n += len([x for x in ps5_ftp_names(f, f"{d['path']}/{sub}") or [] if not x.startswith(".")])
+                d["game_folders"] = n
+        finally:
+            f.quit()
+    except Exception:
+        pass
     return {"drives": drives}
 
 
@@ -3220,6 +3251,20 @@ def cmd_ui(args) -> int:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
                 cache["at"] = 0
                 return self.send(200, json.dumps(res).encode())
+            if req.get("action") == "drive_size":
+                try:
+                    path = str(req.get("path") or "")
+                    if not DRIVE_ROOT.match(path):
+                        raise ValueError("not a PS5 drive")
+                    info = read_json(DRIVES_PATH, {}) or {}
+                    if str(req.get("size") or "").strip():
+                        info.setdefault(path, {})["capacity"] = parse_size(req["size"])
+                    else:
+                        info.setdefault(path, {}).pop("capacity", None)
+                    write_json(DRIVES_PATH, info)
+                    return self.send(200, json.dumps(info[path]).encode())
+                except Exception as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if req.get("action") == "ftp_mkdir":
                 try:
                     path = ps5_ftp_path(str(req.get("path") or ""))
