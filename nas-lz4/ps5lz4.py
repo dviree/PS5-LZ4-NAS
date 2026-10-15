@@ -2078,21 +2078,13 @@ def run_request(req: dict) -> dict:
         argv.append(result)
     me = [sys.executable, os.path.abspath(__file__)]
     if action == "check":
-        # "Kontrollera": read-only. Format and APR-EMU of every LZ4 game, and
+        # "Kontrollera allt": read-only. Format and APR-EMU of every LZ4 game, and
         # which games can still become LZ4. Nothing is changed.
         rep = subprocess.run(me + ["apr"], capture_output=True, text=True, timeout=6 * 3600)
         lst = subprocess.run(me + ["lz4"], capture_output=True, text=True, timeout=3600)
         text = ("LZ4-spelen:\n" + (rep.stdout + rep.stderr).strip() +
                 "\n\nBiblioteket:\n" + (lst.stdout + lst.stderr).strip())
         return {"ok": rep.returncode == 0, "output": text[-3000:]}
-    if action == "fix":
-        # "Komprimera allt": repair every finished LZ4 game (APR-EMU, on-disk boot
-        # files), then queue every game that can still become LZ4.
-        rep = subprocess.run(me + ["apr", "--fix"], capture_output=True, text=True, timeout=6 * 3600)
-        out = subprocess.run(me + argv, capture_output=True, text=True, timeout=6 * 3600)
-        text = ("Reparation:\n" + (rep.stdout + rep.stderr).strip() +
-                "\n\nPackning:\n" + (out.stdout + out.stderr).strip())
-        return {"ok": rep.returncode == 0 and out.returncode == 0, "output": text[-3000:]}
     out = subprocess.run(me + argv, capture_output=True, text=True, timeout=6 * 3600)
     text = (out.stdout + out.stderr).strip()
     return {"ok": out.returncode == 0, "output": text[-3000:]}

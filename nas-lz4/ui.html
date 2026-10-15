@@ -65,9 +65,9 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
 <header>
   <h1>ps5-lz4</h1><span class="sub" id="sub"></span><span class="sp"></span>
   <button id="b-resume" hidden onclick="act('resume')">Fortsätt kön</button>
-  <button title="Visar läget för alla spel utan att ändra något" onclick="act('check')">Kontrollera</button>
-  <button class="pri" id="b-fix" title="Komprimerar alla spel som kan bli LZ4 (ett i taget) och reparerar de färdiga"
-    onclick="act('fix', 'Komprimera allt?\n\n1. Alla spel som kan bli LZ4 köas och komprimeras, ett i taget.\n2. Färdiga LZ4-spel repareras först vid behov: rätt APR-EMU och filerna PS5:an läser direkt från disk.\n\nPågår ett jobb startar det här när jobbet är klart.')">Komprimera allt</button>
+  <button title="Kontrollerar alla spel utan att ändra något" onclick="act('check')">Kontrollera allt</button>
+  <button class="pri" id="b-fix" title="Komprimerar alla spel som kan bli LZ4, ett i taget"
+    onclick="act('fix', 'Komprimera alla spel som kan bli LZ4?\n\nDe köas och komprimeras ett i taget. Pågår ett jobb startar det här när jobbet är klart.')">Komprimera allt</button>
 </header>
 <nav class="tabs">
   <button id="t-mine" class="on" onclick="tab('mine')">Mina spel</button>
@@ -138,7 +138,7 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
 const STEP_SV = {source: 'Källa', check: 'Kontroll', pack: 'Packning', verify: 'Verifiering', restore: 'Återställningstest', publish: 'Publicering'};
 const PS5_SV = {works: 'fungerar', issues: 'med problem', nostart: 'startar inte', crash: 'kraschar'};
 const KIND_SV = {folder: 'spelmapp', exfat: 'exFAT-image', ffpfsc: '.ffpfsc-image (PFSC-komprimerad)', ffpfs: '.ffpfs-image', lz4: 'LZ4-mapp'};
-const ACT_SV = {check: 'Kontrollera', fix: 'Komprimera allt', apr: 'Reparera alla', stop: 'Stoppa', resume: 'Fortsätt kön', start: 'Packa', community: 'PS5-resultat'};
+const ACT_SV = {check: 'Kontrollera allt', fix: 'Komprimera allt', apr: 'Reparera alla', stop: 'Stoppa', resume: 'Fortsätt kön', start: 'Packa', community: 'PS5-resultat'};
 let data = null;
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -277,6 +277,8 @@ function render() {
     return `<div><b class="${r.ok ? 'good' : 'bad'}">${r.ok ? '✓' : '✗'}</b> ${esc(ACT_SV[r.action] || r.action)}
       ${r.game ? esc(r.game) : ''}${r.result ? ': ' + esc(PS5_SV[r.result]) : ''} <span class="mut">${esc(r.finished)}</span>
       ${url ? `<div><a href="${esc(url[0])}" target="_blank" rel="noopener">Dela resultatet med communityn</a></div>` : ''}
+      ${r.action === 'check' && !r.ok ? `<div style="margin:6px 0"><span class="bad">Kontrollen hittade fel.</span>
+        <button class="sm pri" onclick="act('apr', 'Reparera LZ4-spelen som behöver det?\n\nRätt APR-EMU läggs tillbaka och filerna PS5:an läser direkt från disk skrivs ut ur paketen. Inget packas om.')">Reparera</button></div>` : ''}
       <pre>${esc((r.output || '').split('\n').slice(-6).join('\n'))}</pre></div>`;
   }).join('') : (pending ? '' : '<span class="mut">Inga ännu.</span>'));
 }

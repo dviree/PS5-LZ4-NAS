@@ -24,8 +24,8 @@ Full guide: [nas-lz4/README.md](../nas-lz4/README.md).
 - **Originals are never changed:** the library is mounted read-only.
 - **Web page** (port 5921): library with LZ4 status, source type and size,
   live job steps and progress, savings per game, one-click **Komprimera**,
-  **Kontrollera** (read-only check) and **Komprimera allt** (compress every game
-  that can be LZ4, repairing finished ones), and the **community game reports** from the original project
+  **Kontrollera allt** (read-only check, with a **Reparera** button when
+  something is wrong) and **Komprimera allt** (compress every game that can be LZ4), and the **community game reports** from the original project
   on every title and in their own tab.
 - **Send to the PS5** over FTP (ftpsrv, port 2121): SELF decryption turned off,
   every file size checked, program files compared by SHA-256, duplicate title

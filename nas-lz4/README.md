@@ -75,10 +75,11 @@ that container alone.
 - **Click a game** for details (sizes, LZ4 folder, compression, checks, last
   error, community reports) and the buttons **Komprimera** (compress),
   **Överför till PS5** (send to PS5) and the PS5 result.
-- **Kontrollera** (check): read-only check of every LZ4 game (format,
+- **Kontrollera allt** (check all): read-only check of every LZ4 game (format,
   APR-EMU, files the PS5 reads from disk) and of what can still become LZ4.
+  When something is wrong, the result has a **Reparera** (repair) button.
 - **Komprimera allt** (compress all): compresses every game that can be LZ4,
-  one at a time, and first repairs finished LZ4 games where needed.
+  one at a time.
 - **Running job:** the six steps with live progress and a stop button (the
   job can be resumed).
 - **Community tab:** every game reported by other players, with search,
@@ -217,7 +218,7 @@ play it, it needs:
   or an external drive). Keep one copy per title ID there.
 - **The right runtime.** Only APR-EMU PackedStdio 0.4.2.1 reads the packs, and
   it is in the folder. Don't replace it with another APR-EMU version;
-  `Kontrollera` / `apr` find it if something did.
+  `Kontrollera allt` / `apr` find it if something did.
 - **The right profile.** Results vary per game; a trace-based profile in
   `state/profiles/<TITLEID>.toml` is safer than the automatic one.
 - **The original until it has run.** Keep it until the game has started.
