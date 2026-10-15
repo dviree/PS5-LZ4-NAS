@@ -3834,6 +3834,78 @@ def dashboard_data() -> dict:
             "transfer_queue": transfer_queue()}
 
 
+# The community's .ffpfsc compatibility list (a Google Sheet), fetched as CSV
+# where the page runs and shown in a game's sheet with the sheet's own column
+# names. PS5LZ4_FFPFSC_SHEET is the sheet's CSV export URL ("" turns it off).
+FFPFSC_SHEET = os.environ.get(
+    "PS5LZ4_FFPFSC_SHEET",
+    "https://docs.google.com/spreadsheets/d/1dgu0p7U2yB_mhcUELz-Wkc7Yhs-avoWLY1Gcm0n5XJw/export?format=csv&gid=357033774")
+FFPFSC_PAGE = re.sub(r"/export\?format=csv&gid=(\d+)$", r"/edit#gid=\1", FFPFSC_SHEET)
+FFPFSC_PATH = STATE / "ffpfsc_sheet.json"
+FFPFSC_EVERY = 6 * 3600
+
+
+def ffpfsc_refresh() -> dict:
+    import csv
+    import io
+    import urllib.request
+    req = urllib.request.Request(FFPFSC_SHEET, headers={"User-Agent": "ps5-lz4"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        text = r.read(20 << 20).decode("utf-8-sig", errors="replace")
+    rows = [[c.strip() for c in row] for row in csv.reader(io.StringIO(text))]
+    rows = [r for r in rows if any(r)]
+    if not rows:
+        raise ValueError("the sheet is empty")
+    # The header is the first row with several filled cells before the first
+    # row that holds a title ID (sheets often start with a title or notes).
+    first_data = next((i for i, r in enumerate(rows) if any(TITLE_RE.search(c) for c in r)), len(rows))
+    head_i = max((i for i in range(first_data) if sum(1 for c in rows[i] if c) >= 2), default=None)
+    if head_i is None:
+        head_i, headers = -1, [f"Column {i + 1}" for i in range(max(len(r) for r in rows))]
+    else:
+        headers = [c or f"Column {i + 1}" for i, c in enumerate(rows[head_i])]
+    data = []
+    for r in rows[head_i + 1:]:
+        cells = {headers[i] if i < len(headers) else f"Column {i + 1}": c for i, c in enumerate(r) if c}
+        if len(cells) >= 2:
+            data.append(cells)
+    out = {"at": time.time(), "url": FFPFSC_PAGE, "headers": headers, "rows": data}
+    write_json(FFPFSC_PATH, out)
+    return out
+
+
+def ffpfsc_sheet() -> dict:
+    return read_json(FFPFSC_PATH, {}) or {}
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", s.lower().replace("&", "and"))
+
+
+def ffpfsc_lookup(title_id: str, name: str) -> list[dict]:
+    """Rows of the sheet for this game: by title ID in any cell, else by name."""
+    rows = ffpfsc_sheet().get("rows") or []
+    tid = (title_id or "").upper()
+    hits = [r for r in rows if tid and any(tid in c.upper() for c in r.values())]
+    if not hits and name:
+        n = _norm(re.sub(r"\[[^\]]*\]|\([^)]*\)", "", name))
+        if len(n) >= 4:
+            hits = [r for r in rows if any(_norm(c) == n for c in r.values())]
+    return hits[:5]
+
+
+def ffpfsc_refresher() -> None:
+    """Web page container: keep the sheet fresh."""
+    while True:
+        try:
+            if time.time() - ffpfsc_sheet().get("at", 0) > FFPFSC_EVERY - 60:
+                n = len(ffpfsc_refresh()["rows"])
+                print(f"[{now()}] ffpfsc sheet: {n} rows", flush=True)
+        except Exception as err:
+            print(f"[{now()}] ffpfsc sheet: {err}", flush=True)
+        time.sleep(1800)
+
+
 def game_detail(game_id: str) -> dict:
     """Everything known about one game, for the page's detail view."""
     out = None
@@ -3868,7 +3940,10 @@ def game_detail(game_id: str) -> dict:
                            name=(src.rel if src else "") or (out.name if out else game_id))
     return {"id": game_id, "report": rep or None, "folder": folder, "work": work, "skipped": skipped,
             "title_id": tid, "community": compat_games().get(tid), "community_repo": COMPAT_REPO, "apr": apr,
-            "version": version}
+            "version": version,
+            "ffpfsc": {"rows": ffpfsc_lookup(tid, (src.name or Path(src.rel).name.removesuffix(src.path.suffix if src.kind != "folder" else ""))
+                                             if src else game_id.removesuffix("-lz4")),
+                       "url": FFPFSC_PAGE, "at": ffpfsc_sheet().get("at")} if FFPFSC_SHEET else None}
 
 
 def cmd_dashboard(_args) -> int:
@@ -4355,6 +4430,8 @@ def cmd_ui(args) -> int:
         __import__("threading").Thread(target=compat_refresher, daemon=True).start()
     __import__("threading").Thread(target=send_after_watcher, daemon=True).start()
     __import__("threading").Thread(target=transfer_queue_watcher, daemon=True).start()
+    if FFPFSC_SHEET:
+        __import__("threading").Thread(target=ffpfsc_refresher, daemon=True).start()
     if ENGINE_CHECK_EVERY > 0:
         __import__("threading").Thread(target=engine_updater, daemon=True).start()
     srv = http.server.ThreadingHTTPServer(("0.0.0.0", args.port), H)

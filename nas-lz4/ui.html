@@ -775,6 +775,20 @@ function reportLink(repo, tid, name, status, extra = {}) {
     .filter(([, v]) => v);
   return `https://github.com/${repo}/issues/new?` + p.map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
 }
+// The community's .ffpfsc compatibility sheet: the matching row, with the
+// sheet's own column names.
+function ffpfscHtml(g, det) {
+  const f = det && det.ffpfsc;
+  if (!f) return '';
+  const link = `<a href="${esc(f.url)}" target="_blank" rel="noopener">Open the sheet</a>`;
+  if (!f.at) return `<div class="csec"><h4>.ffpfsc list</h4><div class="mut">Not loaded yet (the page fetches it every 6 hours).</div><div class="acts">${link}</div></div>`;
+  if (!f.rows.length) return `<div class="csec"><h4>.ffpfsc list</h4><div class="mut">${esc(g.name || g.title_id || 'This game')} is not in the .ffpfsc compatibility list.</div><div class="acts">${link}</div></div>`;
+  const tone = v => /\b(yes|works?|working|ok|playable|good|fine|✅|✔)\b/i.test(v) ? 'good' : /\b(no|not|crash(es)?|broken|fails?|black screen|doesn'?t|won'?t|❌|✖)\b/i.test(v) ? 'bad' : '';
+  return `<div class="csec"><h4>.ffpfsc list <span class="mut" style="font-weight:500">· community sheet</span></h4>` +
+    f.rows.map(r => `<div class="kv" style="margin-top:6px">${Object.entries(r).map(([k, v]) =>
+      `<div>${esc(k)}</div><div class="${tone(v)}">${esc(v)}</div>`).join('')}</div>`).join('<hr style="border:0;border-top:1px solid var(--line);margin:8px 0">') +
+    `<div class="acts">${link}</div></div>`;
+}
 function communityHtml(g, det) {
   if (!det) return '<div class="csec mut">Loading community reports…</div>';
   const c = det.community, repo = det.community_repo, tid = det.title_id || g.title_id || '';
@@ -913,6 +927,7 @@ function gameHtml(g, det) {
   }
   return `<img class="ico big" alt="" src="/api/icon?id=${encodeURIComponent(g.id)}" onerror="this.remove()"><h3>${esc(g.name)}</h3><div class="mut">${esc(g.title_id || '')}</div>
     ${communityHtml(g, det)}
+    ${ffpfscHtml(g, det)}
     <div class="kv">${rows.map(([k, x]) => `<div>${k}</div><div>${x}</div>`).join('')}</div>
     <div class="acts" id="m-acts">${acts.join('') || '<span class="mut">Nothing to do for this game.</span>'}</div>
     ${dels.length ? `<div class="acts dels" id="dels">${dels.join('')}</div>` : '<div class="acts dels" id="dels"></div>'}`;
