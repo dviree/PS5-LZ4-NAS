@@ -94,6 +94,7 @@ select{font:inherit;padding:5px 8px;border-radius:8px;border:1px solid var(--lin
 .kv div{overflow-wrap:anywhere}.acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}.acts.dels{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}.acts.dels:empty{display:none}
 .err{background:var(--badbg);color:var(--bad);border-radius:10px;padding:10px 12px}
 footer{opacity:.8}
+.storelink{font-weight:700;text-decoration:none;padding:7px 12px;border-radius:10px;background:var(--accbg);color:var(--acc)}
 .pg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-top:6px}
 .pg{display:flex;gap:12px;padding:12px;border:1px solid var(--line);border-radius:14px;background:var(--bg);transition:opacity .2s}
 .pg.busy-del{opacity:.4;pointer-events:none}
@@ -168,7 +169,8 @@ button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;whi
 </head>
 <body>
 <header>
-  <div class="brand"><div class="logo">LZ4</div><div><h1>ps5-lz4</h1><span class="sub" id="sub"></span></div></div><span class="sp"></span>
+  <div class="brand"><div class="logo">LZ4</div><div><h1>ps5-lz4</h1><span class="sub" id="sub"></span></div></div>
+  <a class="storelink" href="/store" title="Open the store view, made for the PS5 browser and a controller">🛒 Store</a><span class="sp"></span>
   <div class="hacts">
   <button class="two" id="b-resume" hidden onclick="act('resume')">Continue queue<small>resume interrupted packing</small></button>
   <button class="two" onclick="act('check')">Check all<small>check every game, read-only; unchanged ones from the saved results</small></button>
@@ -542,7 +544,7 @@ function render() {
       <div class="bar"><i style="width:${pct}%"></i></div>
       <div class="stats"><b>${pct.toFixed(0)} %</b><span>${gb(tf.bytes)} / ${gb(tf.total)}</span>
         ${tf.speed ? `<span>${gb(tf.speed)}/s</span><span>about ${dur(tf.eta)} left</span>` : '<span>measuring speed…</span>'}
-        <span>file ${tf.files_done} of ${tf.files}</span>${tf.woken ? `<span>woke the PS5 ${tf.woken}×</span>` : ''}</div>
+        <span>file ${tf.files_done} of ${tf.files}</span>${tf.woken ? `<span>woke the PS5 ${tf.woken}×</span>` : ''}${tf.kept_awake ? '<span class="good">kept awake by LZ4 Compression</span>' : ''}</div>
       <div class="why">${esc(tf.current || '')}</div>
       <div style="margin-top:10px"><button onclick="act('push_stop', 'Stop the transfer? Finished files stay on the PS5; the queue waits.')">Stop (resumable)</button></div>`;
   } else xf.innerHTML = '<div class="mut">No transfer running.</div>';

@@ -27,6 +27,7 @@ COPY profiles /opt/ps5lz4/profiles
 COPY compat/compat.json /opt/ps5lz4/compat.json
 COPY nas-lz4/ps5lz4.py /opt/ps5lz4/ps5lz4.py
 COPY nas-lz4/ui.html /opt/ps5lz4/ui.html
+COPY nas-lz4/store.html /opt/ps5lz4/store.html
 COPY nas-lz4/ps5regist.py /opt/ps5lz4/ps5regist.py
 COPY app/lz4-compression/version.js /opt/ps5lz4/lz4c-version.js
 COPY third_party/ampr_emu/libSceAmpr.sprx /opt/ps5lz4/libSceAmpr.sprx
