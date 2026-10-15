@@ -2388,7 +2388,8 @@ def engine_status() -> dict:
     out = {"host": host, "port": LZC_PORT, "repo": ENGINE_REPO, "path": ENGINE_PATH,
            "state": "unknown", "keep_awake": False, "elfldr_ports": ELFLDR_PORTS,
            "cached": (read_json(ENGINE_DIR / "release.json", {}) or {}).get("tag"),
-           "installed": read_json(ENGINE_DIR / "installed.json", None), "auto": engine_auto_on()}
+           "installed": read_json(ENGINE_DIR / "installed.json", None), "auto": engine_auto_on(),
+           "rest": rest_info()}
     try:
         out["latest"] = engine_known().get("latest")
     except Exception:
@@ -3428,6 +3429,7 @@ def push_one(game: str, force: bool = False) -> int:
         time.sleep(5)  # give ftpsrv a moment after resume
         st["current"] = was
         st["woken"] = st.get("woken", 0) + 1
+        rest_set(woke_at=time.time())  # this page woke it: rest again when done
         save(True)
 
     # Ask the LZ4 Compression engine on the PS5 (port 5920, when it runs) to
@@ -4107,6 +4109,75 @@ def send_after_watcher() -> None:
         time.sleep(20)
 
 
+# Rest mode when the work is done: if this page woke the PS5 to send games,
+# it is put back in rest mode (through the engine's /api/lzc/rest) once
+# nothing is being sent or waits to be sent and a few minutes have passed.
+# A PS5 that was already on (someone may be playing) is left alone.
+REST_PATH = STATE / "rest.json"
+REST_IDLE = int(os.environ.get("PS5LZ4_REST_IDLE", "180"))
+
+
+def rest_info() -> dict:
+    r = read_json(REST_PATH, {}) or {}
+    r.setdefault("on", True)
+    return r
+
+
+def rest_set(**kw) -> dict:
+    r = rest_info()
+    r.update(kw)
+    write_json(REST_PATH, r)
+    return r
+
+
+def engine_rest() -> dict:
+    """Ask the engine on the PS5 to go to rest mode now."""
+    import urllib.error
+    import urllib.request
+    host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
+    if not host:
+        raise ValueError("set the PS5 address first")
+    try:
+        with urllib.request.urlopen(f"http://{host}:{LZC_PORT}/api/lzc/rest?confirm=1", timeout=6) as r:
+            r.read()
+    except urllib.error.HTTPError as err:
+        msg = {409: "the engine is busy with a job on the PS5",
+               404: "the engine on the PS5 is too old for rest mode: install the newest ELF",
+               501: "this engine build can't put the PS5 in rest mode"}.get(err.code, f"HTTP {err.code}")
+        raise ValueError(msg)
+    except Exception as err:
+        raise ValueError(f"the LZ4 Compression engine on the PS5 does not answer ({err})")
+    print(f"[{now()}] PS5 put in rest mode", flush=True)
+    return {"rest": True}
+
+
+def rest_watcher() -> None:
+    """Web page container: rest the PS5 when the work this page woke it for is done."""
+    idle_since = None
+    while True:
+        try:
+            r = rest_info()
+            starting = TRANSFERS / ".starting"
+            busy = (transfer_running() or transfer_queue() or (read_json(SEND_AFTER, {}) or {})
+                    or (starting.exists() and time.time() - starting.stat().st_mtime < 60))
+            if not (r["on"] and r.get("woke_at")) or busy:
+                idle_since = None
+            else:
+                idle_since = idle_since or time.time()
+                if time.time() - idle_since >= REST_IDLE:
+                    try:
+                        engine_rest()
+                        rest_set(woke_at=None, last=now(), error=None)
+                    except ValueError as err:
+                        if "busy" not in str(err):
+                            rest_set(woke_at=None, error=str(err))
+                            print(f"[{now()}] rest mode: {err}", flush=True)
+                    idle_since = None
+        except Exception as err:
+            print(f"[{now()}] rest watcher: {err}", flush=True)
+        time.sleep(30)
+
+
 def cmd_ui(args) -> int:
     """Serves the web page. Reads state, writes only request files."""
     import http.server
@@ -4349,6 +4420,13 @@ def cmd_ui(args) -> int:
                     return self.send(200, json.dumps(ps5_ftp_delete(str(req.get("path") or ""))).encode())
                 except Exception as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
+            if req.get("action") == "ps5_rest":
+                try:
+                    return self.send(200, json.dumps(engine_rest()).encode())
+                except ValueError as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+            if req.get("action") == "rest_auto":
+                return self.send(200, json.dumps(rest_set(on=bool(req.get("on")))).encode())
             if req.get("action") == "wake":
                 cfg = get_settings()
                 host = cfg["ps5_ftp"].partition(":")[0]
@@ -4450,6 +4528,7 @@ def cmd_ui(args) -> int:
         __import__("threading").Thread(target=compat_refresher, daemon=True).start()
     __import__("threading").Thread(target=send_after_watcher, daemon=True).start()
     __import__("threading").Thread(target=transfer_queue_watcher, daemon=True).start()
+    __import__("threading").Thread(target=rest_watcher, daemon=True).start()
     if FFPFSC_SHEET:
         __import__("threading").Thread(target=ffpfsc_refresher, daemon=True).start()
     if ENGINE_CHECK_EVERY > 0:

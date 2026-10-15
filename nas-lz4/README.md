@@ -275,6 +275,16 @@ a packed game's sheet:
 Making an exFAT image of the original first changes nothing: the NAS unpacks
 it again before LZ4 packing. Originals are never converted.
 
+## Rest mode when everything is sent
+
+When this page wakes the PS5 to send games (Remote Play wake-up), it puts it
+back in rest mode once nothing is being sent, nothing waits to be sent after
+packing, and three minutes have passed (`PS5LZ4_REST_IDLE`, seconds). A PS5
+that was already on is left alone, so nobody is cut off mid-game. It goes
+through the engine's `/api/lzc/rest` (engine v1.5.0-nas.2 or newer); the
+engine refuses while it runs a job of its own. Turn it off with **Rest mode
+when everything is sent** on the Remote tab; **Rest mode now** does it at once.
+
 ## Deleting originals
 
 By default the library is mounted read-only, so nothing can change or delete

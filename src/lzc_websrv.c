@@ -48,6 +48,7 @@ status_text(int status) {
   case 409: return "Conflict";
   case 413: return "Payload Too Large";
   case 500: return "Internal Server Error";
+  case 501: return "Not Implemented";
   default:  return "OK";
   }
 }
