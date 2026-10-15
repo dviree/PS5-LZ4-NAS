@@ -87,7 +87,10 @@ that container alone.
   **Repair** button.
 - **Full re-check:** the same, but checks every game again, ignoring the
   database.
-- **Compress all:** compresses every game that can be LZ4, one at a time.
+- **Compress all:** compresses every game that can be LZ4, one at a time,
+  except `.ffpfsc` images: they are already compressed, so an LZ4 copy is
+  usually as large or larger (Compress on one game packs it anyway; a game
+  whose LZ4 copy is larger than its image is marked in the list).
 - **Running job:** the six steps with live progress and a stop button (the
   job can be resumed).
 - **Activity tab:** everything that runs or waits: the packing job with its
