@@ -253,13 +253,23 @@ async function saveAddress() {
   ok.textContent = 'Saved ✓ ' + data.settings.ps5_ftp; setTimeout(() => { ok.textContent = ''; }, 4000);
   ftpLoaded = false; ps5State();
 }
-function push(id, name) {
+async function push(id, name) {
   const s = data.settings || {};
   if (!s.ps5_ftp) { alert('Enter the PS5 address on the Remote tab first.'); tab('ps5'); return; }
   const t = (data.transfers || {})[id];
-  act('push', `Send ${name} to ${s.ps5_ftp}${s.ps5_dest}?\n\n` +
+  // Is the folder already on the PS5? (Only answerable while the PS5 is awake.)
+  let there = false;
+  try {
+    const r = await fetch('/api/ftp/list?path=' + encodeURIComponent(s.ps5_dest), {cache: 'no-store'});
+    if (r.ok) there = (await r.json()).items.some(i => i.name === id);
+  } catch (e) {}
+  const resume = t && t.state === 'failed';
+  act('push', (there && !resume
+      ? `${name} is already on the PS5:\n${s.ps5_dest}/${id}\n\nOverwrite it? Files already there with the same size are kept; missing or different files are replaced.`
+      : `Send ${name} to ${s.ps5_ftp}${s.ps5_dest}?`) + '\n\n' +
     (s.ps5_wake_key ? 'If the PS5 is in rest mode it is woken first.' : 'The PS5 must be on with the FTP server running.') +
-    (t && t.state === 'failed' ? '\n\nThe last transfer was interrupted; it continues where it stopped.' : ''), {game: id});
+    (resume ? '\n\nThe last transfer was interrupted; it continues where it stopped.' : '') +
+    (there ? '\n\nTo send everything again from scratch, delete the folder on the FTP tab first.' : ''), {game: id});
 }
 function xferText(t) {
   if (!t) return '';
@@ -597,9 +607,14 @@ function tab(t) {
   if (t === 'comm') loadComm();
   if (t === 'ftp' && !ftpLoaded) ftpGo(ftpPath);
 }
-async function loadComm() {
+function ago(iso) {
+  const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+  return s < 90 ? 'just now' : s < 5400 ? Math.round(s / 60) + ' min ago' : s < 129600 ? Math.round(s / 3600) + ' h ago' : iso.slice(0, 10);
+}
+async function loadComm(refresh) {
   try {
-    comm = await (await fetch('/api/community', {cache: 'no-store'})).json();
+    if (refresh) document.getElementById('c-sub').textContent = 'Fetching the reports from GitHub…';
+    comm = await (await fetch('/api/community' + (refresh ? '?refresh=1' : ''), {cache: 'no-store'})).json();
     renderComm();
   } catch (e) { document.getElementById('c-sub').textContent = 'Could not read the reports: ' + e; }
 }
@@ -613,8 +628,9 @@ function renderComm() {
   const total = rows.reduce((n, r) => n + (r.reports || 0), 0);
   document.getElementById('c-sub').innerHTML =
     `${rows.length} games, ${total} reports from <a href="https://github.com/${esc(comm.repo)}/issues?q=label%3Acompat" target="_blank" rel="noopener">${esc(comm.repo)}</a>` +
-    (comm.updated ? ` · updated ${esc(comm.updated.replace('T', ' ').replace('Z', ' UTC'))}` : '') +
-    ' · shipped with every new image';
+    ` · ${{live: 'live from the GitHub reports', repo: "from the original project's list", image: 'from this image'}[comm.source] || ''}` +
+    (comm.updated ? `, updated ${esc(ago(comm.updated))}` : '') +
+    ` · <button class="sm" onclick="loadComm(true)">Refresh now</button>`;
   if (q) rows = rows.filter(r => (r.name || '').toLowerCase().includes(q) || r.tid.toLowerCase().includes(q));
   if (f === 'works') rows = rows.filter(r => r.works);
   if (f === 'problems') rows = rows.filter(r => r.noStart || r.crash);
@@ -697,7 +713,8 @@ async function ps5State() {
     el.className = 'pill ' + m[0]; el.textContent = m[1];
   } catch (e) {}
 }
-load(); setInterval(load, 5000); ps5State(); setInterval(ps5State, 15000);
+load(); setInterval(load, 5000);
+setInterval(() => { if (!document.getElementById('p-comm').hidden) loadComm(); }, 60000); ps5State(); setInterval(ps5State, 15000);
 try {
   const saved = {'#community': 'comm', '#remote': 'ps5', '#ftp': 'ftp'}[location.hash] || localStorage.getItem('tab');
   if (['comm', 'ps5', 'ftp'].includes(saved)) tab(saved);

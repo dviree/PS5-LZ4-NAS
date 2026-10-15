@@ -3,9 +3,11 @@
 # A merge conflict fails the run (GitHub emails you); nothing is forced.
 name: Sync with upstream
 
+# Every 10 minutes (GitHub may start scheduled runs a few minutes late; a
+# fork can't receive the original repo's push events).
 on:
   schedule:
-    - cron: '17 */6 * * *'
+    - cron: '*/10 * * * *'
   workflow_dispatch:
 
 permissions:

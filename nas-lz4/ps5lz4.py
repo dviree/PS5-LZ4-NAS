@@ -1369,9 +1369,121 @@ def cmd_status(_args) -> int:
     return 0
 
 
+COMPAT_LIVE = STATE / "compat.json"  # fetched from the issues by the web page container
+COMPAT_REFRESH = int(os.environ.get("PS5LZ4_COMPAT_REFRESH", "300"))
+
+
+def compat_data() -> dict:
+    """The newest community reports: live from GitHub when fetched, else the bundled copy."""
+    live = read_json(COMPAT_LIVE, {}) or {}
+    bundled = read_json(COMPAT_FILE, {}) or {}
+    return live if live.get("updated", "") >= bundled.get("updated", "") and live.get("games") is not None else bundled
+
+
 def compat_games() -> dict:
-    data = read_json(COMPAT_FILE, {}) or {}
-    return data.get("games") or {}
+    return compat_data().get("games") or {}
+
+
+# Same counting as the original project's tools/compat_aggregate.py.
+COMPAT_STATUS = {"works": "works", "works with issues": "issues",
+                 "won't start (black screen or crash on launch)": "noStart", "crashes in game": "crash"}
+COMPAT_FIELDS = {"title id": "titleId", "game": "game", "how does it run?": "status",
+                 "game version": "gameVersion", "lz4 level": "level", "packed from": "source",
+                 "firmware": "firmware", "lz4 compression version": "appVersion", "notes": "notes"}
+
+
+def compat_aggregate(issues: list[dict]) -> dict:
+    """GitHub REST issues (label compat) -> compat.json. One vote per user per game."""
+    def clean(v, n):
+        return re.sub(r"\s+", " ", str(v or "")).strip()[:n]
+    latest = {}
+    for issue in issues:
+        if issue.get("pull_request"):
+            continue
+        labels = {(lb.get("name") or "").lower() for lb in issue.get("labels") or []}
+        if labels & {"invalid", "duplicate", "spam"}:
+            continue
+        fields = {}
+        parts = re.split(r"(?m)^### +(.+?)\s*$", issue.get("body") or "")
+        for i in range(1, len(parts) - 1, 2):
+            key = COMPAT_FIELDS.get(parts[i].strip().lower())
+            val = parts[i + 1].strip()
+            if key and val not in ("", "_No response_", "None"):
+                fields[key] = val
+        tid = clean(fields.get("titleId"), 16).upper()
+        status = COMPAT_STATUS.get(clean(fields.get("status"), 80).lower())
+        if not re.fullmatch(r"[A-Z]{4}\d{5}", tid) or not status:
+            continue
+        author = ((issue.get("user") or {}).get("login") or f"#{issue.get('number')}").lower()
+        rep = {"status": status, "game": clean(fields.get("game"), 80),
+               "gameVersion": clean(fields.get("gameVersion"), 20), "level": clean(fields.get("level"), 4),
+               "source": clean(fields.get("source"), 40), "firmware": clean(fields.get("firmware"), 12),
+               "appVersion": clean(fields.get("appVersion"), 12), "date": issue.get("created_at") or "",
+               "issue": issue.get("number")}
+        if (tid, author) not in latest or rep["date"] >= latest[(tid, author)][1]["date"]:
+            latest[(tid, author)] = (tid, rep)
+    games = {}
+    for tid, rep in latest.values():
+        g = games.setdefault(tid, {"name": "", "works": 0, "issues": 0, "noStart": 0, "crash": 0,
+                                   "reports": 0, "lastReport": None})
+        g[rep["status"]] += 1
+        g["reports"] += 1
+        if rep["game"] and not g["name"]:
+            g["name"] = rep["game"]
+        if not g["lastReport"] or rep["date"] > g["lastReport"]["date"]:
+            g["lastReport"] = rep
+    return {"version": 1, "updated": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "source": "live", "games": dict(sorted(games.items()))}
+
+
+def compat_refresh() -> dict:
+    """Fetch every compat issue from GitHub (no token: 60 requests an hour) and save the
+    counts. If the API refuses, take the original project's compat.json instead."""
+    import urllib.request
+    try:
+        return compat_refresh_issues()
+    except Exception as err:
+        url = f"https://raw.githubusercontent.com/{COMPAT_REPO}/main/compat/compat.json"
+        req = urllib.request.Request(url, headers={"User-Agent": f"ps5-lz4/{VERSION}"})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                data = json.load(r)
+        except Exception:
+            raise err
+        if not isinstance(data.get("games"), dict):
+            raise err
+        data["source"] = "repo"
+        write_json(COMPAT_LIVE, data)
+        return data
+
+
+def compat_refresh_issues() -> dict:
+    import urllib.request
+    issues, page = [], 1
+    while page <= 20:
+        url = (f"https://api.github.com/repos/{COMPAT_REPO}/issues?labels=compat&state=all"
+               f"&per_page=100&page={page}")
+        req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json",
+                                                   "User-Agent": f"ps5-lz4/{VERSION}"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            batch = json.load(r)
+        issues += batch
+        if len(batch) < 100:
+            break
+        page += 1
+    data = compat_aggregate(issues)
+    write_json(COMPAT_LIVE, data)
+    return data
+
+
+def compat_refresher() -> None:
+    """Background loop in the web page container."""
+    while True:
+        try:
+            compat_refresh()
+        except Exception as err:
+            print(f"[{now()}] community reports not refreshed: {err}", flush=True)
+        time.sleep(COMPAT_REFRESH)
 
 
 def community_text(title_id: str, games: dict | None = None) -> str:
@@ -1394,7 +1506,7 @@ def cmd_community(args) -> int:
     ensure_dirs()
     games = compat_games()
     if not args.game:
-        updated = (read_json(COMPAT_FILE, {}) or {}).get("updated", "?")
+        updated = compat_data().get("updated", "?")
         print(f"community reports from {COMPAT_REPO} (updated {updated})")
         seen = set()
         for e in scan_library():
@@ -2658,7 +2770,7 @@ def dashboard_data() -> dict:
             "interrupted": (not running) and bool(queue.get("remaining")),
             "free_bytes": free_bytes(OUTPUT), "games": rows, "totals": totals, "failed": failed,
             "level": int(os.environ.get("PS5LZ4_LEVEL", "9")), "runtime": RUNTIME_NAME.removeprefix("APR-EMU "),
-            "compat_updated": (read_json(COMPAT_FILE, {}) or {}).get("updated"),
+            "compat_updated": compat_data().get("updated"),
             "requests": {"pending": pending, "pending_list": pending_list, "recent": done_req[::-1]}, "version": VERSION,
             "settings": {**get_settings(), "ps5_wake_key": "set" if get_settings()["ps5_wake_key"] else "",
                          "paired": {k: (read_json(SETTINGS_PATH, {}) or {}).get(k) for k in ("ps5_nickname", "ps5_paired")}},
@@ -2882,9 +2994,16 @@ def cmd_ui(args) -> int:
             if self.path == "/api/ps5":
                 host = get_settings()["ps5_ftp"].partition(":")[0]
                 return self.send(200, json.dumps({"status": ps5_status(host) if host else "unset"}).encode())
-            if self.path == "/api/community":
-                data = read_json(COMPAT_FILE, {}) or {}
-                body = {"repo": COMPAT_REPO, "updated": data.get("updated"), "games": data.get("games") or {}}
+            if self.path.startswith("/api/community"):
+                if "refresh=1" in self.path and time.time() - refreshed[0] > 30:
+                    refreshed[0] = time.time()
+                    try:
+                        compat_refresh()
+                    except Exception as err:
+                        print(f"[{now()}] community reports not refreshed: {err}", flush=True)
+                data = compat_data()
+                body = {"repo": COMPAT_REPO, "updated": data.get("updated"), "source": data.get("source") or "image",
+                        "games": data.get("games") or {}}
                 return self.send(200, json.dumps(body, ensure_ascii=False).encode())
             if self.path == "/api/dashboard":
                 with lock:
@@ -2990,6 +3109,9 @@ def cmd_ui(args) -> int:
             cache["at"] = 0
             self.send(200, json.dumps({"queued": name}).encode())
 
+    refreshed = [0.0]
+    if COMPAT_REFRESH > 0:
+        __import__("threading").Thread(target=compat_refresher, daemon=True).start()
     srv = http.server.ThreadingHTTPServer(("0.0.0.0", args.port), H)
     print(f"[{now()}] ui on port {args.port}", flush=True)
     srv.serve_forever()

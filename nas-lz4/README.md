@@ -90,7 +90,8 @@ that container alone.
 - **Compress all:** compresses every game that can be LZ4, one at a time.
 - **Running job:** the six steps with live progress and a stop button (the
   job can be resumed).
-- **Community tab:** every game reported by other players, with search,
+- **Community tab:** every game reported by other players, fetched live from
+  the GitHub reports every 5 minutes (or **Refresh now**), with search,
   filters and sorting.
 - **Remote tab:** the PS5 address, pairing and wake-up (see below).
 - **FTP tab:** browse the PS5's drives over ftpsrv, game folders with their
