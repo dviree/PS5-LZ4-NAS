@@ -2548,12 +2548,19 @@ def cmd_push(args) -> int:
         raise SystemExit("set the PS5 FTP address first (web page: Remote tab, or PS5LZ4_PS5_FTP)")
     if transfer_running():
         raise SystemExit("a transfer is already running")
-    game, rc = args.game, 0
+    try:
+        return push_queue(args.game, args.force)
+    finally:
+        (TRANSFERS / ".starting").unlink(missing_ok=True)
+
+
+def push_queue(game: str, force: bool) -> int:
+    rc = 0
     while game:
         q = [x for x in transfer_queue() if x != game]
         transfer_queue_set(q)
         try:
-            rc = push_one(game, args.force) or rc
+            rc = push_one(game, force) or rc
         except TransferStopped:
             return 1  # the queue waits until it is started again
         except SystemExit as err:
@@ -2581,6 +2588,7 @@ def push_one(game: str, force: bool = False) -> int:
           "bytes": 0, "total": total, "files": len(files), "files_done": 0, "skipped": 0,
           "current": "", "started": now(), "error": None, "verified": 0}
     write_json(st_path, st)
+    (TRANSFERS / ".starting").unlink(missing_ok=True)
     last = [0.0]
 
     def stop(_sig, _frm):
@@ -3332,13 +3340,16 @@ def cmd_ui(args) -> int:
                 if not get_settings()["ps5_ftp"]:
                     return self.send(400, json.dumps({"error": "PS5 FTP address missing"}).encode())
                 q = transfer_queue()
-                if transfer_running():  # after the current one, in order
+                starting = TRANSFERS / ".starting"
+                just_started = starting.exists() and time.time() - starting.stat().st_mtime < 20
+                if transfer_running() or just_started:  # after the current one, in order
                     if game not in q:
                         transfer_queue_set(q + [game])
                     cache["at"] = 0
                     return self.send(200, json.dumps({"queued": game, "position": transfer_queue().index(game) + 1}).encode())
                 argv = [sys.executable, os.path.abspath(__file__), "push", game] + (["--force"] if req.get("force") else [])
                 TRANSFERS.mkdir(exist_ok=True)
+                starting.touch()  # until the new process has written its state
                 with open(os.devnull, "w") as devnull:
                     subprocess.Popen(argv, stdout=devnull, stderr=devnull, stdin=subprocess.DEVNULL,
                                      start_new_session=True)

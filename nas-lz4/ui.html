@@ -94,6 +94,15 @@ select{font:inherit;padding:5px 8px;border-radius:8px;border:1px solid var(--lin
 .kv div{overflow-wrap:anywhere}.acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
 .err{background:var(--badbg);color:var(--bad);border-radius:10px;padding:10px 12px}
 footer{opacity:.8}
+#fab{position:fixed;right:18px;bottom:18px;z-index:20;width:62px;height:62px;border-radius:99px;background:var(--card);box-shadow:0 6px 24px rgba(0,0,0,.22);display:grid;place-items:center;cursor:pointer;border:1px solid var(--line);animation:rise .2s}
+#fab .ring{width:50px;height:50px;border-radius:99px;display:grid;place-items:center;transition:background .5s}
+#fab .ring span{width:40px;height:40px;border-radius:99px;background:var(--card);display:grid;place-items:center;font-size:12px;font-weight:800;font-variant-numeric:tabular-nums}
+#fab .fab-n{position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;padding:0 5px;border-radius:99px;background:var(--acc);color:#fff;font-size:11px;font-weight:700;display:grid;place-items:center}
+#fabpop{position:fixed;right:18px;bottom:90px;z-index:20;width:min(330px,calc(100vw - 36px));max-height:60vh;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.25);padding:12px 14px;animation:rise .15s}
+#fabpop .fh{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);margin:8px 0 4px}#fabpop .fh:first-child{margin-top:0}
+#fabpop .fr{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px}#fabpop .fn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#fabpop .bar{height:5px;margin:0 0 4px}
+.dotlive{width:8px;height:8px;border-radius:99px;background:var(--ok);box-shadow:0 0 0 3px var(--okbg);flex:none}
 .drive{padding:12px 0;border-top:1px solid var(--line)}.drive:first-child{border-top:0}
 .dhead{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-bottom:6px}
 .dbar{height:10px;margin:4px 0 6px}.dbar.full i{background:var(--bad)}
@@ -222,7 +231,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;whi
 </main>
 <main id="p-act" hidden>
   <div class="card"><h2>Packing</h2><div id="job"></div><div id="pq"></div></div>
-  <div class="card"><h2>Transfers to the PS5</h2><div id="xfer"></div><div id="xq"></div>
+  <div class="card"><h2>Transfers to the PS5</h2><div id="xfer"></div><div id="xq"></div><div id="xstop"></div>
     <div class="why" style="margin-top:10px">If the PS5 goes to rest mode during a transfer, it is woken (Remote Play key) and the
     transfer continues, a half-sent file from where it stopped. To keep it awake: <i>Settings › System › Power Saving ›
     Set Time Until PS5 Enters Rest Mode</i> › <b>Don't Put in Rest Mode</b>.</div></div>
@@ -236,6 +245,10 @@ button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;whi
   </div>
   <div class="card"><h2>Recent actions</h2><div class="log" id="log"><span class="mut">None yet.</span></div></div>
 </main>
+<div id="fab" hidden onclick="document.getElementById('fabpop').hidden ^= 1">
+  <div class="ring" id="fab-ring"><span id="fab-pct"></span></div><span class="fab-n" id="fab-n"></span>
+</div>
+<div id="fabpop" hidden></div>
 <div id="modal" class="modal" hidden onclick="if(event.target===this)closeGame()">
   <div class="sheet"><button class="x" onclick="closeGame()">✕</button><div id="m-body">Loading…</div></div>
 </div>
@@ -410,6 +423,31 @@ async function saveAddress() {
   ok.textContent = 'Saved ✓ ' + data.settings.ps5_ftp; setTimeout(() => { ok.textContent = ''; }, 4000);
   ftpLoaded = false; ps5State();
 }
+// Resume from the Activity list: straight into the queue while something is
+// sent, so several can be lined up without a question each time.
+async function resumeTransfer(id, name) {
+  if (data.transfer || (data.transfer_queue || []).length) {
+    await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action: 'push', game: id})});
+    if (!data.transfer) await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action: 'push_queue_start'})});
+    setTimeout(load, 500);
+    return;
+  }
+  push(id, name);
+}
+async function resumeAll() {
+  const ids = Object.entries(data.transfers || {}).filter(([id, t]) => t && t.state === 'failed' && !(data.transfer_queue || []).includes(id))
+    .sort((a, b) => (b[1].finished || '').localeCompare(a[1].finished || '')).map(([id]) => id);
+  if (!ids.length || !confirm(`Resume ${ids.length} transfers, one after another?\n\nEach continues where it stopped.`)) return;
+  for (const id of ids) {
+    const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action: 'push', game: id})});
+    if (!r.ok) { alert('Failed: ' + ((await r.json().catch(() => ({}))).error || r.status)); break; }
+    await new Promise(ok => setTimeout(ok, 700));  // the first one starts; the rest queue behind it
+  }
+  setTimeout(load, 500);
+}
 async function push(id, name) {
   const s = data.settings || {};
   if (!s.ps5_ftp) { alert('Enter the PS5 address on the Remote tab first.'); tab('ps5'); return; }
@@ -462,18 +500,21 @@ function render() {
         <span>file ${tf.files_done} of ${tf.files}</span>${tf.woken ? `<span>woke the PS5 ${tf.woken}×</span>` : ''}</div>
       <div class="why">${esc(tf.current || '')}</div>
       <div style="margin-top:10px"><button onclick="act('push_stop', 'Stop the transfer? Finished files stay on the PS5; the queue waits.')">Stop (resumable)</button></div>`;
-  } else {
-    // Stopped or failed transfers, newest first, each resumable where it stopped.
-    const stopped = Object.entries(d.transfers || {}).filter(([, t]) => t && t.state === 'failed')
-      .sort((a, b) => (b[1].finished || '').localeCompare(a[1].finished || ''));
-    xf.innerHTML = stopped.length ? stopped.map(([id, t]) => {
+  } else xf.innerHTML = '<div class="mut">No transfer running.</div>';
+  // Stopped or failed transfers, newest first, each resumable where it stopped.
+  // They stay listed while another runs; Resume then queues them.
+  const tq0 = d.transfer_queue || [];
+  const stopped = Object.entries(d.transfers || {}).filter(([id, t]) => t && t.state === 'failed' && !tq0.includes(id) && !(tf && tf.game === id))
+    .sort((a, b) => (b[1].finished || '').localeCompare(a[1].finished || ''));
+  document.getElementById('xstop').innerHTML = stopped.length ? `<h4 class="qh">Stopped (${stopped.length})
+      ${stopped.length > 1 ? `<button class="sm" style="float:right" onclick="resumeAll()">▶ Resume all</button>` : ''}</h4>` +
+    stopped.map(([id, t]) => {
       const pct = t.total ? Math.round(100 * t.bytes / t.total) : 0, stop = (t.error || '').startsWith('stopped');
       return `<div class="qrow"><span class="qname"><b>${esc(nameOf(id))}</b>
           <div class="why">${stop ? 'stopped' : '<span class="bad">failed</span>'} at ${pct} % · ${gb(t.bytes)} / ${gb(t.total)} · ${esc((t.finished || '').slice(5, 16))}</div>
           ${stop ? '' : `<div class="why bad">${esc(t.error || '')}</div>`}</span>
-        <button class="sm pri" data-id="${esc(id)}" data-name="${esc(nameOf(id))}" onclick="push(this.dataset.id, this.dataset.name)">▶ Resume</button></div>`;
-    }).join('') : '<div class="mut">No transfer running.</div>';
-  }
+        <button class="sm pri" data-id="${esc(id)}" data-name="${esc(nameOf(id))}" onclick="resumeTransfer(this.dataset.id, this.dataset.name)">${tf || tq0.length ? '＋ Queue' : '▶ Resume'}</button></div>`;
+    }).join('') : '';
   const tq = d.transfer_queue || [];
   document.getElementById('xq').innerHTML = tq.length ? `<h4 class="qh">Queued (${tq.length})</h4>` + tq.map((x, i) =>
     `<div class="qrow"><span class="qn">${i + 1}</span><span class="qname">${esc(nameOf(x))}</span>
@@ -494,6 +535,7 @@ function render() {
   busyEl.innerHTML = parts.map(x => `<span>${x}</span>`).join('<span class="dot">·</span>') + ' <span class="more">Activity ›</span>';
   const an = document.getElementById('act-n'), n = (d.job ? 1 : 0) + (tf ? 1 : 0) + nq;
   an.hidden = !n; an.textContent = n;
+  fab(d, tf, tq, pqs, nameOf);
   document.getElementById('sub').textContent = `LZ4 HC level ${d.level} · APR-EMU ${d.runtime}`;
   document.getElementById('b-resume').hidden = !d.interrupted;
   const t = d.totals, saved = t.source - t.output;
@@ -850,6 +892,37 @@ async function measure(path, el, drive) {
     el.innerHTML = r.ok ? `<b>${gb(j.bytes)}</b> used in ${esc(path)} · ${j.files.toLocaleString()} files, ${j.folders.toLocaleString()} folders`
                         : `<span class="bad">${esc(j.error || r.status)}</span>`;
   } catch (e) { el.innerHTML = `<span class="bad">${esc(String(e))}</span>`; }
+}
+// Bottom-right bubble: how much of all queued transfers is done, and a short list.
+function fab(d, tf, tq, pqs, nameOf) {
+  const el = document.getElementById('fab'), pop = document.getElementById('fabpop');
+  const outSize = id => ((d.games || []).find(g => g.output && g.output.split('/').pop() === id) || {}).output_bytes || 0;
+  const busy = tf || tq.length || d.job || pqs.length;
+  el.hidden = !busy;
+  if (!busy) { pop.hidden = true; return; }
+  // Transfers: bytes sent of the current game plus every queued game.
+  const total = (tf ? tf.total : 0) + tq.reduce((n, x) => n + outSize(x), 0), done = tf ? tf.bytes : 0;
+  let pct = total ? 100 * done / total : null;
+  if (pct == null && d.job && d.job.progress && d.job.progress[1]) pct = 100 * d.job.progress[0] / d.job.progress[1];
+  const p = pct == null ? 0 : Math.min(100, pct);
+  document.getElementById('fab-ring').style.background = `conic-gradient(var(--acc) ${p * 3.6}deg, var(--chip) 0)`;
+  document.getElementById('fab-pct').textContent = pct == null ? '…' : Math.floor(p) + '%';
+  const n = (tf ? 1 : 0) + tq.length + (d.job ? 1 : 0) + pqs.length;
+  document.getElementById('fab-n').textContent = n;
+  const left = tf && tf.speed && total ? dur((total - done) / tf.speed) : null;
+  const rows = [];
+  if (tf || tq.length) rows.push(`<div class="fh">Transfers · ${gb(done)} of ${gb(total)}${left ? ` · about ${left} left` : ''}</div>`);
+  if (tf) rows.push(`<div class="fr"><span class="dotlive"></span><span class="fn">${esc(nameOf(tf.game))}</span><b>${tf.total ? Math.round(100 * tf.bytes / tf.total) : 0}%</b></div>
+    <div class="bar"><i style="width:${tf.total ? 100 * tf.bytes / tf.total : 0}%"></i></div>`);
+  tq.forEach((x, i) => rows.push(`<div class="fr"><span class="qn">${i + 1}</span><span class="fn">${esc(nameOf(x))}</span><span class="mut">${gb(outSize(x))}</span></div>`));
+  if (d.job || pqs.length) rows.push('<div class="fh">Packing</div>');
+  if (d.job) {
+    const pr = d.job.progress, jp = pr && pr[1] ? Math.round(100 * pr[0] / pr[1]) : null;
+    rows.push(`<div class="fr"><span class="dotlive"></span><span class="fn">${esc(((d.games || []).find(g => g.id === d.job.id) || {}).name || d.job.id)}</span><b>${esc(STEP_EN[d.job.step] || d.job.step || '')}${jp != null ? ' ' + jp + '%' : ''}</b></div>`);
+  }
+  pqs.forEach((x, i) => rows.push(`<div class="fr"><span class="qn">${i + 1}</span><span class="fn">${esc(((d.games || []).find(g => g.id === x) || {}).name || x)}</span></div>`));
+  rows.push(`<button class="sm" style="margin-top:10px;width:100%;justify-content:center" onclick="tab('act');document.getElementById('fabpop').hidden=true">Open Activity</button>`);
+  pop.innerHTML = rows.join('');
 }
 let comm = null;
 function tab(t) {
