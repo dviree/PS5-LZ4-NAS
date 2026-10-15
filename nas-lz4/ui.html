@@ -275,8 +275,9 @@ button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;whi
   <div class="card"><h2>Remote</h2>
     <div class="filters" style="margin-top:0">
       <span class="pill p-no" id="ps5st">PS5: ?</span>
-      <button onclick="act('wake')">Wake PS5 now</button>
+      <button id="b-wake" onclick="wakeNow()">Wake PS5 now</button>
     </div>
+    <div class="why" id="wake-msg"></div>
     <div class="mut" id="paired"></div>
   </div>
   <div class="card"><h2>LZ4 Compression engine on the PS5</h2>
@@ -429,6 +430,22 @@ function eta(key, prog) {
   const s = (prog[1] - prog[0]) / rate, m = Math.round(s / 60);
   return ' · about ' + (s < 90 ? '1 min' : m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min');
 }
+// Speed and time left come from the server (j.eta); the browser's own
+// estimate is only a fallback for an older server.
+function jobEta(j, prog) {
+  const e = j.eta;
+  if (!e) return eta(j.step + (prog[2] || ''), prog);
+  const p = [];
+  if (e.rate) p.push(`<b>${gb(e.rate)}/s</b>`);
+  if (e.step_left != null) p.push(`this step about <b>${dur(e.step_left)}</b>`);
+  else p.push('measuring speed…');
+  if (e.job_left != null && e.later) p.push(`whole game about <b>${dur(e.job_left)}</b>`);
+  return ' · ' + p.join(' · ');
+}
+function packLeft(j) {
+  const e = j.eta || {}, l = e.job_left != null ? e.job_left : e.step_left;
+  return (e.rate ? ' · ' + gb(e.rate) + '/s' : '') + (l != null ? ' · about ' + dur(l) + ' left' : '');
+}
 function community(c) {
   if (!c || !c.reports) return '<span class="mut">no reports</span>';
   const p = [];
@@ -568,7 +585,7 @@ function render() {
         ${tf.speed ? `<span>${gb(tf.speed)}/s</span><span>about ${dur(tf.eta)} left</span>` : '<span>measuring speed…</span>'}
         <span>file ${tf.files_done} of ${tf.files}</span>${tf.woken ? `<span>woke the PS5 ${tf.woken}×</span>` : ''}${tf.kept_awake ? '<span class="good">kept awake by LZ4 Compression</span>' : ''}</div>
       <div class="why">${esc(tf.current || '')}</div>
-      <div style="margin-top:10px"><button onclick="act('push_stop', 'Stop the transfer? Finished files stay on the PS5; the queue waits.')">Stop (resumable)</button></div>`;
+      <div style="margin-top:10px"><button onclick="act('push_stop', 'Stop sending this game? Finished files stay on the PS5 and it can be resumed later. The queue goes on with the next game.')">Stop (resumable)</button></div>`;
   } else xf.innerHTML = '<div class="mut">No transfer running.</div>';
   // Stopped or failed transfers, newest first, each resumable where it stopped.
   // They stay listed while another runs; Resume then queues them.
@@ -589,12 +606,12 @@ function render() {
     `<div class="qrow"><span class="qn">${i + 1}</span><span class="qname">${esc(nameOf(x))}</span>
       ${i ? `<button class="sm" data-g="${esc(x)}" onclick="act('push_queue_up', null, {game: this.dataset.g})" title="Move up">↑</button>` : ''}
       <button class="sm" data-g="${esc(x)}" onclick="act('push_queue_remove', null, {game: this.dataset.g})" title="Remove from the queue">✕</button></div>`).join('') +
-    (!tf ? `<button class="pri" style="margin-top:10px" onclick="act('push_queue_start')">Start the queue</button>` : '') : '';
+    (!tf ? `<div class="mut" style="margin-top:8px">Starts by itself in a few seconds…</div>` : '') : '';
   const pqEl = document.getElementById('pq'), pqs = (d.queue || []).filter(x => !d.job || x !== d.job.id);
   pqEl.innerHTML = pqs.length ? `<h4 class="qh">Queued (${pqs.length})</h4>` + pqs.map((x, i) =>
     `<div class="qrow"><span class="qn">${i + 1}</span><span class="qname">${esc(((d.games || []).find(g => g.id === x) || {}).name || x)}</span></div>`).join('') : '';
   const busyEl = document.getElementById('busy'), parts = [];
-  if (d.job) parts.push(`📦 Packing <b>${esc(((d.games || []).find(g => g.id === d.job.id) || {}).name || d.job.id)}</b>${d.job.progress && d.job.progress[1] ? ' · ' + Math.round(100 * d.job.progress[0] / d.job.progress[1]) + ' %' : ''}`);
+  if (d.job) parts.push(`📦 Packing <b>${esc(((d.games || []).find(g => g.id === d.job.id) || {}).name || d.job.id)}</b>${d.job.progress && d.job.progress[1] ? ' · ' + Math.round(100 * d.job.progress[0] / d.job.progress[1]) + ' %' : ''}${packLeft(d.job)}`);
   if (tf) parts.push(`🎮 Sending <b>${esc(nameOf(tf.game))}</b> · ${tf.total ? Math.round(100 * tf.bytes / tf.total) : 0} %${tf.speed ? ' · ' + gb(tf.speed) + '/s · ' + dur(tf.eta) + ' left' : ''}`);
   const nq = pqs.length + tq.length;
   if (nq) parts.push(`${nq} queued`);
@@ -624,7 +641,7 @@ function render() {
     job.innerHTML = `<div class="jobtitle">Packing <b>${esc(name)}</b></div>
       <div class="steps">${j.steps.map(s => `<div class="st ${done.has(s) ? 'd' : s === j.step ? 'r' : ''}">${STEP_EN[s] || s}${done.has(s) ? ' ✓' : ''}</div>`).join('')}</div>
       <div class="bar"><i style="width:${pct}%"></i></div>
-      <div class="mut" style="margin-top:6px">${prog ? `${prog[2] ? esc(prog[2]) + ': ' : ''}${gb(prog[0])} / ${gb(prog[1])} (${pct.toFixed(0)} %) · ${gb(Math.max(0, prog[1] - prog[0]))} left${eta(j.step + (prog[2] || ''), prog)}` : 'starting…'}${next.length ? ' · next: ' + esc(next.map(x => (d.games.find(g => g.id === x) || {}).name || x).join(', ')) : ''}</div>
+      <div class="mut" style="margin-top:6px">${prog ? `${prog[2] ? esc(prog[2]) + ': ' : ''}${gb(prog[0])} / ${gb(prog[1])} (${pct.toFixed(0)} %) · ${gb(Math.max(0, prog[1] - prog[0]))} left${jobEta(j, prog)}` : 'starting…'}${next.length ? ' · next: ' + esc(next.map(x => (d.games.find(g => g.id === x) || {}).name || x).join(', ')) : ''}</div>
       <div style="margin-top:10px"><button onclick="act('stop', 'Stop the job? It can be resumed later.')">Stop (resumable)</button></div>`;
   } else job.innerHTML = '<div class="mut">No job running.</div>';
 
@@ -1008,8 +1025,10 @@ function fab(d, tf, tq, pqs, nameOf) {
   const left = tf && tf.speed && total ? dur((total - done) / tf.speed) : null;
   const rows = [];
   const info = document.getElementById('fab-info');
-  info.hidden = !(tf && tf.speed);
+  const je = !tf && d.job && d.job.eta;
+  info.hidden = !(tf && tf.speed) && !(je && je.rate);
   if (tf && tf.speed) info.innerHTML = `<b>${gb(tf.speed)}/s</b><span>${left ? left + ' left' : ''}</span>`;
+  else if (je && je.rate) { const l = je.job_left != null ? je.job_left : je.step_left; info.innerHTML = `<b>${gb(je.rate)}/s</b><span>${l != null ? dur(l) + ' left' : ''}</span>`; }
   if (tf || tq.length) rows.push(`<div class="fh">Transfers · ${gb(done)} of ${gb(total)}</div>
     <div class="ftot"><span><b>${tf && tf.speed ? gb(tf.speed) + '/s' : '–'}</b>speed</span><span><b>${left || '–'}</b>total time left</span><span><b>${gb(Math.max(0, total - done))}</b>to send</span></div>`);
   if (tf) rows.push(`<div class="fr"><span class="dotlive"></span><span class="fn">${esc(nameOf(tf.game))}</span><b>${tf.total ? Math.round(100 * tf.bytes / tf.total) : 0}%</b></div>
@@ -1017,7 +1036,8 @@ function fab(d, tf, tq, pqs, nameOf) {
   tq.forEach((x, i) => rows.push(`<div class="fr"><span class="qn">${i + 1}</span><span class="fn">${esc(nameOf(x))}</span><span class="mut">${gb(outSize(x))}</span></div>`));
   if (d.job || pqs.length) rows.push('<div class="fh">Packing</div>');
   if (d.job) {
-    const pr = d.job.progress, jp = pr && pr[1] ? Math.round(100 * pr[0] / pr[1]) : null;
+    const pr = d.job.progress, jp = pr && pr[1] ? Math.round(100 * pr[0] / pr[1]) : null, e = d.job.eta || {};
+    if (e.rate || e.step_left != null) rows.push(`<div class="ftot"><span><b>${e.rate ? gb(e.rate) + '/s' : '–'}</b>speed</span><span><b>${e.step_left != null ? dur(e.step_left) : '–'}</b>this step</span><span><b>${e.job_left != null ? dur(e.job_left) : '–'}</b>whole game</span></div>`);
     rows.push(`<div class="fr"><span class="dotlive"></span><span class="fn">${esc(((d.games || []).find(g => g.id === d.job.id) || {}).name || d.job.id)}</span><b>${esc(STEP_EN[d.job.step] || d.job.step || '')}${jp != null ? ' ' + jp + '%' : ''}</b></div>`);
   }
   pqs.forEach((x, i) => rows.push(`<div class="fr"><span class="qn">${i + 1}</span><span class="fn">${esc(((d.games || []).find(g => g.id === x) || {}).name || x)}</span></div>`));
@@ -1348,6 +1368,32 @@ async function engAct(action, confirmText) {
       + (j.backup ? ' The old engine is kept as .orig.' : '') + ' Restart the PS5 or press Start it now to run it.'
     : action === 'engine_start' ? `Sent ${j.tag}; it starts in a few seconds.` : 'The original engine is back; it runs after the next start.';
   setTimeout(() => { engCheck(); engHeader(); }, action === 'engine_start' ? 5000 : 500);
+}
+// Wake and watch: the PS5 answers the same discovery port in rest mode
+// ("standby"), so the result says whether the wake-up got there.
+async function wakeNow() {
+  const msg = document.getElementById('wake-msg'), b = document.getElementById('b-wake');
+  const say = (cls, html) => { msg.className = 'why ' + cls; msg.innerHTML = html; };
+  b.disabled = true; say('', 'Sending the wake-up…');
+  try {
+    const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'wake'})});
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { say('bad', esc(j.error || r.status) + ' — pair under <b>2. Pair for wake-up</b> below.'); return; }
+    if (j.before === 'on') { say('good', 'The PS5 is already on ✓'); ps5State(); return; }
+    for (let i = 0; i < 20; i++) {
+      say('', `Woken from ${j.before === 'standby' ? 'rest mode' : 'an unknown state'}, waiting for the PS5… ${(i + 1) * 3} s`);
+      await new Promise(r => setTimeout(r, 3000));
+      const st = (await (await fetch('/api/ps5', {cache: 'no-store'})).json().catch(() => ({}))).status;
+      if (st === 'on') { say('good', 'The PS5 is on ✓'); ps5State(); return; }
+    }
+    say('bad', j.before === 'standby'
+      ? 'The PS5 answers in rest mode but did not turn on, so it did not accept the key. Pair again under <b>2. Pair for wake-up</b> '
+        + '(the PS5 forgets a pairing when Remote Play is turned off or the user signs out).'
+      : 'The PS5 does not answer at all, so the wake-up does not reach it. On the PS5: <i>Settings › System › Power Saving › '
+        + 'Features Available in Rest Mode</i>: turn on <b>Stay Connected to the Internet</b> and <b>Enable Turning On PS5 from Network</b>. '
+        + 'Also check that the PS5 address is right and the PS5 is in rest mode, not fully off.');
+    ps5State();
+  } finally { b.disabled = false; }
 }
 async function ps5State() {
   try {

@@ -150,7 +150,9 @@ On the **Remote** tab set the PS5's FTP address (ftpsrv, for example
 - wakes the PS5 again if it goes to rest mode during the transfer, and
   carries on (to keep it awake: Settings › System › Power Saving › Set Time
   Until PS5 Enters Rest Mode › Don't Put in Rest Mode);
-- queues games sent while another transfer runs and sends them in turn;
+- queues games sent while another transfer runs and sends them in turn. The
+  queue starts by itself whenever nothing is being sent: after a game is
+  done, after **Stop** (which stops only that game) and after a restart;
 - adds a PlayGo emulator to the PS5 copy's `fakelib/` when the game needs
   one and the LZ4 folder has none (see *Boot files* below). It is taken from
   the NAS or downloaded from the console (`/data/shadowmount/emus`, other
@@ -177,6 +179,12 @@ If you have already paired in Chiaki, you can enter its `rp_regist_key`
 `state/settings.json` (readable by the owner only) and never sent back to the
 page. The pairing code is a port of chiaki-ng's registration
 (`ps5regist.py`, AGPL-3.0).
+
+**Wake PS5 now** says what happened: on, or why not. If the PS5 answers in
+rest mode but doesn't turn on, the key wasn't accepted: pair again. If it
+doesn't answer at all, turn on *Stay Connected to the Internet* and *Enable
+Turning On PS5 from Network* under Settings › System › Power Saving ›
+Features Available in Rest Mode.
 
 ## Store (for the PS5 browser)
 
@@ -312,6 +320,12 @@ game, then `status` and `report`. Test it on the PS5 before `start --all`.
    and time left for each: *unpacking* (writes the whole game once) and
    *comparing with the original* (reads every file twice, about as long
    again). For a 180 GB game on hard disks, plan for one to two hours.
+
+While a game is packed, the Activity tab, the summary card and the bubble in
+the corner show the speed, the time left for the step and for the whole game.
+The page server works them out from the progress (no need to keep the page
+open first); the steps still to come use the speed earlier games had
+(`state/rates.json`), so the whole-game time shows from the second game on.
 6. **Boot files** (at the start of Publish; the original project's Verify check): some games
    stop with SIGBUS a few seconds after starting (HITMAN 3, 007 First Light).
    - The folder named by `RUNTIME_PATH=` in `eboot.bin` exists only in
