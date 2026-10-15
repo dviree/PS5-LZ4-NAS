@@ -33,6 +33,8 @@ th{color:var(--mut);font-weight:500;border-top:0}
 .p-inte{background:var(--chip);color:var(--mut)}.p-FEL{background:var(--badbg);color:var(--bad)}
 .p-run{background:var(--warnbg);color:var(--warn)}
 .why{font-size:12px;color:var(--mut);max-width:360px}
+.sz{height:6px;margin-top:5px;min-width:90px;border-radius:3px;background:var(--okbg)}
+.sz i{display:block;height:100%;border-radius:3px;background:var(--acc)}
 select{font:inherit;padding:3px 6px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--txt)}
 .good{color:var(--ok)}.bad{color:var(--bad)}
 .log div{overflow-wrap:anywhere;padding:6px 0;border-top:1px solid var(--line);font-size:13px}.log div:first-child{border-top:0}
@@ -144,7 +146,8 @@ function render() {
       return `<tr><td>${esc(g.name)}<div class="why">${esc(g.title_id)}</div>${why}</td>
         <td><span class="pill ${v[0]}">${v[1]}</span></td>
         <td class="num">${gb(g.source_bytes)}</td><td class="num">${gb(g.output_bytes)}</td>
-        <td class="num">${g.saved_percent != null ? Math.round(g.saved_percent) + ' %' : '–'}</td>
+        <td class="num">${g.saved_percent != null ? `<b>${gb(g.source_bytes - g.output_bytes)}</b> · ${Math.round(g.saved_percent)} %
+          <div class="sz" title="LZ4 ${gb(g.output_bytes)} av original ${gb(g.source_bytes)}"><i style="width:${(100 - g.saved_percent).toFixed(1)}%"></i></div>` : '–'}</td>
         <td>${ps5}</td><td>${community(g.community)}</td><td>${action}</td></tr>`;
     }).join('');
 
