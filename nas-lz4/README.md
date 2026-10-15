@@ -246,6 +246,15 @@ copies its `PPSA99420` folder over FTP to `/data/homebrew/PPSA99420`.
 ShadowMount+ then adds the LZ4 Compression tile: the console UI made for the
 controller, which uses the engine on the PS5.
 
+## .ffpfsc compatibility list
+
+The web page container fetches the community's .ffpfsc compatibility sheet
+(a Google Sheet, as CSV) every 6 hours and keeps it in
+`state/ffpfsc_sheet.json`. A game's sheet shows its row under the sheet's own
+column names, found by title ID in any column, else by name, with **Open the
+sheet** next to it. `PS5LZ4_FFPFSC_SHEET` is the CSV export URL (empty turns
+it off).
+
 ## exFAT images of LZ4 games
 
 Some games only start when they run from an image instead of a folder. In
