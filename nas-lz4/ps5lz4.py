@@ -4504,6 +4504,13 @@ def cmd_ui(args) -> int:
                 IMAGE_STOP.touch()
                 cache["at"] = 0
                 return self.send(200, b'{"stopping":true}')
+            if req.get("action") == "send_after_remove":
+                lst = read_json(SEND_AFTER, {}) or {}
+                lst = lst if isinstance(lst, dict) else {}
+                lst.pop(str(req.get("game") or ""), None)
+                write_json(SEND_AFTER, lst)
+                cache["at"] = 0
+                return self.send(200, b'{"send_after":false}')
             if req.get("action") == "send_after":
                 game = str(req.get("game") or "")
                 if not game or "/" in game:
