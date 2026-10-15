@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-15T13:57:17Z",
+ "updated": "2026-10-15T14:20:09Z",
  "games": {
   "PPSA03671": {
    "name": "Marvel's Wolverine",
@@ -95,6 +95,25 @@
     "appVersion": "1.5.0-6-g779",
     "date": "2026-10-15T13:36:58Z",
     "issue": 24
+   }
+  },
+  "PPSA18054": {
+   "name": "STAR WARS Zero Company™",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "STAR WARS Zero Company™",
+    "gameVersion": "01.000.003",
+    "level": "",
+    "source": "Folder",
+    "firmware": "13.42",
+    "appVersion": "ps5-lz4 NAS",
+    "date": "2026-10-15T14:19:58Z",
+    "issue": 26
    }
   },
   "PPSA25286": {
