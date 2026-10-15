@@ -532,6 +532,19 @@ async function saveAddress() {
 }
 // Resume from the Activity list: straight into the queue while something is
 // sent, so several can be lined up without a question each time.
+// Every stopped or failed transfer: what reached the PS5 is deleted, one by one.
+async function deleteAllStopped() {
+  const tf = data.transfer && data.transfer.state === 'running' ? data.transfer : null, q = data.transfer_queue || [];
+  const keys = Object.entries(data.transfers || {}).filter(([id, t]) => t && t.state === 'failed' && !q.includes(id) && !(tf && tf.game === id)).map(([id]) => id);
+  if (!keys.length || !confirm(`Are you sure?\n\nDelete all ${keys.length} stopped transfers from the PS5 and from this list?\n\nWhat was sent so far is deleted; the games on the NAS stay.`)) return;
+  let bad = [];
+  for (const k of keys) {
+    const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'transfer_delete', game: k})});
+    if (!r.ok) bad.push(k + ': ' + ((await r.json().catch(() => ({}))).error || r.status));
+  }
+  if (bad.length) alert('Not deleted:\n\n' + bad.join('\n'));
+  setTimeout(load, 500);
+}
 function transferDelete(key, name, running) {
   const t = (data.transfers || {})[key] || {}, path = t.dest ? '/' + t.dest.split('/').slice(1).join('/') : '';
   act('transfer_delete', (running ? `Stop sending ${name} and delete it from the PS5?` : `Delete ${name} from the PS5 and remove it from this list?`)
@@ -639,7 +652,7 @@ function render() {
   const stopped = Object.entries(d.transfers || {}).filter(([id, t]) => t && t.state === 'failed' && !tq0.includes(id) && !(tf && tf.game === id))
     .sort((a, b) => (b[1].finished || '').localeCompare(a[1].finished || ''));
   document.getElementById('xstop').innerHTML = stopped.length ? `<h4 class="qh">Stopped (${stopped.length})
-      ${stopped.length > 1 ? `<button class="sm" style="float:right" onclick="resumeAll()">▶ Resume all</button>` : ''}</h4>` +
+      ${stopped.length > 1 ? `<button class="sm danger" style="float:right;margin-left:8px" onclick="deleteAllStopped()">🗑 Delete all</button><button class="sm" style="float:right" onclick="resumeAll()">▶ Resume all</button>` : ''}</h4>` +
     stopped.map(([id, t]) => {
       const pct = t.total ? Math.round(100 * t.bytes / t.total) : 0, stop = (t.error || '').startsWith('stopped');
       return `<div class="qrow"><span class="qname"><b>${esc(nameOf(id))}</b>
