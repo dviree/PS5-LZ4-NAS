@@ -2,6 +2,7 @@
 # Runs ps5lz4 inside the ps5-lz4 container as your NAS user.
 #   ./lz4-ps5.sh scan --check | start <game> | status | report | stop | ...
 #   ./lz4-ps5.sh update [--force]   pull the newest image and restart now
+#   ./lz4-ps5.sh push <game>        copy a finished LZ4 game to the PS5 over FTP
 # stdin is not attached (no -i/-t): ps5lz4 never reads input, and an
 # attached stdin would swallow the lines pasted after this command.
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -25,6 +26,11 @@ if [ "${1:-}" = update ]; then
   fi
   sleep 5
   exec docker exec -u "$PUID:$PGID" "$CONTAINER" ps5lz4 --version
+fi
+
+# The PS5 transfer needs a network, which only the web page container has.
+if [ "${1:-}" = push ]; then
+  exec docker exec -u "$PUID:$PGID" "$CONTAINER-ui" ps5lz4 "$@"
 fi
 
 exec docker exec -u "$PUID:$PGID" "$CONTAINER" ps5lz4 "$@"
