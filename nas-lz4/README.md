@@ -107,8 +107,10 @@ that container alone.
   one). Buttons: Delete (one OK), Open in the FTP tab, APR-EMU check.
 - **Game sheet (tap a game):** where the original is on the NAS, every copy
   of the game on the PS5 (found by Title ID, however it got there), and the
-  buttons **Compress**, **Compress and send to PS5** (sends it, or queues it,
-  as soon as it is packed and checked), **Send original to PS5** (the folder or image as it is, for games
+  buttons **⚡ Compress & send to PS5** (packs it and sends it, or queues it,
+  as soon as it is packed and checked; the library list has the same
+  **Compress & send** button), **Compress only**, **Check APR-EMU on PS5**
+  (the answer shows right under the buttons), **Send original to PS5** (the folder or image as it is, for games
   that aren't LZ4), **🗑 Delete from PS5** and **🗑 Delete LZ4 copy on NAS**
   (frees the space; the original is never touched).
 - **Remote tab:** the PS5 address, pairing and wake-up (see below), and the
