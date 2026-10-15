@@ -272,14 +272,14 @@ function render() {
         g.verdict === 'LZ4' ? ['p-LZ4', 'LZ4'] : g.verdict === 'can be LZ4' ? ['p-can', 'can be LZ4'] :
         g.verdict === 'error' ? ['p-err', 'error'] : ['p-no', 'not LZ4'];
       const lz4 = g.verdict === 'LZ4' && g.output_bytes;
-      const ps5 = lz4 && !g.output_only ? `<select onclick="event.stopPropagation()" data-game="${esc(g.id)}" onchange="if(this.value)act('community',null,{game:this.dataset.game,result:this.value})">
+      const ps5 = lz4 && !g.output_only ? `<select onclick="event.stopPropagation()" data-game="${esc(g.id)}" onchange="this.blur();if(this.value)act('community',null,{game:this.dataset.game,result:this.value})">
           <option value="">${g.ps5 ? esc(PS5_EN[g.ps5]) : 'not tested'}</option>
           ${Object.entries(PS5_EN).map(([k, s]) => `<option value="${k}">${s}</option>`).join('')}</select>` : '<span class="mut">–</span>';
       const waiting = pendingFor(g.id);
       const action = waiting ? '<span class="pill p-run">waiting</span>' : g.can_queue && !g.running && !g.queued
         ? `<button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game)">Compress</button>` : '';
       const why = g.verdict !== 'LZ4' && !g.running ? `<div class="why">${esc(g.why)}</div>` : '';
-      return `<tr class="row" data-id="${esc(g.id)}" onclick="openGame(this.dataset.id)"><td>${esc(g.name)}${g.output_only ? '<span class="mine">LZ4 FOLDER</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_EN[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div><div class="cm">${community(g.community)}</div>${g.output && (data.transfers || {})[g.output.split('/').pop()] ? `<div class="cm">${xferText(data.transfers[g.output.split('/').pop()])}</div>` : ''}${why}</td>
+      return `<tr class="row" data-id="${esc(g.id)}" onclick="if(!event.target.closest('select,button,a'))openGame(this.dataset.id)"><td>${esc(g.name)}${g.output_only ? '<span class="mine">LZ4 FOLDER</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_EN[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div><div class="cm">${community(g.community)}</div>${g.output && (data.transfers || {})[g.output.split('/').pop()] ? `<div class="cm">${xferText(data.transfers[g.output.split('/').pop()])}</div>` : ''}${why}</td>
         <td><span class="pill ${v[0]}">${v[1]}</span></td>
         <td class="num">${gb(g.source_bytes)}</td><td class="num">${gb(g.output_bytes)}</td>
         <td class="num">${g.saved_percent != null ? `<b>${gb(g.source_bytes - g.output_bytes)}</b> · ${Math.round(g.saved_percent)} %
@@ -381,7 +381,7 @@ function gameHtml(g, det) {
   else if (g.can_queue && !g.running && !g.queued)
     acts.push(`<button class="pri" data-game="${esc(g.id)}" onclick="compress(this.dataset.game)">Compress</button>`);
   if (g.verdict === 'LZ4' && !g.output_only)
-    acts.push(`<select data-game="${esc(g.id)}" onchange="if(this.value)act('community',null,{game:this.dataset.game,result:this.value})">
+    acts.push(`<select data-game="${esc(g.id)}" onchange="this.blur();if(this.value)act('community',null,{game:this.dataset.game,result:this.value})">
       <option value="">PS5 result: ${g.ps5 ? esc(PS5_EN[g.ps5]) : 'not tested'}</option>
       ${Object.entries(PS5_EN).map(([k, s]) => `<option value="${k}">${s}</option>`).join('')}</select>`);
   if (g.running) acts.push(`<button onclick="act('stop', 'Stop the job? It can be resumed later.')">Stop</button>`);
@@ -452,7 +452,11 @@ async function load() {
     const err = document.getElementById('error');
     if (d.error) { err.hidden = false; err.textContent = 'Error: ' + d.error; return; }
     err.hidden = true;
-    data = d; render();
+    data = d;
+    // Re-rendering while a menu is open (the PS5 result) closes it on phones and
+    // lets the tap land on the row, which opens the game instead.
+    const a = document.activeElement;
+    if (!(a && a.tagName === 'SELECT')) render();
     if (!window._hashOpened && location.hash.startsWith('#game=')) { window._hashOpened = 1; openGame(decodeURIComponent(location.hash.slice(6))); }
   } catch (e) {
     const err = document.getElementById('error');
