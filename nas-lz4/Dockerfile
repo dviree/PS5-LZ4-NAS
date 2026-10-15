@@ -19,9 +19,9 @@ RUN CFLAGS="-O2 -Wno-error=format-truncation" make -f tests/host/Makefile PYTHON
 
 FROM python:3.12-slim-bookworm
 ARG MKPFS_VERSION=1.1.0
-RUN pip install --no-cache-dir "mkpfs==${MKPFS_VERSION}" "cryptography==44.0.2" \
+RUN pip install --no-cache-dir "mkpfs==${MKPFS_VERSION}" \
  && mkpfs -V | grep -q "${MKPFS_VERSION}" \
- && python3 -c "from mkpfs.exfat import ExfatReader"
+ && python3 -c "from mkpfs.exfat import ExfatReader; import cryptography"
 COPY --from=build /src/build/host/ampr_pack_cli /usr/local/bin/ampr_pack_cli
 COPY profiles /opt/ps5lz4/profiles
 COPY compat/compat.json /opt/ps5lz4/compat.json
