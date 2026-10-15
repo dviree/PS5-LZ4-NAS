@@ -64,6 +64,16 @@ FREE_MARGIN = int(float(os.environ.get("PS5LZ4_FREE_MARGIN_GB", "20")) * 1024**3
 RUNTIME_SHA256 = "69e6c4d5e4f5fb83c9e01815db5861c4c75734acbf4595cafa50d4c218116d1a"
 RUNTIME_REL = "fakelib/libSceAmpr.sprx"
 RUNTIME_FILE = Path(os.environ.get("PS5LZ4_RUNTIME", "/opt/ps5lz4/libSceAmpr.sprx"))
+# Community game reports from the original project (compat/compat.json,
+# refreshed by the fork sync and baked into each image).
+COMPAT_FILE = Path(os.environ.get("PS5LZ4_COMPAT", "/opt/ps5lz4/compat.json"))
+COMPAT_REPO = "theghostonline/PS5-LZ4-Compression"
+PLAY_STATES = {  # ours -> (report form answer, label)
+    "works": ("Works", "works"),
+    "issues": ("Works with issues", "works with issues"),
+    "nostart": ("Won't start (black screen or crash on launch)", "won't start"),
+    "crash": ("Crashes in game", "crashes in game"),
+}
 
 IMAGE_EXTS = {".exfat": "exfat", ".ffpfs": "ffpfs", ".ffpfsc": "ffpfsc"}
 TITLE_RE = re.compile(r"(PPSA|CUSA|PPSM)\d{5}", re.I)
@@ -1170,6 +1180,7 @@ def cmd_lz4(args) -> int:
     ensure_dirs()
     entries = scan_library()
     todo: list[Entry] = []
+    games = compat_games()
     counts = {"LZ4": 0, "kan bli LZ4": 0, "inte LZ4": 0, "FEL": 0}
     for e in entries:
         res = result_for(e)
@@ -1205,6 +1216,9 @@ def cmd_lz4(args) -> int:
                 verdict = "inte LZ4"
         counts[verdict] += 1
         print(f"{verdict:12} {e.title_id or '-':9}  {e.rel}  ({why})")
+        c = community_text(e.title_id or "", games)
+        if c:
+            print(f"{'':12} {'':9}  {c}")
     for out in sorted(OUTPUT.glob("*-lz4")):
         if out.is_dir() and not any(e.output == out for e in entries):
             problem = lz4_format_problem(out)
@@ -1257,6 +1271,70 @@ def cmd_status(_args) -> int:
     return 0
 
 
+def compat_games() -> dict:
+    data = read_json(COMPAT_FILE, {}) or {}
+    return data.get("games") or {}
+
+
+def community_text(title_id: str, games: dict | None = None) -> str:
+    """'community: 3 works, 1 crash (4 reports)' or '' when nobody reported."""
+    g = (games if games is not None else compat_games()).get((title_id or "").upper())
+    if not g or not g.get("reports"):
+        return ""
+    parts = [f"{g[k]} {label}" for k, label in (("works", "works"), ("issues", "with issues"),
+             ("noStart", "won't start"), ("crash", "crash")) if g.get(k)]
+    return f"community: {', '.join(parts)} ({g['reports']} report{'s' if g['reports'] != 1 else ''})"
+
+
+def ps5_text(rep: dict) -> str:
+    st = rep.get("ps5_result")
+    return f"PS5 {PLAY_STATES[st][1]}" if st in PLAY_STATES else "PS5 untested"
+
+
+def cmd_community(args) -> int:
+    """Community reports for the library, or record and share your own result."""
+    ensure_dirs()
+    games = compat_games()
+    if not args.game:
+        updated = (read_json(COMPAT_FILE, {}) or {}).get("updated", "?")
+        print(f"community reports from {COMPAT_REPO} (updated {updated})")
+        seen = set()
+        for e in scan_library():
+            tid = (e.title_id or "").upper()
+            if not tid or tid in seen:
+                continue
+            seen.add(tid)
+            rep = read_json(REPORTS / f"{e.id}.json") or {}
+            mine = ps5_text(rep) if rep else "not LZ4"
+            print(f"{tid:9}  {e.rel[:44]:44}  you: {mine:22}  {community_text(tid, games) or 'no reports yet'}")
+        print("\nrecord your result: ps5lz4 community <game> works|issues|nostart|crash")
+        return 0
+    if args.result not in PLAY_STATES:
+        raise SystemExit("result must be one of: " + ", ".join(PLAY_STATES))
+    e = resolve_targets([args.game], scan_library())[0]
+    rep_path = REPORTS / f"{e.id}.json"
+    rep = read_json(rep_path)
+    if not rep:
+        raise SystemExit(f"{e.id} has no LZ4 report yet; pack it first")
+    form, label = PLAY_STATES[args.result]
+    rep["ps5_result"] = args.result
+    rep["playable_on_ps5"] = f"{label} (reported {now()})"
+    write_json(rep_path, rep)
+    print(f"saved: {e.id}: PS5 {label}")
+    source = {"folder": "Folder", "exfat": "exFAT image", "ffpfsc": "Uncompressed .ffpfsc"}.get(e.kind, "")
+    name = (rep.get("title_name") or e.id)[:60]
+    params = [("template", "compat.yml"), ("title", f"[Game report] {name}: {form}"),
+              ("title_id", rep.get("title_id") or e.title_id), ("game", name), ("status", form),
+              ("level", str((rep.get("codec") or "").split()[-1])), ("source", source),
+              ("app_version", f"ps5-lz4 NAS {VERSION}")]
+    from urllib.parse import quote
+    url = f"https://github.com/{COMPAT_REPO}/issues/new?" + "&".join(
+        f"{k}={quote(v)}" for k, v in params if v)
+    print("share it with the community (open on your phone or computer, add firmware, submit):")
+    print(url)
+    return 0
+
+
 def cmd_report(args) -> int:
     ensure_dirs()
     rows = [read_json(p) for p in sorted(REPORTS.glob("*.json")) if not p.name.endswith(".skipped.json")]
@@ -1266,13 +1344,17 @@ def cmd_report(args) -> int:
         print(json.dumps({"done": rows, "skipped": skipped}, indent=2, ensure_ascii=False))
         return 0
     tot_src = tot_out = 0
+    games = compat_games()
     print(f"{'game':40} {'title':9} {'original':>10} {'LZ4':>10} {'saved':>10} {'%':>6}  verified")
     for r in rows:
         tot_src += r["source_bytes"]
         tot_out += r["output_bytes"]
         print(f"{r['id'][:40]:40} {r.get('title_id') or '-':9} {human(r['source_bytes']):>10} "
               f"{human(r['output_bytes']):>10} {human(r['saved_bytes']):>10} {r['saved_percent']:>5}%  "
-              f"{'NAS ok' if r.get('verified_on_nas') else 'NO'} / PS5 untested")
+              f"{'NAS ok' if r.get('verified_on_nas') else 'NO'} / {ps5_text(r)}")
+        c = community_text(r.get("title_id") or "", games)
+        if c:
+            print(f"{'':40} {c}")
     if rows:
         pct = 100.0 * (tot_src - tot_out) / tot_src if tot_src else 0
         print(f"{'TOTAL':40} {'':9} {human(tot_src):>10} {human(tot_out):>10} "
@@ -1470,6 +1552,10 @@ def main() -> int:
     sp = sub.add_parser("apr", help="check the APR-EMU runtime in every LZ4 game (--fix restores it)")
     sp.add_argument("--fix", action="store_true")
     sp.set_defaults(func=cmd_apr)
+    sp = sub.add_parser("community", help="community reports per game; record and share your PS5 result")
+    sp.add_argument("game", nargs="?", help="# from scan, name or title ID")
+    sp.add_argument("result", nargs="?", help="works | issues | nostart | crash")
+    sp.set_defaults(func=cmd_community)
     sp = sub.add_parser("clean", help="delete the work folder of a failed game")
     sp.add_argument("ids", nargs="+")
     sp.set_defaults(func=cmd_clean)

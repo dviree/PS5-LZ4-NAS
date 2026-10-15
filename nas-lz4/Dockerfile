@@ -24,6 +24,7 @@ RUN pip install --no-cache-dir "mkpfs==${MKPFS_VERSION}" \
  && python3 -c "from mkpfs.exfat import ExfatReader"
 COPY --from=build /src/build/host/ampr_pack_cli /usr/local/bin/ampr_pack_cli
 COPY profiles /opt/ps5lz4/profiles
+COPY compat/compat.json /opt/ps5lz4/compat.json
 COPY nas-lz4/ps5lz4.py /opt/ps5lz4/ps5lz4.py
 COPY third_party/ampr_emu/libSceAmpr.sprx /opt/ps5lz4/libSceAmpr.sprx
 COPY nas-lz4/entrypoint.sh /usr/local/bin/ps5lz4-entrypoint

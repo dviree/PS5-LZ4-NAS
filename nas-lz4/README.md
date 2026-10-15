@@ -66,6 +66,8 @@ körs inne i containern som din användare, så filerna ägs av `sureahad`.
 | --- | --- |
 | `./lz4-ps5.sh lz4` | En rad per spel: `LZ4` (klart och formatet kontrollerat), `kan bli LZ4`, `inte LZ4` (med orsak) eller `FEL` |
 | `./lz4-ps5.sh lz4 --fix` | Packar alla spel som kan bli LZ4, i bakgrunden |
+| `./lz4-ps5.sh community` | Hur spelen fungerar för andra (rapporter från originalprojektet) och ditt eget PS5-resultat |
+| `./lz4-ps5.sh community <spel> works` | Sparar ditt resultat (`works`, `issues`, `nostart`, `crash`) och ger en länk för att dela det |
 | `./lz4-ps5.sh scan --check` | Listar biblioteket med nummer, status och om spelet kan använda LZ4 (läser `eboot.bin` direkt ur `.exfat` utan extraktion) |
 | `./lz4-ps5.sh start 3` | Startar spel nr 3 i bakgrunden (nohup). Flera spel blir en kö: `start 3 5 "Mitt spel.exfat" PPSA12345` |
 | `./lz4-ps5.sh start --all` | Alla spel som inte är klara |
