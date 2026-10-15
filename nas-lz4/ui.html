@@ -257,7 +257,8 @@ function xferText(t) {
   if (!t) return '';
   if (t.state === 'running') return `sending ${t.total ? Math.round(100 * t.bytes / t.total) : 0} %`;
   if (t.state === 'done') return `<span class="good">on the PS5</span> ${esc((t.finished || '').slice(0, 16))}`;
-  return `<span class="bad">transfer failed</span>`;
+  return `<span class="bad">transfer ${(t.error || '').startsWith('stopped') ? 'stopped' : 'failed'}</span> at ${t.total ? Math.round(100 * t.bytes / t.total) : 0} %, resumable` +
+    (t.error && !t.error.startsWith('stopped') ? `<div class="why bad">${esc(t.error)}</div>` : '');
 }
 
 function render() {
@@ -282,7 +283,8 @@ function render() {
     xf.innerHTML = `<h2>Sending to PS5: ${esc(tf.game)}</h2>
       <div class="bar"><i style="width:${pct}%"></i></div>
       <div class="mut" style="margin-top:6px">${gb(tf.bytes)} / ${gb(tf.total)} (${pct.toFixed(0)} %) · file ${tf.files_done} of ${tf.files} · ${esc(tf.current || '')}</div>
-      <div class="why">${esc(tf.dest)}</div>`;
+      <div class="why">${esc(tf.dest)}</div>
+      <div style="margin-top:10px"><button onclick="act('push_stop', 'Stop the transfer? Finished files stay on the PS5; Send to PS5 again continues where it stopped.')">Stop (resumable)</button></div>`;
   } else xf.hidden = true;
   document.getElementById('sub').textContent = `LZ4 HC level ${d.level} · APR-EMU ${d.runtime}`;
   document.getElementById('b-resume').hidden = !d.interrupted;
@@ -326,8 +328,11 @@ function render() {
           <option value="">${g.ps5 ? esc(PS5_EN[g.ps5]) : 'not tested'}</option>
           ${Object.entries(PS5_EN).map(([k, s]) => `<option value="${k}">${s}</option>`).join('')}</select>` : '<span class="mut">–</span>';
       const waiting = pendingFor(g.id);
+      const txr = g.output ? (data.transfers || {})[g.output.split('/').pop()] : null;
       const action = waiting ? '<span class="pill p-run">waiting</span>' : g.can_queue && !g.running && !g.queued
-        ? `<button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game)">Compress</button>` : '';
+        ? `<button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game)">Compress</button>`
+        : txr && txr.state === 'failed' && !d.transfer
+        ? `<button class="sm pri" data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}" onclick="event.stopPropagation();push(this.dataset.id, this.dataset.name)">Resume transfer</button>` : '';
       const why = g.verdict !== 'LZ4' && !g.running ? `<div class="why">${esc(g.why)}</div>` : '';
       return `<tr class="row" data-id="${esc(g.id)}" onclick="if(!event.target.closest('select,button,a'))openGame(this.dataset.id)"><td><img class="ico" alt="" loading="lazy" src="/api/icon?id=${encodeURIComponent(g.id)}" onerror="this.remove()">${esc(g.name)}${g.output_only ? '<span class="mine">LZ4 FOLDER</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_EN[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div>${placeHtml(g)}<div class="cm">${community(g.community)}</div>${g.output && (data.transfers || {})[g.output.split('/').pop()] ? `<div class="cm">${xferText(data.transfers[g.output.split('/').pop()])}</div>` : ''}${why}</td>
         <td><span class="pill ${v[0]}">${v[1]}</span></td>

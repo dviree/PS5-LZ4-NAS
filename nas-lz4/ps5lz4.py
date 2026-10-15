@@ -2184,6 +2184,10 @@ def output_for(game: str) -> Path:
     raise SystemExit(f"no finished LZ4 folder for {game!r} in {OUTPUT}")
 
 
+class TransferStopped(Exception):
+    """Stop pressed: not retried like a network error."""
+
+
 def cmd_push(args) -> int:
     """Copy a finished LZ4 game to the PS5 over FTP and check it."""
     import ftplib
@@ -2209,6 +2213,10 @@ def cmd_push(args) -> int:
           "current": "", "started": now(), "error": None, "verified": 0}
     write_json(st_path, st)
     last = [0.0]
+
+    def stop(_sig, _frm):
+        raise TransferStopped("stopped; press Send to PS5 again to resume (finished files are kept)")
+    signal.signal(signal.SIGTERM, stop)
 
     def save(force=False):
         if force or time.time() - last[0] > 1:
@@ -2237,10 +2245,22 @@ def cmd_push(args) -> int:
 
     try:
         if not ftp_open(host, port):
+            state = ps5_status(host)
+            if state == "on":
+                # Awake but nothing on this port: give ftpsrv a moment, then say why.
+                for _ in range(5):
+                    time.sleep(2)
+                    if ftp_open(host, port):
+                        break
+                else:
+                    hint = " (ftpsrv uses port 2121; change it on the Remote tab)" if port != 2121 else ""
+                    raise RuntimeError(f"the PS5 is on but nothing answers on {host}:{port}{hint}; "
+                                       "is ftpsrv running? Then press Send to PS5 again to resume")
+        if not ftp_open(host, port):
             if not cfg["ps5_wake_key"]:
                 raise RuntimeError(f"no FTP server at {host}:{port}: is the PS5 on with ftpsrv running? "
                                    "(add the Remote Play key to wake it from rest mode)")
-            st["current"] = f"waking the PS5 (it was {ps5_status(host)})"
+            st["current"] = f"waking the PS5 (it was {state})"
             save(True)
             ps5_wake(host, cfg["ps5_wake_key"])
             deadline = time.time() + 240
@@ -2317,7 +2337,7 @@ def cmd_push(args) -> int:
                         st["bytes"] = start
                         raise RuntimeError(f"{rel}: PS5 has {got} bytes, expected {size}")
                     break
-                except (ftplib.all_errors, RuntimeError) as err:
+                except (*ftplib.all_errors, RuntimeError) as err:
                     if "No space" in str(err) or attempt == 2:
                         raise RuntimeError(f"{rel}: {err}")
                     try:
@@ -2726,7 +2746,7 @@ def cmd_ui(args) -> int:
                 try:
                     f.retrbinary(f"RETR {path}", self.wfile.write, blocksize=1 << 20)
                     f.quit()
-                except (ftplib.all_errors, OSError):
+                except (*ftplib.all_errors, OSError):
                     f.close()
                 return
             if self.path == "/api/ps5":
@@ -2785,6 +2805,15 @@ def cmd_ui(args) -> int:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
                 cache["at"] = 0
                 return self.send(200, json.dumps({**s, "ps5_wake_key": "set" if s["ps5_wake_key"] else ""}).encode())
+            if req.get("action") == "push_stop":
+                st = transfer_running()
+                if not st:
+                    return self.send(409, b'{"error":"no transfer is running"}')
+                try:
+                    os.kill(int(st["pid"]), signal.SIGTERM)
+                except (OSError, ValueError, KeyError) as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+                return self.send(200, b'{"stopping":true}')
             if req.get("action") == "push":
                 game = str(req.get("game") or "")
                 if not game or game.startswith("-") or "/" in game:
