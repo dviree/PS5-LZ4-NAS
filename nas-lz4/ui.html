@@ -94,6 +94,12 @@ select{font:inherit;padding:5px 8px;border-radius:8px;border:1px solid var(--lin
 .kv div{overflow-wrap:anywhere}.acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
 .err{background:var(--badbg);color:var(--bad);border-radius:10px;padding:10px 12px}
 footer{opacity:.8}
+.help summary{cursor:pointer;font-weight:700;font-size:15px;list-style:none}.help summary::-webkit-details-marker{display:none}
+.help summary::before{content:'ⓘ';color:var(--acc);margin-right:8px}.help summary::after{content:' ›';color:var(--mut)}.help[open] summary::after{content:' ⌄'}
+.hgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:4px 28px;margin-top:6px}
+.hgrid h4{margin:14px 0 4px;font-size:14px}.hgrid p,.hgrid li{color:var(--mut);margin:4px 0}.hgrid ul,.hgrid ol{padding-left:20px;margin:4px 0}
+.hgrid b,.hgrid i{color:var(--txt)}
+.tag{font-size:10.5px;font-weight:700;color:var(--mut);background:var(--chip);padding:1px 7px;border-radius:99px;margin-left:6px;vertical-align:1px}
 button.two{flex-direction:column;align-items:flex-start;gap:0;text-align:left;padding:7px 14px;max-width:210px}
 button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;white-space:normal}
 .badge{display:inline-block;min-width:18px;padding:0 6px;margin-left:6px;border-radius:99px;background:var(--acc);color:#fff;font-size:11px;line-height:18px;text-align:center}
@@ -160,6 +166,54 @@ button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;whi
   <div id="error" class="err" hidden></div>
   <div class="kpis" id="kpis"></div>
   <div class="card busy" id="busy" hidden onclick="tab('act')"></div>
+  <details class="card help" id="help">
+    <summary>What the buttons do</summary>
+    <div class="hgrid">
+      <div><h4>Check all <span class="tag">read-only</span></h4>
+        <p>Looks at every game and changes nothing. It runs two checks and shows the result under <i>Recent actions</i> on the Activity tab:</p>
+        <ul>
+          <li><b>Every LZ4 game</b> in the LZ4 folder:
+            the pack format (<code>AMPRPAK4</code> index, <code>AMPRDAT3</code> volumes, CRC and <code>ampr_emu.index</code> sidecars);
+            that <code>fakelib/libSceAmpr.sprx</code> is exactly APR-EMU PackedStdio 0.4.2.1 (SHA-256), the only build that reads LZ4 packs;
+            that the files the PS5 opens straight from disk (PlayGo markers, empty placeholders, some boot files) are next to the packs and not only inside them;
+            that the runtime folder named in <code>eboot.bin</code> has the right upper/lower case;
+            and that games using PlayGo have a PlayGo emulator in <code>fakelib</code>.</li>
+          <li><b>Every original</b> in the library: is it already LZ4, can it become LZ4 (a program imports <code>libSceAmpr</code>),
+            or not, and why. exFAT images are read without unpacking them.</li>
+        </ul>
+        <p>Results are saved with each game's file sizes and dates. A game whose files haven't changed is not read again;
+          new or changed games are. If something is wrong, a <b>Repair</b> button appears with the result.</p></div>
+      <div><h4>Full re-check <span class="tag">read-only</span></h4>
+        <p>The same checks as <b>Check all</b>, but every LZ4 game and every original is read again, ignoring the saved results,
+          and the saved results are replaced. Use it after changing files by hand, copying games in some other way,
+          or when a result looks wrong. It takes longer: every eboot and every image is read.</p>
+        <p>Neither check decodes the packs again; that happened byte for byte when each game was packed (see Compress).</p></div>
+      <div><h4>Repair <span class="tag">changes LZ4 games</span></h4>
+        <p>Appears after a check that found problems. For each LZ4 game that needs it: puts the right APR-EMU back,
+          writes out the files the PS5 reads from disk from inside the packs, renames the runtime folder to the case the game asks for,
+          and copies a PlayGo emulator in if the game needs one. Nothing is repacked and originals are never touched.</p></div>
+      <div><h4>Compress all <span class="tag">writes new LZ4 copies</span></h4>
+        <p>Queues every game that <i>can be LZ4</i> and packs them one at a time (one at a time because each needs the CPU and space).
+          For every game, in six steps:</p>
+        <ol>
+          <li><b>Source</b>: a game folder is used as it is; an <code>.exfat</code>, <code>.ffpfs</code> or <code>.ffpfsc</code> image is
+            unpacked to a work folder on the NAS and every file is checked against the image (and its <code>.vhash</code> if there is one).</li>
+          <li><b>Check</b>: a program must import <code>libSceAmpr</code>, otherwise APR-EMU would never load and the game is skipped.</li>
+          <li><b>Pack</b>: LZ4 HC level 9 with the game's profile, using all cores but one at low priority.</li>
+          <li><b>Verify</b>: every chunk is decoded and compared with the original.</li>
+          <li><b>Restore test</b>: the whole game is unpacked again and every file compared byte for byte.</li>
+          <li><b>Publish</b>: the boot files are fixed and the result moves to the LZ4 folder.</li>
+        </ol>
+        <p>Originals are read-only and never changed; an existing LZ4 game is never overwritten. If a job is already running,
+          this waits for it. A failed game keeps its work folder for troubleshooting.</p></div>
+      <div><h4>Continue queue</h4>
+        <p>Only shown when packing was interrupted (the container restarted, the NAS rebooted, or Stop was pressed).
+          Continues the same game from its last finished step (a step that was cut off is done again), then the rest of the queue.
+          The queue also continues by itself when the container starts.</p></div>
+      <div><h4>Compress <span class="tag">one game</span></h4>
+        <p>The same as Compress all for a single game; tap a game to see it.</p></div>
+    </div>
+  </details>
   <div class="card"><h2>Library</h2><div class="scroll"><table id="games"></table></div></div>
 </main>
 <main id="p-act" hidden>

@@ -1324,12 +1324,18 @@ def cmd_lz4(args) -> int:
     todo: list[Entry] = []
     games = compat_games()
     counts = {"LZ4": 0, "can be LZ4": 0, "not LZ4": 0, "error": 0}
+    # Saved results for unchanged sources; --full scans every one again and
+    # stores the new results.
+    cache = CheckDB()
+    if getattr(args, "full", False):
+        for k in [k for k in cache if k.startswith("/")]:
+            del cache[k]
     for e in entries:
         res = result_for(e)
         st = res["status"]
         if e.duplicate_of and st != "done":
             continue  # the folder copy of the same game is listed instead
-        verdict, why, can = classify(e, res)
+        verdict, why, can = classify(e, res, cache)
         if can:
             todo.append(e)
         counts[verdict] += 1
@@ -1343,6 +1349,7 @@ def cmd_lz4(args) -> int:
             counts["LZ4" if not problem else "error"] += 1
             print(f"{'LZ4' if not problem else 'error':12} {'-':9}  {out.name}  "
                   f"({'no library source' if not problem else problem})")
+    cache.close()
     print("\n" + ", ".join(f"{k}: {v}" for k, v in counts.items()))
     if not todo:
         print("nothing left to pack")
@@ -2986,7 +2993,8 @@ def run_request(req: dict) -> dict:
         # "Check all": read-only. Format and APR-EMU of every LZ4 game, and
         # which games can still become LZ4. Nothing is changed.
         rep = subprocess.run(me + argv, capture_output=True, text=True, timeout=6 * 3600)
-        lst = subprocess.run(me + ["lz4"], capture_output=True, text=True, timeout=3600)
+        lst = subprocess.run(me + ["lz4"] + (["--full"] if action == "check_full" else []),
+                             capture_output=True, text=True, timeout=3600)
         text = ("LZ4 games:\n" + (rep.stdout + rep.stderr).strip() +
                 "\n\nLibrary:\n" + (lst.stdout + lst.stderr).strip())
         return {"ok": rep.returncode == 0, "output": text[-3000:]}
@@ -3337,6 +3345,7 @@ def main() -> int:
     sp.set_defaults(func=cmd_start)
     sp = sub.add_parser("lz4", help="is each game LZ4? --fix packs every game that can be")
     sp.add_argument("--fix", action="store_true", help="queue every game that can become LZ4")
+    sp.add_argument("--full", action="store_true", help="scan every source again, ignoring saved results")
     job_opts(sp)
     sp.set_defaults(func=cmd_lz4)
     sp = sub.add_parser("status", help="show the running job and the work area")
