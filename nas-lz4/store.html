@@ -39,7 +39,7 @@ main{padding:18px max(20px,calc((100% - 1500px)/2 + 20px)) 120px}
 .cover img{width:100%;height:100%;object-fit:cover;display:block}
 .badge{position:absolute;top:10px;left:10px;padding:4px 10px;border-radius:99px;font-size:12px;font-weight:800;background:rgba(0,0,0,.55);color:#fff;backdrop-filter:blur(6px)}
 .badge.inst{background:#5eeab0;color:#06231a}
-.badge.lz4{left:auto;right:10px;background:var(--pri);color:#fff}
+.badge.lz4{left:auto;right:10px;background:var(--pri);color:#fff}.badge.fmt{left:auto;right:10px;background:rgba(0,0,0,.55);color:#fff}.badge.fmt:empty{display:none}
 .info{padding:12px 14px 14px}
 .name{font-weight:700;font-size:16px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.5em}
 .meta{color:var(--mut);font-size:13px;margin-top:4px}
@@ -142,7 +142,7 @@ function render() {
     const badge = s.k === 'installed' ? '<span class="badge inst">✓ Installed</span>' : s.k === 'sending' ? '<span class="badge">Installing…</span>'
       : s.k === 'queued' ? '<span class="badge">Queued</span>' : s.k === 'stopped' ? '<span class="badge">Paused</span>' : '';
     return `<button class="tile" data-id="${esc(it.g.id)}" onclick="showGame(this.dataset.id)">
-      <div class="cover"><img alt="" loading="lazy" src="/api/icon?id=${encodeURIComponent(it.g.id)}" onerror="this.replaceWith(document.createTextNode('🎮'))">${badge}${it.lz4 ? '<span class="badge lz4">LZ4</span>' : ''}</div>
+      <div class="cover"><img alt="" loading="lazy" src="/api/icon?id=${encodeURIComponent(it.g.id)}" onerror="this.replaceWith(document.createTextNode('🎮'))">${badge}${it.lz4 ? '<span class="badge lz4">LZ4</span>' : `<span class="badge fmt">${{folder: 'Folder', exfat: 'exFAT', ffpfs: '.ffpfs', ffpfsc: '.ffpfsc'}[it.g.kind] || ''}</span>`}</div>
       <div class="info"><div class="name">${esc(clean(it.g.name))}</div>
         <div class="meta">${gb(it.size)}${it.g.saved_percent != null && it.lz4 ? ` · ${Math.round(it.g.saved_percent)} % smaller` : ''}</div>
         <div class="stars">${community(it.g.community)}</div>
@@ -160,12 +160,34 @@ function render() {
   } else now.className = 'now';
   if (open) showGame(open, true);
 }
+const KIND = {folder: 'game folder', exfat: 'exFAT image', ffpfs: '.ffpfs image', ffpfsc: '.ffpfsc image (compressed)'};
+// The community .ffpfsc sheet's row for a game, fetched once per game.
+const ffp = {};
+function ffpfscText(id) {
+  if (!(id in ffp)) {
+    ffp[id] = null;
+    fetch('/api/game?id=' + encodeURIComponent(id), {cache: 'no-store'}).then(r => r.json())
+      .then(j => { ffp[id] = j.ffpfsc || {rows: [], off: true}; if (open === id) showGame(id, true); }).catch(() => {});
+  }
+  const f = ffp[id];
+  if (!f) return '<span class="meta">loading…</span>';
+  if (f.off) return '<span class="meta">off</span>';
+  if (!f.at) return '<span class="meta">not loaded yet</span>';
+  if (!f.rows.length) return '<span class="meta">not in the list</span>';
+  const tone = v => /\b(yes|works?|working|ok|playable|good|fine)\b/i.test(v) ? 'good' : /\b(no|not|crash(es)?|broken|fails?|black screen|doesn'?t|won'?t)\b/i.test(v) ? 'bad' : '';
+  const skip = new Set(['game', 'name', 'title', 'title id', 'titleid', 'id']);
+  return f.rows.map(r => Object.entries(r).filter(([k]) => !skip.has(k.toLowerCase()))
+    .map(([k, v]) => `<span class="meta">${esc(k)}:</span> <span class="${tone(v)}">${esc(v)}</span>`).join('<br>')).join('<hr style="border:0;border-top:1px solid var(--line);margin:6px 0">')
+    + (f.url ? `<br><a href="${esc(f.url)}" target="_blank" rel="noopener">Open the sheet</a>` : '');
+}
 function showGame(id, refresh) {
   const it = items().find(x => x.g.id === id); if (!it) return;
   open = id;
   const g = it.g, s = state(it), sb = document.getElementById('sheet-body');
   const rows = [['Title ID', esc(g.title_id)], ['Size', gb(it.size) + (it.lz4 && g.saved_percent != null ? ` (LZ4, ${Math.round(g.saved_percent)} % smaller than ${gb(g.source_bytes)})` : it.lz4 ? '' : ' (original, not LZ4)')],
-    ['Community', community(g.community)],
+    ['Format', it.lz4 ? 'LZ4 folder' + (g.kind && KIND[g.kind] ? ` <span class="meta">(packed from ${KIND[g.kind]})</span>` : '') : (KIND[g.kind] || esc(g.kind || '–'))],
+    ['.ffpfsc list', ffpfscText(id)],
+    ['LZ4 reports', community(g.community)],
     ['On the PS5', it.copies.length ? it.copies.map(c => esc(c.path) + (c.version ? ' · v' + esc(c.version) : '')).join('<br>') : (ps5 ? 'not installed' : 'PS5 not answering')]];
   const acts = [];
   if (s.k === 'available') acts.push(`<button class="btn pri" onclick="install('${esc(id)}')">⬇ Install</button>`);
@@ -176,7 +198,7 @@ function showGame(id, refresh) {
   it.copies.forEach(c => acts.push(`<button class="btn danger" data-p="${esc(c.path)}" onclick="uninstall(this.dataset.p)">🗑 Uninstall${it.copies.length > 1 ? ' (' + esc(c.drive) + ')' : ''}</button>`));
   acts.push(`<button class="btn ghost" onclick="closeSheet()">Close</button>`);
   sb.innerHTML = `<div class="cover"><img alt="" src="/api/icon?id=${encodeURIComponent(id)}" onerror="this.replaceWith(document.createTextNode('🎮'))"></div>
-    <div><h2>${esc(clean(g.name))}</h2><div class="sub">${it.lz4 ? 'LZ4 packed · APR-EMU PackedStdio' : 'Original'}${s.pct != null && s.k === 'sending' ? ` · installing ${s.pct.toFixed(0)} %` : ''}</div>
+    <div><h2>${esc(clean(g.name))}</h2><div class="sub">${it.lz4 ? 'LZ4 packed · APR-EMU PackedStdio' : 'Original · ' + (KIND[g.kind] || g.kind || '')}${s.pct != null && s.k === 'sending' ? ` · installing ${s.pct.toFixed(0)} %` : ''}</div>
       <div class="rows">${rows.map(([k, v]) => `<div>${k}</div><div>${v}</div>`).join('')}</div>
       <div class="acts">${acts.join('')}</div></div>`;
   document.getElementById('sheet').hidden = false;
