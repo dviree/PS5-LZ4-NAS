@@ -110,7 +110,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;whi
 .qh{margin:16px 0 6px;font-size:13px;color:var(--mut)}
 .qrow{display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--line)}
 .qn{width:22px;height:22px;border-radius:99px;background:var(--chip);display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--mut)}
-.qname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.qname .why{white-space:normal}
 .mob{display:none}
 @keyframes fade{from{opacity:0}}@keyframes rise{from{transform:translateY(12px);opacity:0}}
 /* phones */
@@ -193,7 +193,8 @@ button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;whi
           writes out the files the PS5 reads from disk from inside the packs, renames the runtime folder to the case the game asks for,
           and copies a PlayGo emulator in if the game needs one. Nothing is repacked and originals are never touched.</p></div>
       <div><h4>Compress all <span class="tag">writes new LZ4 copies</span></h4>
-        <p>Queues every game that <i>can be LZ4</i> and packs them one at a time (one at a time because each needs the CPU and space).
+        <p>Queues every game that <i>can be LZ4</i>, except <code>.ffpfsc</code> images (already compressed, so an LZ4 copy
+          is usually as large or larger; use Compress on one if you want it anyway), and packs them one at a time (one at a time because each needs the CPU and space).
           For every game, in six steps:</p>
         <ol>
           <li><b>Source</b>: a game folder is used as it is; an <code>.exfat</code>, <code>.ffpfs</code> or <code>.ffpfsc</code> image is
@@ -416,12 +417,13 @@ async function push(id, name) {
     if (r.ok) there = (await r.json()).items.some(i => i.name === id);
   } catch (e) {}
   const resume = t && t.state === 'failed';
-  act('push', (there && !resume
+  act('push', (resume
+      ? `Resume sending ${name}?\n\nIt continues where it stopped (${t.total ? Math.round(100 * t.bytes / t.total) : 0} %): finished files are kept and a half-sent file continues.`
+      : there
       ? `${name} is already on the PS5:\n${s.ps5_dest}/${id}\n\nOverwrite it? Files already there with the same size are kept; missing or different files are replaced.`
       : `Send ${name} to ${s.ps5_ftp}${s.ps5_dest}?`) + '\n\n' +
     (s.ps5_wake_key ? 'If the PS5 is in rest mode it is woken first.' : 'The PS5 must be on with the FTP server running.') +
-    (resume ? '\n\nThe last transfer was interrupted; it continues where it stopped.' : '') +
-    (there ? '\n\nTo send everything again from scratch, delete the folder on the FTP tab first.' : ''), {game: id});
+    (there && !resume ? '\n\nTo send everything again from scratch, delete the folder on the FTP tab first.' : ''), {game: id});
 }
 function xferText(t) {
   if (!t) return '';
@@ -456,7 +458,18 @@ function render() {
         <span>file ${tf.files_done} of ${tf.files}</span>${tf.woken ? `<span>woke the PS5 ${tf.woken}×</span>` : ''}</div>
       <div class="why">${esc(tf.current || '')}</div>
       <div style="margin-top:10px"><button onclick="act('push_stop', 'Stop the transfer? Finished files stay on the PS5; the queue waits.')">Stop (resumable)</button></div>`;
-  } else xf.innerHTML = '<div class="mut">No transfer running.</div>';
+  } else {
+    // Stopped or failed transfers, newest first, each resumable where it stopped.
+    const stopped = Object.entries(d.transfers || {}).filter(([, t]) => t && t.state === 'failed')
+      .sort((a, b) => (b[1].finished || '').localeCompare(a[1].finished || ''));
+    xf.innerHTML = stopped.length ? stopped.map(([id, t]) => {
+      const pct = t.total ? Math.round(100 * t.bytes / t.total) : 0, stop = (t.error || '').startsWith('stopped');
+      return `<div class="qrow"><span class="qname"><b>${esc(nameOf(id))}</b>
+          <div class="why">${stop ? 'stopped' : '<span class="bad">failed</span>'} at ${pct} % · ${gb(t.bytes)} / ${gb(t.total)} · ${esc((t.finished || '').slice(5, 16))}</div>
+          ${stop ? '' : `<div class="why bad">${esc(t.error || '')}</div>`}</span>
+        <button class="sm pri" data-id="${esc(id)}" data-name="${esc(nameOf(id))}" onclick="push(this.dataset.id, this.dataset.name)">▶ Resume</button></div>`;
+    }).join('') : '<div class="mut">No transfer running.</div>';
+  }
   const tq = d.transfer_queue || [];
   document.getElementById('xq').innerHTML = tq.length ? `<h4 class="qh">Queued (${tq.length})</h4>` + tq.map((x, i) =>
     `<div class="qrow"><span class="qn">${i + 1}</span><span class="qname">${esc(nameOf(x))}</span>
@@ -471,6 +484,8 @@ function render() {
   if (tf) parts.push(`🎮 Sending <b>${esc(nameOf(tf.game))}</b> · ${tf.total ? Math.round(100 * tf.bytes / tf.total) : 0} %${tf.speed ? ' · ' + gb(tf.speed) + '/s · ' + dur(tf.eta) + ' left' : ''}`);
   const nq = pqs.length + tq.length;
   if (nq) parts.push(`${nq} queued`);
+  const nStopped = tf ? 0 : Object.values(d.transfers || {}).filter(t => t && t.state === 'failed').length;
+  if (nStopped) parts.push(`⏸ ${nStopped} transfer${nStopped === 1 ? '' : 's'} stopped, resumable`);
   busyEl.hidden = !parts.length;
   busyEl.innerHTML = parts.map(x => `<span>${x}</span>`).join('<span class="dot">·</span>') + ' <span class="more">Activity ›</span>';
   const an = document.getElementById('act-n'), n = (d.job ? 1 : 0) + (tf ? 1 : 0) + nq;
@@ -520,7 +535,7 @@ function render() {
       const action = waiting ? '<span class="pill p-run">waiting</span>' : g.can_queue && !g.running && !g.queued
         ? `<button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game)">Compress</button>`
         : txr && txr.state === 'failed' && !d.transfer
-        ? `<button class="sm pri" data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}" onclick="event.stopPropagation();push(this.dataset.id, this.dataset.name)">Resume transfer</button>` : '';
+        ? `<button class="sm pri" data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}" onclick="event.stopPropagation();push(this.dataset.id, this.dataset.name)">▶ Resume transfer</button>` : '';
       const why = g.verdict !== 'LZ4' && !g.running ? `<div class="why">${esc(g.why)}</div>` : '';
       const tx = txr && txr.state !== 'done' ? `<div class="cm">${xferText(txr)}</div>` : '';
       return `<tr class="row" data-id="${esc(g.id)}" onclick="if(!event.target.closest('select,button,a'))openGame(this.dataset.id)"><td class="c-game"><img class="ico" alt="" loading="lazy" src="/api/icon?id=${encodeURIComponent(g.id)}" onerror="this.remove()"><span class="gname">${esc(g.name)}</span>${g.output_only ? '<span class="mine">LZ4 FOLDER</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_EN[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div>${placeHtml(g)}<div class="cm">${community(g.community)}</div>${tx}${why}</td>
@@ -554,7 +569,8 @@ function pendingFor(id) {
 function compress(id) {
   const g = (data.games || []).find(x => x.id === id) || {name: id};
   const note = data.running ? '\n\nAnother game is being packed; this one starts when it is done.' : '';
-  act('start', `Compress ${g.name} with LZ4?${note}`, {game: id});
+  const pfsc = g.kind === 'ffpfsc' ? `\n\nThis .ffpfsc image is already compressed (${gb(g.source_size)}). The LZ4 copy is usually about as large or larger, so it saves little or no space; Compress all leaves these out.` : '';
+  act('start', `Compress ${g.name} with LZ4?${pfsc}${note}`, {game: id});
 }
 function reportLink(repo, tid, name, status) {
   const forms = {works: 'Works', issues: 'Works with issues', nostart: "Won't start (black screen or crash on launch)", crash: 'Crashes in game'};
@@ -722,7 +738,9 @@ function placeHtml(g) {
   const pp = ps5Place(g);
   const t = (data.transfers || {})[g.output.split('/').pop()];
   const drive = pp && pp.sent ? (pp.path.match(/^\/mnt\/([^/]+)/) || [, 'internal'])[1] : '';
-  return `<div class="chips"><span class="chip" title="${esc(g.output)}">🗄 On NAS</span>` +
+  const bigger = g.kind !== 'folder' && g.source_size && g.output_bytes && g.output_bytes > g.source_size
+    ? `<span class="chip bad" title="The ${esc(KIND_EN[g.kind] || g.kind)} is ${gb(g.source_size)}; the LZ4 copy is ${gb(g.output_bytes)}">LZ4 copy ${gb(g.output_bytes - g.source_size)} larger than the image</span>` : '';
+  return `<div class="chips"><span class="chip" title="${esc(g.output)}">🗄 On NAS</span>${bigger}` +
     (pp && pp.sent ? `<span class="chip ok" title="${esc(pp.path)}">🎮 On PS5 · ${esc(drive)}${t && t.finished ? ' · ' + esc(t.finished.slice(5, 16)) : ''}</span>` : '') + '</div>';
 }
 async function aprCheck(path, el) {

@@ -1311,6 +1311,9 @@ def classify(e: "Entry", res: dict, cache: dict | None = None) -> tuple[str, str
     if ok == "compatible":
         if st in ("partial", "failed"):
             why = f"{st}: {res['detail']}"
+        elif e.kind == "ffpfsc":
+            why = ("already compressed (.ffpfsc): an LZ4 copy is usually about as large or larger, so "
+                   "Compress all skips it; Compress packs it anyway")
         return "can be LZ4", why, True
     if ok == "packed":
         return "LZ4", why, False
@@ -1322,6 +1325,7 @@ def cmd_lz4(args) -> int:
     ensure_dirs()
     entries = scan_library()
     todo: list[Entry] = []
+    compressed: list[Entry] = []  # .ffpfsc: already PFSC-compressed, little or nothing to gain
     games = compat_games()
     counts = {"LZ4": 0, "can be LZ4": 0, "not LZ4": 0, "error": 0}
     # Saved results for unchanged sources; --full scans every one again and
@@ -1336,7 +1340,10 @@ def cmd_lz4(args) -> int:
         if e.duplicate_of and st != "done":
             continue  # the folder copy of the same game is listed instead
         verdict, why, can = classify(e, res, cache)
-        if can:
+        if can and e.kind == "ffpfsc" and res["status"] not in ("partial", "failed") \
+                and not getattr(args, "include_compressed", False):
+            compressed.append(e)
+        elif can:
             todo.append(e)
         counts[verdict] += 1
         print(f"{verdict:12} {e.title_id or '-':9}  {e.rel}  ({why})")
@@ -1351,6 +1358,9 @@ def cmd_lz4(args) -> int:
                   f"({'no library source' if not problem else problem})")
     cache.close()
     print("\n" + ", ".join(f"{k}: {v}" for k, v in counts.items()))
+    if compressed:
+        print(f"{len(compressed)} already-compressed .ffpfsc image(s) left out (an LZ4 copy is usually as large or "
+              f"larger); pack one with: ps5lz4 start <game>, or all with: lz4 --fix --include-compressed")
     if not todo:
         print("nothing left to pack")
         return 1 if counts["error"] else 0
@@ -3346,6 +3356,8 @@ def main() -> int:
     sp = sub.add_parser("lz4", help="is each game LZ4? --fix packs every game that can be")
     sp.add_argument("--fix", action="store_true", help="queue every game that can become LZ4")
     sp.add_argument("--full", action="store_true", help="scan every source again, ignoring saved results")
+    sp.add_argument("--include-compressed", action="store_true",
+                    help="with --fix, also pack .ffpfsc images (already compressed; usually no space saved)")
     job_opts(sp)
     sp.set_defaults(func=cmd_lz4)
     sp = sub.add_parser("status", help="show the running job and the work area")
