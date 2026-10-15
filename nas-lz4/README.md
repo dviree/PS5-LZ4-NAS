@@ -62,8 +62,9 @@ imagen på NAS:en i stället, och då lämnar Watchtower containern ifred.
 `http://<NAS-IP>:5921` (annan port: `UI_PORT=5930 bash src/nas-lz4/install.sh`).
 Visar biblioteket (LZ4 / kan bli LZ4 / inte LZ4 med orsak), pågående jobb
 steg för steg, kön, besparingar, ditt PS5-resultat och communityns rapporter.
-Knappar: packa ett spel, packa allt som kan bli LZ4, stoppa, fortsätt kön,
-reparera alla och spara PS5-resultat (med länk för att dela det).
+Knappar: packa ett spel, **Fixa allt** (reparerar alla färdiga LZ4-spel och
+packar alla som kan bli LZ4), stoppa, fortsätt kön och spara PS5-resultat
+(med länk för att dela det).
 
 Sidan körs i en egen container (`ps5-lz4-ui`). Den ser biblioteket och
 LZ4-spelen skrivskyddat, har ingen Docker-socket och kör aldrig jobb själv:

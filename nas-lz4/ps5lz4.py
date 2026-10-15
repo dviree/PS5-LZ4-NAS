@@ -2064,8 +2064,16 @@ def run_request(req: dict) -> dict:
         if result not in PLAY_STATES:
             return {"ok": False, "output": f"unknown result {result!r}"}
         argv.append(result)
-    out = subprocess.run([sys.executable, os.path.abspath(__file__)] + argv,
-                         capture_output=True, text=True, timeout=6 * 3600)
+    me = [sys.executable, os.path.abspath(__file__)]
+    if action == "fix":
+        # "Fixa allt": repair every finished LZ4 game (APR-EMU, on-disk boot
+        # files), then queue every game that can still become LZ4.
+        rep = subprocess.run(me + ["apr", "--fix"], capture_output=True, text=True, timeout=6 * 3600)
+        out = subprocess.run(me + argv, capture_output=True, text=True, timeout=6 * 3600)
+        text = ("Reparation:\n" + (rep.stdout + rep.stderr).strip() +
+                "\n\nPackning:\n" + (out.stdout + out.stderr).strip())
+        return {"ok": rep.returncode == 0 and out.returncode == 0, "output": text[-3000:]}
+    out = subprocess.run(me + argv, capture_output=True, text=True, timeout=6 * 3600)
     text = (out.stdout + out.stderr).strip()
     return {"ok": out.returncode == 0, "output": text[-3000:]}
 

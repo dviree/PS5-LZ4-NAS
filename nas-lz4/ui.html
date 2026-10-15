@@ -65,8 +65,8 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
 <header>
   <h1>ps5-lz4</h1><span class="sub" id="sub"></span><span class="sp"></span>
   <button id="b-resume" hidden onclick="act('resume')">Fortsätt kön</button>
-  <button onclick="act('apr', 'Reparera alla LZ4-spel (APR-EMU och filer på disk)?')">Reparera alla</button>
-  <button class="pri" id="b-fix" onclick="act('fix', 'Packa alla spel som kan bli LZ4?')">Packa allt som kan bli LZ4</button>
+  <button class="pri" id="b-fix" title="Reparerar alla färdiga LZ4-spel och packar alla som kan bli LZ4"
+    onclick="act('fix', 'Fixa allt?\n\n1. Alla färdiga LZ4-spel repareras: rätt APR-EMU och filerna PS5:an läser direkt från disk.\n2. Alla spel som kan bli LZ4 köas och packas, ett i taget.\n\nPågår ett jobb startar det här när jobbet är klart.')">Fixa allt</button>
 </header>
 <nav class="tabs">
   <button id="t-mine" class="on" onclick="tab('mine')">Mina spel</button>
@@ -136,7 +136,7 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
 <script>
 const STEP_SV = {source: 'Källa', check: 'Kontroll', pack: 'Packning', verify: 'Verifiering', restore: 'Återställningstest', publish: 'Publicering'};
 const PS5_SV = {works: 'fungerar', issues: 'med problem', nostart: 'startar inte', crash: 'kraschar'};
-const ACT_SV = {fix: 'Packa allt', apr: 'Reparera alla', stop: 'Stoppa', resume: 'Fortsätt kön', start: 'Packa', community: 'PS5-resultat'};
+const ACT_SV = {fix: 'Fixa allt', apr: 'Reparera alla', stop: 'Stoppa', resume: 'Fortsätt kön', start: 'Packa', community: 'PS5-resultat'};
 let data = null;
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
