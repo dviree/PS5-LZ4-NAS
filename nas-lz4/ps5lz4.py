@@ -58,6 +58,8 @@ QUEUE_PATH = STATE / "queue.json"
 # The same folders as the NAS sees them, for reports.
 HOST_LIBRARY = os.environ.get("PS5LZ4_HOST_LIBRARY", str(LIBRARY))
 HOST_OUTPUT = os.environ.get("PS5LZ4_HOST_OUTPUT", str(OUTPUT))
+HOST_STATE = os.environ.get("PS5LZ4_HOST_STATE", "/volume2/docker/ps5-lz4/state"
+                            if str(STATE) == "/state" else str(STATE))
 FREE_MARGIN = int(float(os.environ.get("PS5LZ4_FREE_MARGIN_GB", "20")) * 1024**3)
 
 # Pinned APR-EMU PackedStdio runtime embedded in ampr_pack_cli.
@@ -814,6 +816,9 @@ class Job:
         e = self.e
         if e.output.exists():
             raise JobError(f"{e.output} already exists; it is never overwritten")
+        boot = boot_files(pack, repair=True)
+        for line in boot["changed"] + boot["needed"] + boot["notes"]:
+            self.log(f"boot files: {line}")
         programs = ps5_permissions(pack)
         os.rename(pack, e.output)
         out_files, out_bytes = tree_bytes(e.output)
@@ -855,6 +860,8 @@ class Job:
             "verified_on_nas": True,
             "playable_on_ps5": "not tested: needs a console run (see README)",
         }
+        if any(boot.values()):
+            report["boot_files"] = boot
         if report["image_bytes"]:
             ib = report["image_bytes"]
             report["saved_vs_image_percent"] = round(100.0 * (ib - out_bytes) / ib, 2)
@@ -1489,6 +1496,126 @@ def find_runtime(game: Path) -> Path | None:
     return None
 
 
+# --------------------------------------------------------------------------
+# boot files (upstream src/lzc_boot_files.c): HITMAN 3 and 007 First Light
+# stop with SIGBUS a few seconds in when the folder named by RUNTIME_PATH= in
+# eboot.bin exists only in another case (Runtime/ for runtime/; the PS5 is
+# case-sensitive) or when they import libScePlayGo and fakelib/ has none.
+
+PLAYGO_LIB = "libScePlayGo.sprx"
+PLAYGO_EMU_MARKER = b"PlayGo PRX stub"
+PLAYGO_DIR = STATE / "playgo"  # put a PlayGo emulator here: state/playgo/libScePlayGo.sprx
+
+
+def scan_file(path: Path, needle: bytes, value: bool = False) -> bytes | bool | None:
+    """True (or, with value, the printable bytes after it) when needle is in
+    the file; False/None when not or unreadable."""
+    keep = len(needle) + (64 if value else 0)
+    tail = b""
+    try:
+        with open(path, "rb") as f:
+            while True:
+                chunk = f.read(4 << 20)
+                buf = tail + chunk
+                i = buf.find(needle)
+                if i >= 0 and (not value or not chunk or len(buf) - i >= keep):
+                    if not value:
+                        return True
+                    m = re.match(rb"[\x21-\x7e]{0,63}", buf[i + len(needle):])
+                    return m.group(0)
+                if not chunk:
+                    return None if value else False
+                tail = buf[-keep:] if i < 0 else buf[i:]
+    except OSError:
+        return None if value else False
+
+
+def entry_nocase(d: Path, name: str) -> str | None:
+    try:
+        return next((x for x in os.listdir(d) if x.lower() == name.lower()), None)
+    except OSError:
+        return None
+
+
+def is_playgo_emu(p: Path) -> bool:
+    try:
+        st = p.stat()
+    except OSError:
+        return False
+    return p.is_file() and 0 < st.st_size <= 4 << 20 and scan_file(p, PLAYGO_EMU_MARKER) is True
+
+
+def find_playgo_emu(root: Path) -> Path | None:
+    """state/playgo first, then the fakelib/ of other LZ4 games and library folders."""
+    p = PLAYGO_DIR / PLAYGO_LIB
+    if is_playgo_emu(p):
+        return p
+    for base in (OUTPUT, LIBRARY):
+        try:
+            games = sorted(x for x in base.iterdir() if x.is_dir() and not x.name.startswith("."))
+        except OSError:
+            continue
+        for g in games:
+            if g.resolve() == root.resolve():
+                continue
+            fl = entry_nocase(g, "fakelib")
+            lib = entry_nocase(g / fl, PLAYGO_LIB) if fl else None
+            if lib and is_playgo_emu(g / fl / lib):
+                return g / fl / lib
+    return None
+
+
+def boot_files(root: Path, repair: bool) -> dict:
+    """What root needs to boot: {"changed": [...], "needed": [...], "notes": [...]}.
+    With repair the runtime folder is renamed and a PlayGo emulator copied in."""
+    r = {"changed": [], "needed": [], "notes": []}
+    eboot = root / "eboot.bin"
+    if not eboot.is_file():
+        return r
+    with open(eboot, "rb") as f:
+        if f.read(4) == b"\x7fELF":
+            r["notes"].append("eboot.bin is a plain ELF; if the game won't start, convert it to FSELF")
+    want = scan_file(eboot, b"RUNTIME_PATH=", value=True)
+    name = (want or b"").decode("ascii", "replace")
+    while name.startswith("./"):
+        name = name[2:]
+    name = name.rstrip("/")
+    if name and "/" not in name and name not in (".", "..") and name not in os.listdir(root):
+        have = entry_nocase(root, name)
+        if have and (root / have).is_dir():
+            if repair:
+                tmp = root / (name + ".ps5lz4-rename")
+                os.rename(root / have, tmp)  # through a temporary name: case-only renames
+                os.rename(tmp, root / name)
+                r["changed"].append(f"renamed {have}/ to {name}/")
+            else:
+                r["needed"].append(f"runtime folder {have}/ must be named {name}/")
+    fl = entry_nocase(root, "fakelib")
+    if not (fl and entry_nocase(root / fl, PLAYGO_LIB)):
+        imports = scan_file(eboot, b"libScePlayGo") is True
+        mods = root / "sce_module"
+        if not imports and mods.is_dir():
+            imports = any(scan_file(m, b"libScePlayGo") is True for m in mods.iterdir()
+                          if m.name.lower().endswith(".prx"))
+        if imports:
+            src = find_playgo_emu(root)
+            if not src:
+                r["needed"].append(f"a PlayGo emulator: none found; put {PLAYGO_LIB} in "
+                                   f"{Path(HOST_STATE) / 'playgo'} and repair")
+            elif repair:
+                d = root / (fl or "fakelib")
+                d.mkdir(exist_ok=True)
+                os.chmod(d, 0o755)
+                tmp = d / (PLAYGO_LIB + ".tmp")
+                shutil.copyfile(src, tmp)
+                os.chmod(tmp, 0o755)
+                os.replace(tmp, d / PLAYGO_LIB)
+                r["changed"].append(f"PlayGo emulator added to fakelib (from {src})")
+            else:
+                r["needed"].append("a PlayGo emulator in fakelib")
+    return r
+
+
 def lz4_game_sig(g: Path) -> str:
     """Changes when the packs, the runtime or the top level of the folder change."""
     rt = find_runtime(g)
@@ -1496,7 +1623,8 @@ def lz4_game_sig(g: Path) -> str:
 
 
 def cmd_apr(args) -> int:
-    """Check every LZ4 game: PackedStdio APR-EMU and on-disk boot files; --fix repairs both.
+    """Check every LZ4 game: PackedStdio APR-EMU, on-disk files, the runtime folder
+    name and PlayGo emulator a game needs to boot; --fix repairs them.
     Games whose files haven't changed since their last check reuse that result
     (state/ps5lz4.db) unless --full is given."""
     ensure_dirs()
@@ -1553,6 +1681,17 @@ def cmd_apr(args) -> int:
         elif not m:
             state += f"; disk-file check failed: {(out.stderr or out.stdout).strip()[-120:]}"
             ok = False
+        try:
+            boot = boot_files(g, repair=args.fix)
+        except OSError as err:
+            boot = {"changed": [], "needed": [f"boot files not fixed: {err}"], "notes": []}
+        for part in boot["changed"]:
+            state += f"; {part}"
+        for part in boot["needed"]:
+            state += f"; NEEDS {part}"
+            ok = False
+        for part in boot["notes"]:
+            state += f"; note: {part}"
         bad += 0 if ok else 1
         db[key] = {"sig": lz4_game_sig(g), "ok": ok, "state": state, "checked": now()}
         print(f"{state:<45} {g.name}")
@@ -1712,6 +1851,49 @@ def ps5_wake(host: str, key: str) -> None:
         for _ in range(3):
             sk.sendto(msg, (host, PS5_DISCOVERY_PORT))
             time.sleep(0.3)
+
+
+# Where a PlayGo emulator may be on the console (upstream lzc_boot_files.c);
+# "games:" folders hold game folders whose fakelib/ is checked.
+PS5_PLAYGO_SOURCES = ("/data/LZ4Compression/import/libs", "/data/shadowmount/emus",
+                      "/data/shadowmount/fakelib", "games:/data/homebrew", "games:/data/etaHEN/games",
+                      "games:/mnt/ext0/homebrew", "games:/mnt/ext1/homebrew",
+                      "games:/mnt/ext0/etaHEN/games", "games:/mnt/ext1/etaHEN/games",
+                      "games:/mnt/usb0/homebrew", "games:/mnt/usb1/homebrew")
+
+
+def fetch_playgo_emu(ftp, rsize, skip: str) -> Path | None:
+    """Download a PlayGo emulator from the PS5 into state/playgo (SELF decryption
+    is already off on this connection). None when the console has none."""
+    import ftplib
+    cands = []
+    for src in PS5_PLAYGO_SOURCES:
+        if not src.startswith("games:"):
+            cands.append(f"{src}/{PLAYGO_LIB}")
+            continue
+        try:
+            games = sorted(n.rsplit("/", 1)[-1] for n in ftp.nlst(src[6:]))
+        except ftplib.all_errors:
+            continue
+        cands += [f"{src[6:]}/{g}/fakelib/{PLAYGO_LIB}" for g in games
+                  if not g.startswith(".") and f"{src[6:]}/{g}" != skip]
+    for path in cands:
+        size = rsize(ftp, path)
+        if not size or size > 4 << 20:
+            continue
+        buf = bytearray()
+        try:
+            ftp.retrbinary(f"RETR {path}", buf.extend)
+        except ftplib.all_errors:
+            continue
+        if PLAYGO_EMU_MARKER in buf:
+            PLAYGO_DIR.mkdir(parents=True, exist_ok=True)
+            dst = PLAYGO_DIR / PLAYGO_LIB
+            tmp = dst.with_name(dst.name + ".tmp")
+            tmp.write_bytes(bytes(buf))
+            os.replace(tmp, dst)
+            return dst
+    return None
 
 
 def ftp_open(host: str, port: int, timeout: float = 3) -> bool:
@@ -1885,6 +2067,10 @@ def cmd_push(args) -> int:
                         pass
                     made.add(cur)
 
+        boot = boot_files(out, repair=False)
+        if any(n.startswith("runtime folder") for n in boot["needed"]):
+            raise RuntimeError("the game's runtime folder has the wrong case for the PS5 "
+                               "(HITMAN 3, 007 First Light): press Check all, then Repair, and send again")
         mkdirs(dest)
         for d in sorted(q for q in out.rglob("*") if q.is_dir()):
             mkdirs(f"{dest}/{d.relative_to(out).as_posix()}")  # empty folders too
@@ -1929,6 +2115,22 @@ def cmd_push(args) -> int:
             st["files_done"] += 1
             st["bytes"] = sum(q.stat().st_size for q in files[: st["files_done"]])
             save()
+        # A game that imports libScePlayGo stops at boot without a PlayGo
+        # emulator in fakelib/. The LZ4 folder is read-only here, so it goes
+        # to the PS5 copy only, taken from the NAS or from the console itself.
+        if any("PlayGo" in n for n in boot["needed"]):
+            st["current"] = "PlayGo emulator"
+            save(True)
+            emu = find_playgo_emu(out) or fetch_playgo_emu(ftp, rsize, dest)
+            if emu:
+                fl = entry_nocase(out, "fakelib") or "fakelib"
+                mkdirs(f"{dest}/{fl}")
+                with open(emu, "rb") as fh:
+                    ftp.storbinary(f"STOR {dest}/{fl}/{PLAYGO_LIB}", fh)
+                st["playgo"] = f"PlayGo emulator added to fakelib (from {emu})"
+            else:
+                st["note"] = (f"the game needs a PlayGo emulator ({PLAYGO_LIB}) and none was found on the NAS "
+                              f"or the PS5; put one in {Path(HOST_STATE) / 'playgo'} and send again")
         # Byte check of the program files (the ones ftpsrv would decrypt).
         for p, remote in programs:
             st["current"] = "checking " + p.relative_to(out).as_posix()
@@ -1949,6 +2151,9 @@ def cmd_push(args) -> int:
         save(True)
         print(f"done: {out.name} -> {st['dest']} ({human(total)}, {st['verified']} program files "
               f"checked byte for byte, {st['skipped']} already there)")
+        for k in ("playgo", "note"):
+            if st.get(k):
+                print(st[k])
         return 0
     except Exception as err:
         st.update(state="failed", error=str(err)[:500], finished=now())

@@ -165,6 +165,7 @@ services:
       PGID: "$PGID"
       PS5LZ4_HOST_LIBRARY: "$LIBRARY"
       PS5LZ4_HOST_OUTPUT: "$OUTPUT"
+      PS5LZ4_HOST_STATE: "$BASE/state"
       PS5LZ4_LEVEL: "$LEVEL"
       PS5LZ4_FREE_MARGIN_GB: "$FREE_MARGIN_GB"
       TZ: "$TZ_NAME"
@@ -195,6 +196,7 @@ services:
     environment:
       PS5LZ4_HOST_LIBRARY: "$LIBRARY"
       PS5LZ4_HOST_OUTPUT: "$OUTPUT"
+      PS5LZ4_HOST_STATE: "$BASE/state"
       PS5LZ4_LEVEL: "$LEVEL"
       TZ: "$TZ_NAME"
     volumes:

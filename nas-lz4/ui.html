@@ -363,7 +363,7 @@ function gameHtml(g, det) {
     rows.push(['Finished', esc(r.finished || '–')]);
   }
   const tx = (data.transfers || {})[g.output ? g.output.split('/').pop() : g.id];
-  if (tx) rows.push(['PS5 transfer', `${xferText(tx)}<div class="why">${esc(tx.dest || '')}${tx.verified ? ` · ${tx.verified} program files checked` : ''}${tx.error ? `<br><span class="bad">${esc(tx.error)}</span>` : ''}</div>`]);
+  if (tx) rows.push(['PS5 transfer', `${xferText(tx)}<div class="why">${esc(tx.dest || '')}${tx.verified ? ` · ${tx.verified} program files checked` : ''}${tx.playgo ? `<br>${esc(tx.playgo)}` : ''}${tx.note ? `<br><span class="bad">${esc(tx.note)}</span>` : ''}${tx.error ? `<br><span class="bad">${esc(tx.error)}</span>` : ''}</div>`]);
   if (w && w.error) rows.push(['Last error', `<span class="bad">${esc(w.error)}</span><div class="why">step ${esc(w.step || '')}</div>`]);
 
   const acts = [];

@@ -111,6 +111,10 @@ Under **Send to PS5** set the PS5's FTP address (ftpsrv, for example
 - checks the size of every file and compares the program files (`eboot.bin`,
   `.prx`, `.sprx`) by SHA-256, uploading one again if it differs;
 - resumes an interrupted transfer by skipping finished files.
+- adds a PlayGo emulator to the PS5 copy's `fakelib/` when the game needs
+  one and the LZ4 folder has none (see *Boot files* below). It is taken from
+  the NAS or downloaded from the console (`/data/shadowmount/emus`, other
+  games' `fakelib/`, ...) and kept in `state/playgo/` for next time.
 
 ### Wake from rest mode and pair (like Chiaki)
 
@@ -199,7 +203,20 @@ game, then `status` and `report`. Test it on the PS5 before `start --all`.
    and time left for each: *unpacking* (writes the whole game once) and
    *comparing with the original* (reads every file twice, about as long
    again). For a 180 GB game on hard disks, plan for one to two hours.
-6. **Publish:** the result moves to `/volume1/games/ps5-lz4/<name>-lz4/`, the
+6. **Boot files** (at the start of Publish; the original project's Verify check): some games
+   stop with SIGBUS a few seconds after starting (HITMAN 3, 007 First Light).
+   - The folder named by `RUNTIME_PATH=` in `eboot.bin` exists only in
+     another case (`Runtime/` for `runtime/`); the PS5 is case-sensitive, so
+     it is renamed.
+   - The game imports `libScePlayGo` and `fakelib/` has no PlayGo library: a
+     PlayGo emulator is copied in. It isn't shipped; it is taken from
+     `state/playgo/libScePlayGo.sprx` (put one there yourself, or let
+     **Send to PS5** fetch it from the console) or another game's
+     `fakelib/`.
+   - A plain ELF `eboot.bin` is noted (it may need FSELF).
+   **Check all** reports these for games packed earlier, and **Repair** fixes
+   them.
+7. **Publish:** the result moves to `/volume1/games/ps5-lz4/<name>-lz4/`, the
    report is written to `reports/<name>.json` and `summary.tsv`, and the work
    folder is deleted. A short log per game stays in `logs/<name>.log`.
 
