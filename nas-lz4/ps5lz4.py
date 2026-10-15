@@ -1896,6 +1896,77 @@ def fetch_playgo_emu(ftp, rsize, skip: str) -> Path | None:
     return None
 
 
+def ps5_ftp_path(path: str) -> str:
+    path = "/" + path.strip().strip("/")
+    if any(c in path for c in "\r\n\0") or ".." in path.split("/"):
+        raise ValueError("bad path")
+    return path
+
+
+def ps5_ftp_connect():
+    """FTP to the PS5's ftpsrv, binary, SELF decryption off (files as they are on disk)."""
+    import ftplib
+    cfg = get_settings()
+    if not cfg["ps5_ftp"]:
+        raise ValueError("set the PS5 address on the Remote tab first")
+    host, _, port = cfg["ps5_ftp"].partition(":")
+    f = ftplib.FTP()
+    try:
+        f.connect(host, int(port or 2121), timeout=15)
+    except OSError as err:
+        raise ValueError(f"no FTP server at {cfg['ps5_ftp']}: is the PS5 on with ftpsrv running? ({err})")
+    f.login()
+    try:
+        f.sendcmd("SELF")
+    except ftplib.all_errors:
+        pass
+    f.voidcmd("TYPE I")
+    return f
+
+
+LIST_RE = re.compile(r"^([-dlcbps])\S*\s+\d+\s+\S+\s+\S+\s+(\d+)\s+(\w{3}\s+\d+\s+[\d:]+)\s+(.+)$")
+
+
+def ps5_ftp_list(path: str) -> dict:
+    """Folders and files in one folder on the PS5, folders first."""
+    import ftplib
+    path = ps5_ftp_path(path)
+    f = ps5_ftp_connect()
+    items = []
+    try:
+        try:
+            for name, facts in f.mlsd(path, ["type", "size", "modify"]):
+                if name in (".", "..") or facts.get("type") in ("cdir", "pdir"):
+                    continue
+                m = facts.get("modify", "")
+                items.append({"name": name, "dir": facts.get("type") == "dir",
+                              "size": int(facts["size"]) if facts.get("size", "").isdigit() else None,
+                              "modified": f"{m[:4]}-{m[4:6]}-{m[6:8]} {m[8:10]}:{m[10:12]}" if len(m) >= 12 else ""})
+        except ftplib.error_perm:
+            lines = []
+            f.retrlines(f"LIST {path}", lines.append)
+            for line in lines:
+                m = LIST_RE.match(line)
+                if not m:
+                    continue
+                kind, size, date, name = m.groups()
+                if kind == "l":
+                    name = name.split(" -> ")[0]
+                if name in (".", ".."):
+                    continue
+                items.append({"name": name, "dir": kind == "d" or kind == "l", "size": None if kind == "d" else int(size),
+                              "modified": date})
+    except ftplib.error_perm as err:
+        raise ValueError(f"{path}: {err}")
+    finally:
+        try:
+            f.quit()
+        except Exception:
+            pass
+    items.sort(key=lambda i: (not i["dir"], i["name"].lower()))
+    return {"path": path, "items": items}
+
+
 def ftp_open(host: str, port: int, timeout: float = 3) -> bool:
     import socket
     try:
@@ -2448,6 +2519,35 @@ def cmd_ui(args) -> int:
                 except Exception as err:
                     body = {"error": str(err)}
                 return self.send(200, json.dumps(body, ensure_ascii=False).encode())
+            if self.path.startswith("/api/ftp/list?"):
+                from urllib.parse import parse_qs, urlparse
+                path = (parse_qs(urlparse(self.path).query).get("path") or ["/"])[0]
+                try:
+                    return self.send(200, json.dumps(ps5_ftp_list(path), ensure_ascii=False).encode())
+                except Exception as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+            if self.path.startswith("/api/ftp/get?"):
+                import ftplib
+                from urllib.parse import parse_qs, urlparse, quote
+                try:
+                    path = ps5_ftp_path((parse_qs(urlparse(self.path).query).get("path") or [""])[0])
+                    f = ps5_ftp_connect()
+                    size = f.size(path)
+                except Exception as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+                name = path.rsplit("/", 1)[-1]
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{quote(name)}")
+                if size is not None:
+                    self.send_header("Content-Length", str(size))
+                self.end_headers()
+                try:
+                    f.retrbinary(f"RETR {path}", self.wfile.write, blocksize=1 << 20)
+                    f.quit()
+                except (ftplib.all_errors, OSError):
+                    f.close()
+                return
             if self.path == "/api/ps5":
                 host = get_settings()["ps5_ftp"].partition(":")[0]
                 return self.send(200, json.dumps({"status": ps5_status(host) if host else "unset"}).encode())
