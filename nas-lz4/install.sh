@@ -185,6 +185,9 @@ services:
     init: true
     user: "$PUID:$PGID"
     command: ["ps5lz4", "ui", "--port", "5921"]
+    # Docker's default bridge: no new network (NAS setups with many
+    # containers can run out of address pools for new networks).
+    network_mode: bridge
     ports:
       - "$UI_PORT:5921"
     labels:
@@ -225,7 +228,7 @@ say "Starting container $CONTAINER"
 if [ -n "$existing" ]; then docker rm -f "$CONTAINER" >/dev/null; fi
 docker rm -f "$CONTAINER-ui" >/dev/null 2>&1 || true
 if [ -n "$COMPOSE" ]; then
-  (cd "$BASE" && $COMPOSE -p ps5-lz4 up -d)
+  (cd "$BASE" && $COMPOSE -p ps5-lz4 up -d) || die "compose up failed; see the message above"
 else
   docker run -d --name "$CONTAINER" --restart unless-stopped --init --network none \
     --label com.centurylinklabs.watchtower.enable="$WATCHTOWER" \
