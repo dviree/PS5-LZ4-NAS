@@ -1544,7 +1544,8 @@ TRANSFERS = STATE / "transfers"
 
 def get_settings() -> dict:
     s = {"ps5_ftp": os.environ.get("PS5LZ4_PS5_FTP", ""),
-         "ps5_dest": os.environ.get("PS5LZ4_PS5_DEST", "/mnt/usb0/homebrew")}
+         "ps5_dest": os.environ.get("PS5LZ4_PS5_DEST", "/mnt/usb0/homebrew"),
+         "ps5_wake_key": os.environ.get("PS5LZ4_PS5_WAKE_KEY", "")}
     s.update({k: v for k, v in (read_json(SETTINGS_PATH, {}) or {}).items() if k in s and isinstance(v, str)})
     return s
 
@@ -1557,9 +1558,80 @@ def save_settings(new: dict) -> dict:
         raise ValueError("FTP address must look like 192.168.1.20:2121")
     if not dest.startswith("/") or ".." in dest.split("/"):
         raise ValueError("destination must be an absolute path on the PS5")
-    s.update(ps5_ftp=ftp, ps5_dest=dest)
+    key = str(new.get("ps5_wake_key", s["ps5_wake_key"])).strip()
+    if key and not re.fullmatch(r"[0-9A-Fa-f]{1,8}", key):
+        raise ValueError("the Remote Play key is up to 8 hex characters (rp_regist_key in Chiaki)")
+    s.update(ps5_ftp=ftp, ps5_dest=dest, ps5_wake_key=key)
     write_json(SETTINGS_PATH, s)
     return s
+
+
+# Remote Play discovery, the way Chiaki wakes a PS5 from rest mode: a UDP
+# WAKEUP to port 9302 carrying the registration key (rp_regist_key).
+PS5_DISCOVERY_PORT = 9302
+PS5_DISCOVERY_VERSION = "00030010"
+
+
+def _discovery_socket():
+    """UDP socket on a local port in Chiaki's range (9303-9319) when free."""
+    import socket
+    sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    for port in range(9303, 9320):
+        try:
+            sk.bind(("", port))
+            break
+        except OSError:
+            continue
+    return sk
+
+
+def ps5_status(host: str, timeout: float = 1.5) -> str:
+    """'on', 'standby' or 'unknown' (no answer)."""
+    import socket
+    msg = f"SRCH * HTTP/1.1\ndevice-discovery-protocol-version:{PS5_DISCOVERY_VERSION}\n".encode()
+    with _discovery_socket() as sk:
+        sk.settimeout(timeout)
+        try:
+            sk.sendto(msg, (host, PS5_DISCOVERY_PORT))
+            data = sk.recv(2048).decode(errors="replace")
+        except OSError:
+            return "unknown"
+    first = data.split("\n", 1)[0]
+    if " 200 " in first:
+        return "on"
+    if " 620 " in first:
+        return "standby"
+    return "unknown"
+
+
+def ps5_wake(host: str, key: str) -> None:
+    import socket
+    credential = int(key, 16)
+    msg = ("WAKEUP * HTTP/1.1\nclient-type:vr\nauth-type:R\nmodel:w\napp-type:r\n"
+           f"user-credential:{credential}\ndevice-discovery-protocol-version:{PS5_DISCOVERY_VERSION}\n").encode()
+    with _discovery_socket() as sk:
+        for _ in range(3):
+            sk.sendto(msg, (host, PS5_DISCOVERY_PORT))
+            time.sleep(0.3)
+
+
+def ftp_open(host: str, port: int, timeout: float = 3) -> bool:
+    import socket
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def cmd_wake(_args) -> int:
+    cfg = get_settings()
+    host = cfg["ps5_ftp"].partition(":")[0]
+    if not host or not cfg["ps5_wake_key"]:
+        raise SystemExit("set the PS5 address and the Remote Play key first (web page: Överföring till PS5)")
+    print(f"PS5 is {ps5_status(host)}; sending wake-up")
+    ps5_wake(host, cfg["ps5_wake_key"])
+    return 0
 
 
 def transfer_running() -> dict | None:
@@ -1638,6 +1710,22 @@ def cmd_push(args) -> int:
             return None
 
     try:
+        if not ftp_open(host, port):
+            if not cfg["ps5_wake_key"]:
+                raise RuntimeError(f"no FTP server at {host}:{port}: is the PS5 on with ftpsrv running? "
+                                   "(add the Remote Play key to wake it from rest mode)")
+            st["current"] = f"waking the PS5 (it was {ps5_status(host)})"
+            save(True)
+            ps5_wake(host, cfg["ps5_wake_key"])
+            deadline = time.time() + 240
+            while not ftp_open(host, port):
+                if time.time() > deadline:
+                    raise RuntimeError("woke the PS5 but its FTP server did not answer within 4 minutes "
+                                       "(is ftpsrv loaded after rest mode?)")
+                if int(time.time()) % 30 == 0:
+                    ps5_wake(host, cfg["ps5_wake_key"])
+                time.sleep(3)
+            time.sleep(5)  # give ftpsrv a moment after resume
         ftp = connect()
         # Two copies of one title confuse ShadowMountPlus.
         tid = ""
@@ -1887,7 +1975,8 @@ def dashboard_data() -> dict:
             "level": int(os.environ.get("PS5LZ4_LEVEL", "9")), "runtime": "PackedStdio 0.4.2.1",
             "compat_updated": (read_json(COMPAT_FILE, {}) or {}).get("updated"),
             "requests": {"pending": pending, "pending_list": pending_list, "recent": done_req[::-1]}, "version": VERSION,
-            "settings": get_settings(), "transfer": transfer_running(),
+            "settings": {**get_settings(), "ps5_wake_key": "set" if get_settings()["ps5_wake_key"] else ""},
+            "transfer": transfer_running(),
             "transfers": {f.stem: read_json(f, {}) for f in TRANSFERS.glob("*.json")} if TRANSFERS.is_dir() else {}}
 
 
@@ -1998,6 +2087,9 @@ def cmd_ui(args) -> int:
                 except Exception as err:
                     body = {"error": str(err)}
                 return self.send(200, json.dumps(body, ensure_ascii=False).encode())
+            if self.path == "/api/ps5":
+                host = get_settings()["ps5_ftp"].partition(":")[0]
+                return self.send(200, json.dumps({"status": ps5_status(host) if host else "unset"}).encode())
             if self.path == "/api/community":
                 data = read_json(COMPAT_FILE, {}) or {}
                 body = {"repo": COMPAT_REPO, "updated": data.get("updated"), "games": data.get("games") or {}}
@@ -2021,13 +2113,22 @@ def cmd_ui(args) -> int:
                 req = json.loads(self.rfile.read(min(n, 4096)) or b"{}")
             except ValueError:
                 return self.send(400, b'{"error":"bad request"}')
+            if req.get("action") == "wake":
+                cfg = get_settings()
+                host = cfg["ps5_ftp"].partition(":")[0]
+                if not host or not cfg["ps5_wake_key"]:
+                    return self.send(400, json.dumps({"error": "PS5-adress eller Remote Play-nyckel saknas"}).encode())
+                ps5_wake(host, cfg["ps5_wake_key"])
+                return self.send(200, b'{"sent":true}')
             if req.get("action") == "settings":
+                if req.get("ps5_wake_key") == "set":
+                    req.pop("ps5_wake_key")  # unchanged (the page only sees that one is stored)
                 try:
                     s = save_settings(req)
                 except ValueError as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
                 cache["at"] = 0
-                return self.send(200, json.dumps(s).encode())
+                return self.send(200, json.dumps({**s, "ps5_wake_key": "set" if s["ps5_wake_key"] else ""}).encode())
             if req.get("action") == "push":
                 game = str(req.get("game") or "")
                 if not game or game.startswith("-") or "/" in game:
@@ -2120,6 +2221,8 @@ def main() -> int:
     sp.add_argument("game", help="LZ4 folder name, library name or title ID")
     sp.add_argument("--force", action="store_true", help="copy even if the PS5 has another copy of the title")
     sp.set_defaults(func=cmd_push)
+    sp = sub.add_parser("wake", help="wake the PS5 from rest mode (Remote Play key, like Chiaki)")
+    sp.set_defaults(func=cmd_wake)
     sp = sub.add_parser("dashboard", help="everything the web page shows, as JSON")
     sp.set_defaults(func=cmd_dashboard)
     sp = sub.add_parser("agent", help=argparse.SUPPRESS)

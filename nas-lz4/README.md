@@ -93,6 +93,7 @@ körs inne i containern som din användare, så filerna ägs av `nasuser`.
 | `./lz4-ps5.sh clean <namn>` | Tar bort arbetsmappen för ett misslyckat spel |
 | `./lz4-ps5.sh update` | Hämtar senaste imagen och startar om containern direkt (väntar inte på Watchtower; vägrar om ett spel packas) |
 | `./lz4-ps5.sh push <spel>` | För över ett färdigt LZ4-spel till PS5:an via FTP och kontrollerar det (FTP-adress sätts på webbsidan eller med `PS5LZ4_PS5_FTP`) |
+| `docker exec -u <PUID> ps5-lz4-ui ps5lz4 wake` | Väcker PS5:an från viloläge med Remote Play-nyckeln (som Chiaki). Webbsidan gör det automatiskt vid överföring |
 | `./lz4-ps5.sh doctor` | Självkontroll |
 
 Alternativ till `start`/`run`: `--level N` (1–4 LZ4 fast, 5–12 LZ4 HC,
