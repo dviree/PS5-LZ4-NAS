@@ -1,7 +1,26 @@
 {
  "version": 1,
- "updated": "2026-10-15T19:31:54Z",
+ "updated": "2026-10-15T22:48:42Z",
  "games": {
+  "PPSA01593": {
+   "name": "Hogwarts Legacy",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Hogwarts Legacy",
+    "gameVersion": "01.013.000",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-15T22:16:39Z",
+    "issue": 31
+   }
+  },
   "PPSA03396": {
    "name": "The Last of Us Part I",
    "works": 0,
@@ -40,6 +59,25 @@
     "issue": 25
    }
   },
+  "PPSA14632": {
+   "name": "LEGO Horizon Adventures",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "LEGO Horizon Adventures",
+    "gameVersion": "01.004.000",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-15T22:48:32Z",
+    "issue": 32
+   }
+  },
   "PPSA15368": {
    "name": "Contra: Operation Galuga",
    "works": 0,
@@ -76,6 +114,25 @@
     "appVersion": "1.5.0-6-g779",
     "date": "2026-10-15T13:32:34Z",
     "issue": 22
+   }
+  },
+  "PPSA15595": {
+   "name": "MARVEL Tokon Fighting Souls",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "MARVEL Tokon Fighting Souls",
+    "gameVersion": "01.003.000",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-15T21:47:55Z",
+    "issue": 30
    }
   },
   "PPSA16106": {
