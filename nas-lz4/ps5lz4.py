@@ -2381,7 +2381,14 @@ def engine_status() -> dict:
     host = (cfg.get("ps5_ftp") or "").partition(":")[0]
     out = {"host": host, "port": LZC_PORT, "repo": ENGINE_REPO, "path": ENGINE_PATH,
            "state": "unknown", "keep_awake": False, "elfldr_port": ELFLDR_PORT,
-           "cached": (read_json(ENGINE_DIR / "release.json", {}) or {}).get("tag")}
+           "cached": (read_json(ENGINE_DIR / "release.json", {}) or {}).get("tag"),
+           "installed": read_json(ENGINE_DIR / "installed.json", None), "auto": engine_auto_on()}
+    try:
+        out["latest"] = engine_known().get("latest")
+    except Exception:
+        out["latest"] = (read_json(ENGINE_DIR / "known.json", {}) or {}).get("latest")
+    inst = out["installed"] or {}
+    out["update"] = bool(inst.get("tag") and out["latest"] and inst["tag"] != out["latest"])
     if not host:
         out["state"] = "no-address"
         return out
@@ -2467,6 +2474,10 @@ def engine_install() -> dict:
             f.quit()
         except Exception:
             pass
+    try:
+        engine_read()
+    except Exception:
+        pass
     print(f"[{now()}] engine {tag} installed on the PS5 at {ENGINE_PATH}" + (f" (old one kept as {backup})" if backup else ""), flush=True)
     return {"tag": tag, "path": ENGINE_PATH, "bytes": size, "backup": backup}
 
@@ -2486,6 +2497,10 @@ def engine_restore() -> dict:
             f.quit()
         except Exception:
             pass
+    try:
+        engine_read()
+    except Exception:
+        pass
     print(f"[{now()}] original engine restored on the PS5", flush=True)
     return {"restored": ENGINE_PATH}
 
@@ -2493,6 +2508,9 @@ def engine_restore() -> dict:
 def engine_start() -> dict:
     """Run the engine now by sending the ELF to the PS5's ELF loader (port 9021)."""
     import socket
+    if engine_status()["state"] in ("connected", "original"):
+        raise ValueError("the engine already runs on the PS5 (port 5920 is taken); a newly installed file "
+                         "runs after the PS5 restarts or LZ4 Compression is started again from the Payload Manager")
     elf, tag = engine_fetch()
     host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
     if not host:
@@ -2504,6 +2522,100 @@ def engine_start() -> dict:
         raise ValueError(f"no ELF loader at {host}:{ELFLDR_PORT} ({err})")
     print(f"[{now()}] engine {tag} sent to the ELF loader on {host}:{ELFLDR_PORT}", flush=True)
     return {"tag": tag, "sent": True}
+
+
+ENGINE_AUTO = ENGINE_DIR / "auto.json"  # {"on": bool}: update the engine on the PS5 by itself
+ENGINE_CHECK_EVERY = int(os.environ.get("PS5LZ4_ENGINE_CHECK", str(6 * 3600)))
+
+
+def engine_known(force: bool = False) -> dict:
+    """SHA-256 of every lz4-compression.elf released in ENGINE_REPO (the user's
+    GitHub), so the file on the PS5 can be named: {"latest", "shas": {sha: tag}}."""
+    import urllib.request
+    known = read_json(ENGINE_DIR / "known.json", {}) or {}
+    if not force and time.time() - known.get("at", 0) < 3600:
+        return known
+    hdr = {"User-Agent": "ps5-lz4", "Accept": "application/vnd.github+json"}
+    req = urllib.request.Request(f"https://api.github.com/repos/{ENGINE_REPO}/releases?per_page=30", headers=hdr)
+    with urllib.request.urlopen(req, timeout=20) as r:
+        rels = [x for x in json.load(r) if not x.get("draft") and not x.get("prerelease")]
+    shas, latest = dict(known.get("shas") or {}), None
+    for rel in rels:
+        assets = {a["name"]: a["browser_download_url"] for a in rel.get("assets", [])}
+        if "lz4-compression.elf" not in assets:
+            continue
+        latest = latest or rel.get("tag_name")
+        if rel.get("tag_name") in shas.values() or "SHA256SUMS" not in assets:
+            continue
+        with urllib.request.urlopen(urllib.request.Request(assets["SHA256SUMS"], headers={"User-Agent": "ps5-lz4"}), timeout=20) as r:
+            for ln in r.read().decode(errors="replace").splitlines():
+                if ln.strip().endswith("lz4-compression.elf"):
+                    shas[ln.split()[0].lower()] = rel["tag_name"]
+    known = {"at": time.time(), "repo": ENGINE_REPO, "latest": latest, "shas": shas}
+    ENGINE_DIR.mkdir(parents=True, exist_ok=True)
+    write_json(ENGINE_DIR / "known.json", known)
+    return known
+
+
+def engine_read() -> dict:
+    """Read the engine ELF on the PS5 over FTP and say which release it is:
+    state latest / outdated / other (not from ENGINE_REPO) / missing."""
+    import hashlib
+    f = ps5_ftp_connect()
+    try:
+        names = ps5_ftp_names(f, ENGINE_PATH.rsplit("/", 1)[0]) or []
+        info = {"at": time.time(), "orig": "lz4-compression.elf.orig" in names}
+        if "lz4-compression.elf" not in names:
+            info["state"] = "missing"
+        else:
+            h, n = hashlib.sha256(), [0]
+
+            def take(b):
+                h.update(b)
+                n[0] += len(b)
+            f.retrbinary(f"RETR {ENGINE_PATH}", take, blocksize=1 << 20)
+            info.update(sha256=h.hexdigest(), bytes=n[0])
+    finally:
+        try:
+            f.quit()
+        except Exception:
+            pass
+    try:
+        known = engine_known()
+    except Exception as err:
+        known = read_json(ENGINE_DIR / "known.json", {}) or {}
+        info["known_error"] = str(err)
+    info["latest"] = known.get("latest")
+    if info.get("sha256"):
+        info["tag"] = (known.get("shas") or {}).get(info["sha256"])
+        info["state"] = ("other" if not info["tag"] else
+                         "latest" if info["tag"] == info["latest"] else "outdated")
+    ENGINE_DIR.mkdir(parents=True, exist_ok=True)
+    write_json(ENGINE_DIR / "installed.json", info)
+    return info
+
+
+def engine_auto_on() -> bool:
+    return bool((read_json(ENGINE_AUTO, {}) or {}).get("on", True))
+
+
+def engine_updater() -> None:
+    """Web page container: every few hours, read the engine on the PS5 and, when
+    it is an older release from ENGINE_REPO, put the newest one there over FTP.
+    An engine that isn't from ENGINE_REPO (the original) is left alone: that
+    one is replaced only with Install ELF on PS5."""
+    time.sleep(120)
+    while True:
+        try:
+            if engine_auto_on() and get_settings()["ps5_ftp"]:
+                info = engine_read()
+                if info.get("state") == "outdated":
+                    print(f"[{now()}] engine on the PS5 is {info['tag']}, updating to {info['latest']}", flush=True)
+                    engine_install()
+                    engine_read()
+        except Exception as err:
+            print(f"[{now()}] engine update check: {err}", flush=True)
+        time.sleep(ENGINE_CHECK_EVERY)
 
 
 def ps5_ftp_zip(path: str, out) -> None:
@@ -3581,6 +3693,11 @@ def cmd_ui(args) -> int:
                 return
             if self.path == "/api/engine":
                 return self.send(200, json.dumps(engine_status()).encode())
+            if self.path == "/api/engine/read":
+                try:
+                    return self.send(200, json.dumps(engine_read()).encode())
+                except Exception as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if self.path == "/api/ps5/games":
                 try:
                     return self.send(200, json.dumps(ps5_games(), ensure_ascii=False).encode())
@@ -3709,6 +3826,10 @@ def cmd_ui(args) -> int:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
                 cache["at"] = 0
                 return self.send(200, json.dumps(res).encode())
+            if req.get("action") == "engine_auto":
+                ENGINE_DIR.mkdir(parents=True, exist_ok=True)
+                write_json(ENGINE_AUTO, {"on": bool(req.get("on"))})
+                return self.send(200, json.dumps({"auto": engine_auto_on()}).encode())
             if req.get("action") in ("engine_install", "engine_restore", "engine_start"):
                 try:
                     fn = {"engine_install": engine_install, "engine_restore": engine_restore,
@@ -3822,6 +3943,8 @@ def cmd_ui(args) -> int:
     if COMPAT_REFRESH > 0:
         __import__("threading").Thread(target=compat_refresher, daemon=True).start()
     __import__("threading").Thread(target=send_after_watcher, daemon=True).start()
+    if ENGINE_CHECK_EVERY > 0:
+        __import__("threading").Thread(target=engine_updater, daemon=True).start()
     srv = http.server.ThreadingHTTPServer(("0.0.0.0", args.port), H)
     print(f"[{now()}] ui on port {args.port}", flush=True)
     srv.serve_forever()
