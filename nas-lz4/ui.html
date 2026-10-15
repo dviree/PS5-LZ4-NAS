@@ -274,6 +274,20 @@ button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;whi
     </div>
     <div class="mut" id="paired"></div>
   </div>
+  <div class="card"><h2>LZ4 Compression engine on the PS5</h2>
+    <div class="mut">This page and the LZ4 Compression engine on the PS5 (port 5920) work together: while a game is
+    sent, the page asks the engine to keep the PS5 out of rest mode. That needs this project's build of the engine,
+    which answers <i>keep-awake</i>; the original build runs fine but can't be asked.</div>
+    <div class="filters"><span class="pill p-no" id="eng-st">Engine: ?</span>
+      <button class="sm" onclick="engCheck()">Check</button></div>
+    <div class="mut" id="eng-info"></div>
+    <div class="filters" id="eng-acts">
+      <button class="two" onclick="engAct('engine_install', 'Download the newest engine from GitHub and install it in the Payload Manager on the PS5? The engine there now is kept as lz4-compression.elf.orig.')">Install this build on the PS5<small>download from GitHub, copy over FTP, keep the old one</small></button>
+      <button class="two" onclick="engAct('engine_start')">Start it now<small>send it to the ELF loader (port 9021)</small></button>
+      <button class="two danger" onclick="engAct('engine_restore', 'Put the saved original engine (.orig) back?')">Restore the original<small>undo the install</small></button>
+    </div>
+    <div class="why" id="eng-msg"></div>
+  </div>
   <div class="card"><h2>PS5 storage</h2>
     <div class="mut">ftpsrv can't tell a drive's size or free space, so: <b>Set size</b> once (as PS5 Settings › Storage
     or the drive's label shows it), and <b>Measure</b> adds up the files on the drive. Free = size − measured.
@@ -1121,6 +1135,7 @@ function tab(t) {
   try { localStorage.setItem('tab', t); } catch (e) {}
   if (t === 'comm') loadComm();
   if (t === 'pg' && !pgData) loadPg();
+  if (t === 'ps5') engCheck();
   if (t === 'ps5' && !window._drives) { window._drives = 1; loadDrives(); }
   if (t === 'ftp' && !ftpLoaded) ftpGo(ftpPath);
 }
@@ -1221,6 +1236,39 @@ async function pair() {
     alert(r.ok ? `Paired with ${j.nickname || 'the PS5'}. It can now be woken from rest mode.` : 'Pairing failed: ' + (j.error || r.status));
     if (r.ok) { document.getElementById('p-pin').value = ''; settingsFilled = false; load(); }
   } finally { btn.disabled = false; btn.textContent = 'Pair'; }
+}
+async function engCheck() {
+  const st = document.getElementById('eng-st'), info = document.getElementById('eng-info');
+  st.className = 'pill p-no'; st.textContent = 'Engine: checking…';
+  try {
+    const j = await (await fetch('/api/engine', {cache: 'no-store'})).json();
+    const m = {connected: ['p-LZ4', 'Engine: connected ✓'], original: ['p-run', 'Engine: running, original build'],
+      off: ['p-no', 'Engine: not running'], 'no-address': ['p-no', 'Engine: set the PS5 address'],
+      unknown: ['p-no', 'Engine: ?']}[j.state] || ['p-no', 'Engine: ?'];
+    st.className = 'pill ' + m[0]; st.textContent = m[1];
+    const why = {
+      connected: 'Connected: transfers keep the PS5 awake through the engine.',
+      original: 'The engine runs but is the original build, so it can\'t keep the PS5 awake. Install this build, then restart the PS5 (or Start it now).',
+      off: 'Nothing answers on port 5920. Start LZ4 Compression from the Payload Manager on the PS5, or press Start it now.',
+      'no-address': 'Save the PS5 address below first.'}[j.state] || '';
+    info.innerHTML = esc(why) + (j.host ? `<br>Engine at <code>http://${esc(j.host)}:${j.port}</code>` : '')
+      + `<br>Installed to <code>${esc(j.path)}</code> from <code>${esc(j.repo)}</code>` + (j.cached ? ` · downloaded: ${esc(j.cached)}` : '');
+  } catch (e) { st.textContent = 'Engine: ?'; }
+}
+async function engAct(action, confirmText) {
+  if (confirmText && !confirm(confirmText)) return;
+  const msg = document.getElementById('eng-msg');
+  msg.className = 'why'; msg.textContent = {engine_install: 'Downloading and copying to the PS5…',
+    engine_start: 'Sending to the ELF loader…', engine_restore: 'Restoring…'}[action];
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { msg.className = 'why bad'; msg.textContent = 'Failed: ' + (j.error || r.status); return; }
+  msg.className = 'why good';
+  msg.textContent = action === 'engine_install' ? `Installed ${j.tag} (${(j.bytes / 1048576).toFixed(1)} MB).`
+      + (j.backup ? ' The old engine is kept as .orig.' : '') + ' Restart the PS5 or press Start it now to run it.'
+    : action === 'engine_start' ? `Sent ${j.tag}; it starts in a few seconds.` : 'The original engine is back; it runs after the next start.';
+  setTimeout(engCheck, action === 'engine_start' ? 5000 : 500);
 }
 async function ps5State() {
   try {

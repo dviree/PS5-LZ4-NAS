@@ -194,6 +194,22 @@ renewed every minute, released at the end). That endpoint is in this fork's
 engine (`lz4-compression.elf` built from this repository); the original
 engine ignores it, and then the PS5 is woken again if it goes to rest mode.
 
+**Connecting the two:** the Remote tab's *LZ4 Compression engine on the PS5*
+card shows whether the engine answers (connected / original build / not
+running) and can:
+
+- **Install this build on the PS5**: downloads `lz4-compression.elf` from the
+  newest release of this repository (checked against `SHA256SUMS`, cached in
+  `state/engine`) and copies it over FTP to
+  `/data/pldmgr/payloads/lz4-compression/lz4-compression.elf`, where the
+  Payload Manager loads it. The engine that was there is kept as
+  `lz4-compression.elf.orig`.
+- **Start it now**: sends the ELF to the PS5's ELF loader (port 9021) so it
+  runs without a restart.
+- **Restore the original**: puts the `.orig` file back.
+
+`PS5LZ4_ENGINE_REPO` picks another repository for the download.
+
 ## Deleting originals
 
 By default the library is mounted read-only, so nothing can change or delete
