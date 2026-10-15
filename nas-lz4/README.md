@@ -73,13 +73,17 @@ that container alone.
   the reason), original and LZ4 size with the saving, your PS5 result and the
   community reports. Games that exist only in the LZ4 folder are listed too.
 - **Click a game** for details (sizes, LZ4 folder, compression, checks, last
-  error, community reports) and the buttons **Komprimera** (compress),
-  **Överför till PS5** (send to PS5) and the PS5 result.
-- **Kontrollera allt** (check all): read-only check of every LZ4 game (format,
-  APR-EMU, files the PS5 reads from disk) and of what can still become LZ4.
-  When something is wrong, the result has a **Reparera** (repair) button.
-- **Komprimera allt** (compress all): compresses every game that can be LZ4,
-  one at a time.
+  error, community reports) and the buttons **Compress**, **Send to PS5**
+  and the PS5 result.
+- **Check all:** read-only check of every LZ4 game (format, APR-EMU, files
+  the PS5 reads from disk) and of what can still become LZ4. Results are kept
+  in a small database (`state/ps5lz4.db`) keyed by each game's file sizes and
+  dates, so games unchanged since their last check are not read again; only
+  new or changed games are. When something is wrong, the result has a
+  **Repair** button.
+- **Full re-check:** the same, but checks every game again, ignoring the
+  database.
+- **Compress all:** compresses every game that can be LZ4, one at a time.
 - **Running job:** the six steps with live progress and a stop button (the
   job can be resumed).
 - **Community tab:** every game reported by other players, with search,
@@ -95,9 +99,9 @@ Tailscale), never through a router port forward.
 
 ## Send to the PS5
 
-Under **Överföring till PS5** set the PS5's FTP address (ftpsrv, for example
+Under **Send to PS5** set the PS5's FTP address (ftpsrv, for example
 `192.168.1.20:2121`) and the destination (for example `/mnt/usb0/homebrew`).
-**Överför till PS5** on a game then:
+**Send to PS5** on a game then:
 
 - copies the LZ4 folder straight to ftpsrv (not through an rclone mount);
 - turns off ftpsrv's SELF decryption, which would otherwise report other
@@ -135,7 +139,7 @@ inside the container as your NAS user, so the files belong to that user.
 | --- | --- |
 | `./lz4-ps5.sh lz4` | One line per game: `LZ4` (done, format checked), `kan bli LZ4` (can be LZ4), `inte LZ4` (not LZ4, with the reason) or `FEL` (error) |
 | `./lz4-ps5.sh lz4 --fix` | Packs every game that can be LZ4, in the background |
-| `./lz4-ps5.sh apr` / `apr --fix` | Checks / repairs every LZ4 game: pinned APR-EMU and the files the PS5 reads from disk |
+| `./lz4-ps5.sh apr` / `apr --fix` / `apr --full` | Checks / repairs every LZ4 game: pinned APR-EMU and the files the PS5 reads from disk. Unchanged games reuse their last result; `--full` checks all again |
 | `./lz4-ps5.sh community` | How the games run for others (reports from the original project) and your own PS5 result |
 | `./lz4-ps5.sh community <game> works` | Saves your result (`works`, `issues`, `nostart`, `crash`) and prints a prefilled link to share it |
 | `./lz4-ps5.sh scan --check` | Lists the library with numbers, status and LZ4 compatibility (reads `eboot.bin` straight from `.exfat` images) |
@@ -218,7 +222,7 @@ play it, it needs:
   or an external drive). Keep one copy per title ID there.
 - **The right runtime.** Only APR-EMU PackedStdio 0.4.2.1 reads the packs, and
   it is in the folder. Don't replace it with another APR-EMU version;
-  `Kontrollera allt` / `apr` find it if something did.
+  **Check all** / `apr` find it if something did.
 - **The right profile.** Results vary per game; a trace-based profile in
   `state/profiles/<TITLEID>.toml` is safer than the automatic one.
 - **The original until it has run.** Keep it until the game has started.

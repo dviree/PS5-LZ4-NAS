@@ -1177,22 +1177,74 @@ def lz4_format_problem(game: Path) -> str | None:
     return None
 
 
-CHECKS_PATH = STATE / "checks.json"
+CHECKS_PATH = STATE / "checks.json"  # before the database; migrated once
+DB_PATH = STATE / "ps5lz4.db"
+
+
+class CheckDB(dict):
+    """Results of earlier checks (SQLite in state/ps5lz4.db), keyed by what was
+    checked and valid while its signature (sizes, mtimes) is unchanged. Works
+    like a dict; save() writes the entries that changed."""
+
+    def __init__(self):
+        super().__init__()
+        import sqlite3
+        self._dirty = set()
+        self._db = sqlite3.connect(DB_PATH, timeout=30)
+        self._db.execute("CREATE TABLE IF NOT EXISTS checks (key TEXT PRIMARY KEY, value TEXT NOT NULL, "
+                         "checked TEXT NOT NULL)")
+        for key, value in self._db.execute("SELECT key, value FROM checks"):
+            try:
+                dict.__setitem__(self, key, json.loads(value))
+            except ValueError:
+                pass
+        if not self and CHECKS_PATH.is_file():
+            for key, value in (read_json(CHECKS_PATH, {}) or {}).items():
+                self[key] = value
+            self.save()
+
+    def __setitem__(self, key, value):
+        if isinstance(value, dict):
+            value.setdefault("checked", now())
+        dict.__setitem__(self, key, value)
+        self._dirty.add(key)
+
+    def save(self):
+        if self._dirty:
+            with self._db:
+                self._db.executemany("INSERT OR REPLACE INTO checks (key, value, checked) VALUES (?, ?, ?)",
+                                     [(k, json.dumps(self[k]), now()) for k in self._dirty if k in self])
+            self._dirty.clear()
+
+    def close(self):
+        self.save()
+        self._db.close()
+
+
+def file_sig(*paths: Path) -> str:
+    parts = []
+    for p in paths:
+        try:
+            st = p.stat()
+            parts.append(f"{st.st_size}:{st.st_mtime_ns}")
+        except OSError:
+            parts.append("-")
+    return "|".join(parts)
 
 
 def classify(e: "Entry", res: dict, cache: dict | None = None) -> tuple[str, str, bool]:
     """(verdict, why, can_queue) for one library entry. verdict is one of
-    LZ4 / kan bli LZ4 / inte LZ4 / FEL. AMPR checks of unpacked games are
+    LZ4 / can be LZ4 / not LZ4 / error. AMPR checks of unpacked games are
     cached by path, size and mtime (reading eboot.bin from a 100 GB image
     takes a moment)."""
     st = res["status"]
     if st == "done":
         problem = lz4_format_problem(e.output) if e.output.is_dir() else "output folder missing"
-        return ("LZ4", res["detail"], False) if not problem else ("FEL", problem, False)
+        return ("LZ4", res["detail"], False) if not problem else ("error", problem, False)
     if st == "skipped":
-        return "inte LZ4", res["detail"], False
+        return "not LZ4", res["detail"], False
     if st == "exists":
-        return "FEL", res["detail"], False
+        return "error", res["detail"], False
     key = sig = None
     if cache is not None:
         try:
@@ -1219,10 +1271,10 @@ def classify(e: "Entry", res: dict, cache: dict | None = None) -> tuple[str, str
     if ok == "compatible":
         if st in ("partial", "failed"):
             why = f"{st}: {res['detail']}"
-        return "kan bli LZ4", why, True
+        return "can be LZ4", why, True
     if ok == "packed":
         return "LZ4", why, False
-    return "inte LZ4", why, False
+    return "not LZ4", why, False
 
 
 def cmd_lz4(args) -> int:
@@ -1231,7 +1283,7 @@ def cmd_lz4(args) -> int:
     entries = scan_library()
     todo: list[Entry] = []
     games = compat_games()
-    counts = {"LZ4": 0, "kan bli LZ4": 0, "inte LZ4": 0, "FEL": 0}
+    counts = {"LZ4": 0, "can be LZ4": 0, "not LZ4": 0, "error": 0}
     for e in entries:
         res = result_for(e)
         st = res["status"]
@@ -1248,15 +1300,15 @@ def cmd_lz4(args) -> int:
     for out in sorted(OUTPUT.glob("*-lz4")):
         if out.is_dir() and not any(e.output == out for e in entries):
             problem = lz4_format_problem(out)
-            counts["LZ4" if not problem else "FEL"] += 1
-            print(f"{'LZ4' if not problem else 'FEL':12} {'-':9}  {out.name}  "
+            counts["LZ4" if not problem else "error"] += 1
+            print(f"{'LZ4' if not problem else 'error':12} {'-':9}  {out.name}  "
                   f"({'no library source' if not problem else problem})")
     print("\n" + ", ".join(f"{k}: {v}" for k, v in counts.items()))
     if not todo:
-        print("inget kvar att packa")
-        return 1 if counts["FEL"] else 0
+        print("nothing left to pack")
+        return 1 if counts["error"] else 0
     if not args.fix:
-        print(f"packa de {len(todo)} som kan bli LZ4: ps5lz4 lz4 --fix")
+        print(f"pack the {len(todo)} that can be LZ4: ps5lz4 lz4 --fix")
         return 0
     start = argparse.Namespace(targets=[e.id for e in todo], all=False, resume=False,
                                level=args.level, no_restore_test=args.no_restore_test,
@@ -1425,8 +1477,16 @@ def find_runtime(game: Path) -> Path | None:
     return None
 
 
+def lz4_game_sig(g: Path) -> str:
+    """Changes when the packs, the runtime or the top level of the folder change."""
+    rt = find_runtime(g)
+    return file_sig(g, g / "ampr_assets.index", g / "ampr_assets.index.crc", rt or g / RUNTIME_REL)
+
+
 def cmd_apr(args) -> int:
-    """Check every LZ4 game: PackedStdio APR-EMU and on-disk boot files; --fix repairs both."""
+    """Check every LZ4 game: PackedStdio APR-EMU and on-disk boot files; --fix repairs both.
+    Games whose files haven't changed since their last check reuse that result
+    (state/ps5lz4.db) unless --full is given."""
     ensure_dirs()
     games = sorted(p for p in OUTPUT.iterdir()
                    if p.is_dir() and (p / "ampr_assets.index").is_file())
@@ -1437,16 +1497,25 @@ def cmd_apr(args) -> int:
         if not RUNTIME_FILE.is_file() or \
                 hashlib.sha256(RUNTIME_FILE.read_bytes()).hexdigest() != RUNTIME_SHA256:
             raise SystemExit(f"pinned runtime missing or wrong at {RUNTIME_FILE}; reinstall ps5-lz4")
-    bad = 0
+    db = CheckDB()
+    bad = cached = 0
     for g in games:
+        key = "apr:" + g.name
+        hit = db.get(key)
+        if hit and not args.full and hit.get("sig") == lz4_game_sig(g) and (hit.get("ok") or not args.fix):
+            cached += 1
+            bad += 0 if hit.get("ok") else 1
+            print(f"{hit['state']:<45} {g.name}  (cached {hit.get('checked', '')})")
+            continue
         rt = find_runtime(g)
+        ok = True
         if rt is None:
-            state = "MISSING"
+            state = "MISSING APR-EMU"
         else:
             sha = hashlib.sha256(rt.read_bytes()).hexdigest()
-            state = "ok" if sha == RUNTIME_SHA256 else f"WRONG ({sha[:12]}, not PackedStdio)"
+            state = "ok" if sha == RUNTIME_SHA256 else f"WRONG APR-EMU ({sha[:12]}, not PackedStdio)"
         if state != "ok":
-            bad += 1
+            ok = False
             if args.fix:
                 dst = rt or (g / RUNTIME_REL)
                 dst.parent.mkdir(parents=True, exist_ok=True)
@@ -1456,6 +1525,7 @@ def cmd_apr(args) -> int:
                 os.chmod(tmp, 0o755)
                 os.replace(tmp, dst)
                 state += " -> FIXED"
+                ok = True
         # Files the PS5 looks for on disk (PlayGo markers, empty files, some
         # boot files) must exist next to the packs; packs made before
         # upstream 1.4.3 may hold them only inside. --fix writes them out.
@@ -1463,13 +1533,20 @@ def cmd_apr(args) -> int:
                              capture_output=True, text=True)
         m = re.search(r"missing=(\d+) restored=(\d+)", out.stdout)
         if m and int(m.group(1)):
-            bad += 1
             state += f"; {m.group(1)} disk file(s) only in packs"
             if args.fix:
                 state += f" -> {m.group(2)} restored"
+            else:
+                ok = False
         elif not m:
             state += f"; disk-file check failed: {(out.stderr or out.stdout).strip()[-120:]}"
+            ok = False
+        bad += 0 if ok else 1
+        db[key] = {"sig": lz4_game_sig(g), "ok": ok, "state": state, "checked": now()}
         print(f"{state:<45} {g.name}")
+    db.close()
+    if cached:
+        print(f"{cached} of {len(games)} unchanged since their last check (results from the database; --full checks again)")
     if bad and not args.fix:
         print(f"{bad} game(s) need repair; run: ps5lz4 apr --fix")
     return 1 if bad and not args.fix else 0
@@ -1667,7 +1744,7 @@ def cmd_wake(_args) -> int:
     cfg = get_settings()
     host = cfg["ps5_ftp"].partition(":")[0]
     if not host or not cfg["ps5_wake_key"]:
-        raise SystemExit("set the PS5 address and the Remote Play key first (web page: Överföring till PS5)")
+        raise SystemExit("set the PS5 address and the Remote Play key first (web page: Send to PS5)")
     print(f"PS5 is {ps5_status(host)}; sending wake-up")
     ps5_wake(host, cfg["ps5_wake_key"])
     return 0
@@ -1704,7 +1781,7 @@ def cmd_push(args) -> int:
     TRANSFERS.mkdir(exist_ok=True)
     cfg = get_settings()
     if not cfg["ps5_ftp"]:
-        raise SystemExit("set the PS5 FTP address first (web page: Inställningar, or PS5LZ4_PS5_FTP)")
+        raise SystemExit("set the PS5 FTP address first (web page: Send to PS5, or PS5LZ4_PS5_FTP)")
     if transfer_running():
         raise SystemExit("a transfer is already running")
     out = output_for(args.game)
@@ -1873,6 +1950,7 @@ STEPS = ["source", "check", "pack", "verify", "restore", "publish"]
 UI_ACTIONS = {  # action -> ps5lz4 arguments (game and result are checked separately)
     "fix": ["lz4", "--fix"],
     "check": ["apr"],
+    "check_full": ["apr", "--full"],
     "apr": ["apr", "--fix"],
     "stop": ["stop"],
     "resume": ["start", "--resume"],
@@ -1938,7 +2016,7 @@ def dashboard_data() -> dict:
     ensure_dirs()
     running, lock_text = job_running()
     queue = read_json(QUEUE_PATH, {}) or {}
-    cache = read_json(CHECKS_PATH, {}) or {}
+    cache = CheckDB()
     games = compat_games()
     rows, totals = [], {"lz4": 0, "source": 0, "output": 0}
     entries = scan_library()
@@ -1995,14 +2073,14 @@ def dashboard_data() -> dict:
         problem = info["problem"]
         rows.append({"id": out.name, "rel": out.name, "kind": "lz4", "title_id": tid,
                      "name": rep.get("title_name") or info.get("name") or out.name,
-                     "verdict": "LZ4" if not problem else "FEL",
-                     "why": "bara i LZ4-mappen (originalet finns inte i biblioteket)" if not problem else problem,
+                     "verdict": "LZ4" if not problem else "error",
+                     "why": "only in the LZ4 folder (the original is not in the library)" if not problem else problem,
                      "can_queue": False, "running": False, "queued": False, "output_only": True,
                      "source_bytes": rep.get("source_bytes"), "output_bytes": rep.get("output_bytes") or info["bytes"],
                      "saved_percent": rep.get("saved_percent"), "ps5": rep.get("ps5_result"),
                      "community": {k: g.get(k, 0) for k in ("works", "issues", "noStart", "crash", "reports")},
                      "output": info["path"]})
-    write_json(CHECKS_PATH, cache)
+    cache.close()
     job = None
     if running and current:
         st = read_json(WORK / current / "state.json", {}) or {}
@@ -2044,9 +2122,9 @@ def game_detail(game_id: str) -> dict:
     if out is None and (OUTPUT / game_id).is_dir():
         out = OUTPUT / game_id
         rep = rep or read_json(REPORTS / f"{game_id[: -len('-lz4')]}.json") or {}
-    cache = read_json(CHECKS_PATH, {}) or {}
+    cache = CheckDB()
     folder = lz4_folder_info(out, cache) if out and out.is_dir() else None
-    write_json(CHECKS_PATH, cache)
+    cache.close()
     work = read_json(WORK / game_id / "state.json") or None
     skipped = read_json(REPORTS / f"{game_id}.skipped.json") or None
     tid = ((rep or {}).get("title_id") or (folder or {}).get("title_id") or "").upper()
@@ -2078,13 +2156,13 @@ def run_request(req: dict) -> dict:
             return {"ok": False, "output": f"unknown result {result!r}"}
         argv.append(result)
     me = [sys.executable, os.path.abspath(__file__)]
-    if action == "check":
-        # "Kontrollera allt": read-only. Format and APR-EMU of every LZ4 game, and
+    if action in ("check", "check_full"):
+        # "Check all": read-only. Format and APR-EMU of every LZ4 game, and
         # which games can still become LZ4. Nothing is changed.
-        rep = subprocess.run(me + ["apr"], capture_output=True, text=True, timeout=6 * 3600)
+        rep = subprocess.run(me + argv, capture_output=True, text=True, timeout=6 * 3600)
         lst = subprocess.run(me + ["lz4"], capture_output=True, text=True, timeout=3600)
-        text = ("LZ4-spelen:\n" + (rep.stdout + rep.stderr).strip() +
-                "\n\nBiblioteket:\n" + (lst.stdout + lst.stderr).strip())
+        text = ("LZ4 games:\n" + (rep.stdout + rep.stderr).strip() +
+                "\n\nLibrary:\n" + (lst.stdout + lst.stderr).strip())
         return {"ok": rep.returncode == 0, "output": text[-3000:]}
     out = subprocess.run(me + argv, capture_output=True, text=True, timeout=6 * 3600)
     text = (out.stdout + out.stderr).strip()
@@ -2185,7 +2263,7 @@ def cmd_ui(args) -> int:
                 cfg = get_settings()
                 host = cfg["ps5_ftp"].partition(":")[0]
                 if not host or not cfg["ps5_wake_key"]:
-                    return self.send(400, json.dumps({"error": "PS5-adress eller Remote Play-nyckel saknas"}).encode())
+                    return self.send(400, json.dumps({"error": "PS5 address or Remote Play key missing"}).encode())
                 ps5_wake(host, cfg["ps5_wake_key"])
                 return self.send(200, b'{"sent":true}')
             if req.get("action") == "settings":
@@ -2202,7 +2280,7 @@ def cmd_ui(args) -> int:
                 if not game or game.startswith("-") or "/" in game:
                     return self.send(400, b'{"error":"no game"}')
                 if not get_settings()["ps5_ftp"]:
-                    return self.send(400, json.dumps({"error": "PS5:ans FTP-adress saknas"}).encode())
+                    return self.send(400, json.dumps({"error": "PS5 FTP address missing"}).encode())
                 if transfer_running():
                     return self.send(409, b'{"error":"a transfer is already running"}')
                 argv = [sys.executable, os.path.abspath(__file__), "push", game] + (["--force"] if req.get("force") else [])
@@ -2278,8 +2356,9 @@ def main() -> int:
     sp.add_argument("output", help="output folder name, e.g. MyGame-lz4")
     sp.add_argument("source", nargs="?", help="optional original folder to compare against")
     sp.set_defaults(func=cmd_verify)
-    sp = sub.add_parser("apr", help="check the APR-EMU runtime in every LZ4 game (--fix restores it)")
+    sp = sub.add_parser("apr", help="check every LZ4 game (APR-EMU, on-disk files); --fix repairs")
     sp.add_argument("--fix", action="store_true")
+    sp.add_argument("--full", action="store_true", help="check every game again, not only changed ones")
     sp.set_defaults(func=cmd_apr)
     sp = sub.add_parser("community", help="community reports per game; record and share your PS5 result")
     sp.add_argument("game", nargs="?", help="# from scan, name or title ID")
