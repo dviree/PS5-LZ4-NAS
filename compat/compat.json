@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-15T13:23:28Z",
+ "updated": "2026-10-15T13:32:44Z",
  "games": {
   "PPSA03671": {
    "name": "Marvel's Wolverine",
@@ -38,6 +38,25 @@
     "appVersion": "1.5.0-6-g779",
     "date": "2026-10-15T12:51:29Z",
     "issue": 20
+   }
+  },
+  "PPSA15512": {
+   "name": "The Last of Us™ Part II Remastered",
+   "works": 0,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 1,
+   "reports": 1,
+   "lastReport": {
+    "status": "crash",
+    "game": "The Last of Us™ Part II Remastered",
+    "gameVersion": "",
+    "level": "",
+    "source": "",
+    "firmware": "",
+    "appVersion": "1.5.0-6-g779",
+    "date": "2026-10-15T13:32:34Z",
+    "issue": 22
    }
   },
   "PPSA16106": {
