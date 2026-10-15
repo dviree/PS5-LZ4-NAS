@@ -99,7 +99,7 @@ Tailscale), never through a router port forward.
 
 ## Send to the PS5
 
-Under **Send to PS5** set the PS5's FTP address (ftpsrv, for example
+On the **PS5** tab set the PS5's FTP address (ftpsrv, for example
 `192.168.1.20:2121`) and the destination (for example `/mnt/usb0/homebrew`).
 **Send to PS5** on a game then:
 
@@ -122,11 +122,15 @@ If the PS5 doesn't answer, the transfer wakes it first with the Remote Play
 wake-up Chiaki uses, waits for ftpsrv and then copies. That needs the
 registration key, which you get by **pairing**:
 
-1. On the PS5: Settings › System › Remote Play › Link Device. An 8-digit PIN
-   is shown.
-2. On the page under **Koppla PS5:an**: the PSN account ID (base64 as in
-   Chiaki, decimal, or 0x-hex; with a fake signed-in account it is the ID the
-   activation tool set) and the PIN, then **Koppla**.
+1. On the **PS5** tab, enter the PSN account ID of the account signed in on
+   the PS5, in the base64 form Chiaki uses (12 characters ending in `=`).
+   Already set up in Chiaki? Use the same ID. A normal PSN account: chiaki-ng
+   can look it up when you sign in with PSN. A fake signed-in (offline
+   activated) account: the ID the activation tool gave it. A decimal or
+   `0x` hex number works too; the page shows how it reads what you typed.
+2. On the PS5: Settings › System › Remote Play › Pair Device. An 8-digit PIN
+   is shown for a few minutes.
+3. Enter the PIN and press **Pair** while it is still on screen.
 
 If you have already paired in Chiaki, you can enter its `rp_regist_key`
 (up to 8 hex characters) instead. The keys are stored in

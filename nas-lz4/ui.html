@@ -43,6 +43,7 @@ select{font:inherit;padding:3px 6px;border-radius:6px;border:1px solid var(--lin
 a{color:var(--acc)}
 .tabs{display:flex;gap:4px;padding:10px 16px 0;max-width:1280px;margin:0 auto}
 .tabs button{background:none;border-radius:8px 8px 0 0;color:var(--mut);padding:8px 14px}
+.steps-list{margin:10px 0 0;padding-left:20px;line-height:1.5}.steps-list ul{padding-left:18px;margin:4px 0}.steps-list li{margin-bottom:4px}
 .tabs button.on{background:var(--card);color:var(--txt);box-shadow:inset 0 -2px 0 var(--acc)}
 .filters{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
 .filters input{font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--txt);flex:1;min-width:180px}
@@ -72,6 +73,7 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
 </header>
 <nav class="tabs">
   <button id="t-mine" class="on" onclick="tab('mine')">My games</button>
+  <button id="t-ps5" onclick="tab('ps5')">PS5</button>
   <button id="t-comm" onclick="tab('comm')">Community</button>
 </nav>
 <main id="p-mine">
@@ -81,31 +83,6 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
   <div class="card" id="xfer" hidden></div>
   <div class="card" id="failed" hidden></div>
   <div class="card"><h2>Library</h2><div class="scroll"><table id="games"></table></div></div>
-  <div class="card"><h2>Send to PS5</h2>
-    <div class="mut">Straight over FTP to the PS5's ftpsrv (port 2121), not through a mount. Every file's size is checked and
-    program files are compared byte for byte. An interrupted transfer continues where it stopped when you press again.</div>
-    <div class="filters">
-      <input id="s-ftp" placeholder="PS5 FTP, e.g. 192.168.1.50:2121" onchange="saveAddress()">
-      <input id="s-dest" placeholder="Folder on the PS5, e.g. /mnt/usb0/homebrew" onchange="saveAddress()">
-    </div>
-    <h2 style="margin-top:14px">Pair with the PS5 (Remote Play, like Chiaki)</h2>
-    <div class="mut">Pairing lets this page wake the PS5 from rest mode when you press <b>Send to PS5</b>.
-    On the PS5 open <i>Settings › System › Remote Play › Pair Device</i> and enter the PIN shown there, plus the
-    PSN account ID. With fake sign-in on a jailbroken PS5 it is the ID the activation tool set (base64 as in Chiaki,
-    decimal or 0x hex). <span id="paired"></span></div>
-    <div class="filters">
-      <input id="p-acc" placeholder="PSN account ID" autocomplete="off">
-      <input id="p-pin" placeholder="PIN (8 digits)" inputmode="numeric" autocomplete="off" style="max-width:180px">
-      <button class="pri" onclick="pair()">Pair</button>
-    </div>
-    <div class="mut">Already paired in Chiaki? Enter its <code>rp_regist_key</code> (8 hex characters) instead.</div>
-    <div class="filters">
-      <input id="s-key" placeholder="Remote Play key (rp_regist_key)" autocomplete="off">
-      <button onclick="saveSettings()">Save</button>
-      <button onclick="act('wake')">Wake PS5 now</button>
-      <span class="pill p-no" id="ps5st">PS5: ?</span>
-    </div>
-  </div>
   <div class="card"><h2>Report</h2>
     <div class="mut">Pick the PS5 result in the <b>PS5</b> column for an LZ4 game. It is saved here, and
     <i>Recent actions</i> then shows a filled-in link to share it with the community (the original project's game reports).</div>
@@ -118,6 +95,55 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
 <div id="modal" class="modal" hidden onclick="if(event.target===this)closeGame()">
   <div class="sheet"><button class="x" onclick="closeGame()">✕</button><div id="m-body">Loading…</div></div>
 </div>
+<main id="p-ps5" hidden>
+  <div class="card"><h2>PS5</h2>
+    <div class="filters" style="margin-top:0">
+      <span class="pill p-no" id="ps5st">PS5: ?</span>
+      <button onclick="act('wake')">Wake PS5 now</button>
+    </div>
+    <div class="mut" id="paired"></div>
+  </div>
+  <div class="card"><h2>1. Address</h2>
+    <div class="mut"><b>Send to PS5</b> copies a game straight over FTP to the PS5's ftpsrv (port 2121), not through a
+    mount. Every file's size is checked and program files are compared byte for byte; an interrupted transfer continues
+    where it stopped. The address and folder are saved as soon as you change them.</div>
+    <div class="filters">
+      <input id="s-ftp" placeholder="PS5 address, e.g. 192.168.1.50:2121" onchange="saveAddress()">
+      <input id="s-dest" placeholder="Folder on the PS5, e.g. /mnt/usb0/homebrew" onchange="saveAddress()">
+    </div>
+  </div>
+  <div class="card"><h2>2. Pair for wake-up (Remote Play, like Chiaki)</h2>
+    <div class="mut">Pairing lets this page wake the PS5 from rest mode, by itself before a transfer or with
+    <b>Wake PS5 now</b>. You only do it once.</div>
+    <ol class="steps-list">
+      <li><b>PSN account ID</b> of the account signed in on the PS5, in the <b>base64 form Chiaki uses</b>:
+        12 characters ending in <code>=</code>, for example <code>Ab3dEf7hIjk=</code>.
+        <ul>
+          <li>Already set up in Chiaki / chiaki-ng? Use the same ID you entered there.</li>
+          <li>Normal PSN account: chiaki-ng can look it up when you sign in with PSN (in its settings).</li>
+          <li>Fake sign-in on a jailbroken PS5 (offline-activated account): the ID the activation tool gave the
+            account. A decimal number or <code>0x</code> hex works too; it is converted.</li>
+        </ul></li>
+      <li>On the PS5 open <i>Settings › System › Remote Play › Pair Device</i>. It shows an 8-digit PIN for a few
+        minutes.</li>
+      <li>Enter both here and press <b>Pair</b> while the PIN is still on screen.</li>
+    </ol>
+    <div class="filters">
+      <input id="p-acc" placeholder="PSN account ID, e.g. Ab3dEf7hIjk=" autocomplete="off" autocapitalize="off" spellcheck="false" oninput="accHint()">
+      <input id="p-pin" placeholder="PIN (8 digits)" inputmode="numeric" autocomplete="off" style="max-width:180px">
+      <button class="pri" onclick="pair()">Pair</button>
+    </div>
+    <div class="why" id="acc-hint"></div>
+  </div>
+  <div class="card"><h2>Or: key from Chiaki</h2>
+    <div class="mut">Already paired in Chiaki? Instead of pairing again, enter its <code>rp_regist_key</code>
+    (8 hex characters, in Chiaki's settings file) and press Save.</div>
+    <div class="filters">
+      <input id="s-key" placeholder="Remote Play key (rp_regist_key)" autocomplete="off">
+      <button onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</main>
 <main id="p-comm" hidden>
   <div class="card">
     <h2>Community reports</h2>
@@ -199,7 +225,7 @@ async function saveAddress() {
 }
 function push(id, name) {
   const s = data.settings || {};
-  if (!s.ps5_ftp) { alert('Enter the PS5 FTP address under "Send to PS5" first.'); return; }
+  if (!s.ps5_ftp) { alert('Enter the PS5 address on the PS5 tab first.'); tab('ps5'); return; }
   const t = (data.transfers || {})[id];
   act('push', `Send ${name} to ${s.ps5_ftp}${s.ps5_dest}?\n\n` +
     (s.ps5_wake_key ? 'If the PS5 is in rest mode it is woken first.' : 'The PS5 must be on with the FTP server running.') +
@@ -222,7 +248,9 @@ function render() {
     kf.placeholder = d.settings.ps5_wake_key ? 'Remote Play key saved (leave empty to keep it)' : 'Remote Play key (rp_regist_key)';
     const pd = d.settings.paired || {};
     document.getElementById('paired').innerHTML = pd.ps5_paired
-      ? `<span class="good">Paired with ${esc(pd.ps5_nickname || 'PS5')} (${esc(pd.ps5_paired)}).</span>` : '';
+      ? `<span class="good">Paired with ${esc(pd.ps5_nickname || 'PS5')} (${esc(pd.ps5_paired)}).</span>` :
+      d.settings.ps5_wake_key ? '<span class="good">Remote Play key saved: wake-up works.</span>'
+      : 'Not paired yet: transfers work, but waking the PS5 from rest mode needs step 2.';
     settingsFilled = true;
   }
   const xf = document.getElementById('xfer'), tf = d.transfer;
@@ -398,10 +426,10 @@ function gameHtml(g, det) {
 }
 let comm = null;
 function tab(t) {
-  document.getElementById('p-mine').hidden = t !== 'mine';
-  document.getElementById('p-comm').hidden = t !== 'comm';
-  document.getElementById('t-mine').classList.toggle('on', t === 'mine');
-  document.getElementById('t-comm').classList.toggle('on', t === 'comm');
+  for (const k of ['mine', 'ps5', 'comm']) {
+    document.getElementById('p-' + k).hidden = t !== k;
+    document.getElementById('t-' + k).classList.toggle('on', t === k);
+  }
   try { localStorage.setItem('tab', t); } catch (e) {}
   if (t === 'comm') loadComm();
 }
@@ -464,6 +492,26 @@ async function load() {
   }
 }
 try { document.getElementById('fw').value = localStorage.getItem('fw') || ''; } catch (e) {}
+// What the typed account ID is read as, before pairing.
+function accHint() {
+  const t = document.getElementById('p-acc').value.trim(), el = document.getElementById('acc-hint');
+  let n = null;
+  try {
+    if (/^[A-Za-z0-9+/]{11}=$/.test(t)) {
+      const b = atob(t); n = 0n;
+      for (let i = 7; i >= 0; i--) n = (n << 8n) | BigInt(b.charCodeAt(i));
+      el.innerHTML = `<span class="good">base64 like Chiaki ✓</span> account ${n}`;
+      return;
+    }
+    if (/^\d{1,20}$/.test(t) || /^0x[0-9a-f]{1,16}$/i.test(t)) {
+      n = BigInt(t); const b = new Uint8Array(8);
+      for (let i = 0; i < 8; i++) b[i] = Number((n >> BigInt(8 * i)) & 0xffn);
+      el.innerHTML = `<span class="good">number ✓</span> as Chiaki base64: <code>${btoa(String.fromCharCode(...b))}</code>`;
+      return;
+    }
+  } catch (e) {}
+  el.innerHTML = t ? '<span class="bad">not an account ID: use the 12-character base64 form ending in =</span>' : '';
+}
 async function pair() {
   const acc = document.getElementById('p-acc').value.trim(), pin = document.getElementById('p-pin').value.trim();
   if (!acc || !/^\d{8}$/.test(pin)) { alert('Enter the account ID and the PIN (8 digits) shown on the PS5.'); return; }
@@ -486,7 +534,10 @@ async function ps5State() {
   } catch (e) {}
 }
 load(); setInterval(load, 5000); ps5State(); setInterval(ps5State, 15000);
-try { if (location.hash === '#community' || localStorage.getItem('tab') === 'comm') tab('comm'); } catch (e) {}
+try {
+  const saved = location.hash === '#community' ? 'comm' : location.hash === '#ps5' ? 'ps5' : localStorage.getItem('tab');
+  if (saved === 'comm' || saved === 'ps5') tab(saved);
+} catch (e) {}
 </script>
 <footer class="mut" style="text-align:center;padding:16px;font-size:12px">ps5-lz4 ·
   <a href="https://github.com/dviree/PS5-LZ4-NAS" target="_blank" rel="noopener">source code</a> (GPL-3.0; Remote Play pairing
