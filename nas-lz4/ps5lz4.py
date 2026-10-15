@@ -1932,30 +1932,8 @@ def ps5_ftp_list(path: str) -> dict:
     import ftplib
     path = ps5_ftp_path(path)
     f = ps5_ftp_connect()
-    items = []
     try:
-        try:
-            for name, facts in f.mlsd(path, ["type", "size", "modify"]):
-                if name in (".", "..") or facts.get("type") in ("cdir", "pdir"):
-                    continue
-                m = facts.get("modify", "")
-                items.append({"name": name, "dir": facts.get("type") == "dir",
-                              "size": int(facts["size"]) if facts.get("size", "").isdigit() else None,
-                              "modified": f"{m[:4]}-{m[4:6]}-{m[6:8]} {m[8:10]}:{m[10:12]}" if len(m) >= 12 else ""})
-        except ftplib.error_perm:
-            lines = []
-            f.retrlines(f"LIST {path}", lines.append)
-            for line in lines:
-                m = LIST_RE.match(line)
-                if not m:
-                    continue
-                kind, size, date, name = m.groups()
-                if kind == "l":
-                    name = name.split(" -> ")[0]
-                if name in (".", ".."):
-                    continue
-                items.append({"name": name, "dir": kind == "d" or kind == "l", "size": None if kind == "d" else int(size),
-                              "modified": date})
+        items = ps5_ftp_list_conn(f, path)
     except ftplib.error_perm as err:
         raise ValueError(f"{path}: {err}")
     finally:
@@ -1965,6 +1943,79 @@ def ps5_ftp_list(path: str) -> dict:
             pass
     items.sort(key=lambda i: (not i["dir"], i["name"].lower()))
     return {"path": path, "items": items}
+
+
+def ps5_ftp_list_conn(f, path: str) -> list[dict]:
+    import ftplib
+    items = []
+    try:
+        for name, facts in f.mlsd(path, ["type", "size", "modify"]):
+            if name in (".", "..") or facts.get("type") in ("cdir", "pdir"):
+                continue
+            m = facts.get("modify", "")
+            items.append({"name": name, "dir": facts.get("type") == "dir",
+                          "size": int(facts["size"]) if facts.get("size", "").isdigit() else None,
+                          "modified": f"{m[:4]}-{m[4:6]}-{m[6:8]} {m[8:10]}:{m[10:12]}" if len(m) >= 12 else ""})
+    except ftplib.error_perm:
+        lines = []
+        f.retrlines(f"LIST {path}", lines.append)
+        for line in lines:
+            m = LIST_RE.match(line)
+            if not m:
+                continue
+            kind, size, date, name = m.groups()
+            if kind == "l":
+                name = name.split(" -> ")[0]
+            if name in (".", ".."):
+                continue
+            items.append({"name": name, "dir": kind == "d", "link": kind == "l",
+                          "size": None if kind == "d" else int(size), "modified": date})
+    return items
+
+
+# Deleting is allowed only inside these, and never the drive or its top folders.
+FTP_DELETE_ROOTS = re.compile(r"^/(data|mnt/(usb|ext)\d+)/[^/]+/.+")
+
+
+def ps5_ftp_delete(path: str) -> dict:
+    """Delete a file, or a folder with everything in it, on the PS5."""
+    import ftplib
+    path = ps5_ftp_path(path)
+    if not FTP_DELETE_ROOTS.match(path):
+        raise ValueError("only files and folders at least two levels inside /data, /mnt/usbN or /mnt/extN "
+                         "can be deleted here")
+    if transfer_running():
+        raise ValueError("a transfer to the PS5 is running; delete after it finishes")
+    f = ps5_ftp_connect()
+    count = {"files": 0, "folders": 0}
+
+    def rm_tree(p):
+        try:
+            f.delete(p)
+            count["files"] += 1
+            return
+        except ftplib.error_perm:
+            pass  # a folder
+        for item in ps5_ftp_list_conn(f, p):
+            child = f"{p}/{item['name']}"
+            if item["dir"]:
+                rm_tree(child)
+            else:
+                f.delete(child)
+                count["files"] += 1
+        f.rmd(p)
+        count["folders"] += 1
+
+    try:
+        rm_tree(path)
+    except ftplib.all_errors as err:
+        raise ValueError(f"stopped after {count['files']} files: {err}")
+    finally:
+        try:
+            f.quit()
+        except Exception:
+            pass
+    return {"deleted": path, **count}
 
 
 def ftp_open(host: str, port: int, timeout: float = 3) -> bool:
@@ -2583,6 +2634,11 @@ def cmd_ui(args) -> int:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
                 cache["at"] = 0
                 return self.send(200, json.dumps(res).encode())
+            if req.get("action") == "ftp_delete":
+                try:
+                    return self.send(200, json.dumps(ps5_ftp_delete(str(req.get("path") or ""))).encode())
+                except Exception as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if req.get("action") == "wake":
                 cfg = get_settings()
                 host = cfg["ps5_ftp"].partition(":")[0]

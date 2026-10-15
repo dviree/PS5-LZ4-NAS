@@ -91,7 +91,9 @@ that container alone.
 - **Remote tab:** the PS5 address, pairing and wake-up (see below).
 - **FTP tab:** browse the PS5's drives over ftpsrv (`/data`, `/mnt/usb0`,
   `/mnt/ext0`, ...) and download files as they are on disk (SELF decryption
-  off). Read-only.
+  off), and delete files or folders (only inside `/data`, `/mnt/usbN` and
+  `/mnt/extN`, at least two folders down; a folder needs its name typed to
+  confirm).
 - **Send to the PS5**, **wake** and **pair**: see below.
 
 The page runs in its own container (`ps5-lz4-ui`). It sees the library and

@@ -148,7 +148,8 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
 <main id="p-ftp" hidden>
   <div class="card"><h2>PS5 files (FTP)</h2>
     <div class="mut">Browse the PS5 over ftpsrv: the internal drive (<code>/data</code>), USB drives (<code>/mnt/usb0</code>)
-    and extended storage (<code>/mnt/ext0</code>). Read-only; tap a file to download it as it is on disk.</div>
+    and extended storage (<code>/mnt/ext0</code>). Tap a file to download it as it is on disk. <b>Delete</b> works only inside
+    <code>/data</code>, <code>/mnt/usbN</code> and <code>/mnt/extN</code>, at least two folders down, and asks first.</div>
     <div class="filters">
       <button onclick="ftpGo(ftpPath.replace(/\/[^/]*$/, '') || '/')">⬆ Up</button>
       <input id="ftp-path" placeholder="/data" onkeydown="if(event.key==='Enter')ftpGo(this.value)">
@@ -156,7 +157,7 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
     </div>
     <div class="filters" id="ftp-quick"></div>
     <div class="mut" id="ftp-msg"></div>
-    <div class="scroll"><table id="ftp-list"></table></div>
+    <table id="ftp-list" style="min-width:0"></table>
   </div>
 </main>
 <main id="p-comm" hidden>
@@ -456,11 +457,27 @@ async function ftpGo(path) {
     const files = j.items.filter(i => !i.dir), bytes = files.reduce((n, i) => n + (i.size || 0), 0);
     msg.textContent = `${j.items.length - files.length} folders, ${files.length} files` + (files.length ? ` (${gb(bytes)})` : '');
     const join = n => (ftpPath === '/' ? '' : ftpPath) + '/' + n;
-    list.innerHTML = (j.items.length ? j.items.map(i => i.dir
-      ? `<tr class="row" data-p="${esc(join(i.name))}" onclick="ftpGo(this.dataset.p)"><td>📁 ${esc(i.name)}<div class="why">${esc(i.modified)}</div></td></tr>`
-      : `<tr><td>📄 <a href="/api/ftp/get?path=${encodeURIComponent(join(i.name))}" download>${esc(i.name)}</a><div class="why">${gb(i.size)} · ${esc(i.modified)}</div></td></tr>`
+    const del = (p, dir) => /^\/(data|mnt\/(usb|ext)\d+)\/[^/]+\/.+/.test(p)
+      ? `<button class="sm" style="float:right;margin-left:8px" data-p="${esc(p)}" data-dir="${dir ? 1 : ''}" onclick="ftpDelete(this.dataset.p, this.dataset.dir)">Delete</button>` : '';
+    list.innerHTML = (j.items.length ? j.items.map(i => i.dir || i.link
+      ? `<tr class="row" data-p="${esc(join(i.name))}" onclick="if(!event.target.closest('button'))ftpGo(this.dataset.p)"><td style="white-space:normal">${i.link ? '' : del(join(i.name), true)}📁 ${esc(i.name)}${i.link ? ' ↪' : ''}<div class="why">${esc(i.modified)}</div></td></tr>`
+      : `<tr><td style="white-space:normal">${del(join(i.name), false)}📄 <a href="/api/ftp/get?path=${encodeURIComponent(join(i.name))}" download>${esc(i.name)}</a><div class="why">${gb(i.size)} · ${esc(i.modified)}</div></td></tr>`
     ).join('') : '<tr><td class="mut">Empty folder.</td></tr>');
   } catch (e) { msg.innerHTML = `<span class="bad">${esc(String(e))}</span>`; }
+}
+async function ftpDelete(path, dir) {
+  const name = path.split('/').pop();
+  if (!confirm(dir ? `Delete the folder ${name} and EVERYTHING in it on the PS5?\n\n${path}\n\nThis can't be undone.`
+                   : `Delete ${name} on the PS5?\n\n${path}\n\nThis can't be undone.`)) return;
+  if (dir && prompt(`To confirm, type the folder name:\n${name}`) !== name) { alert('Not deleted: the name did not match.'); return; }
+  const msg = document.getElementById('ftp-msg');
+  msg.textContent = 'Deleting ' + name + '…';
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'ftp_delete', path})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) alert('Not deleted: ' + (j.error || r.status));
+  else alert(`Deleted ${name}` + (dir ? ` (${j.files} files, ${j.folders} folders).` : '.'));
+  ftpGo(ftpPath);
 }
 let comm = null;
 function tab(t) {
