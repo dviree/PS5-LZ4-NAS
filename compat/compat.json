@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-15T12:51:40Z",
+ "updated": "2026-10-15T13:23:28Z",
  "games": {
   "PPSA03671": {
    "name": "Marvel's Wolverine",
@@ -76,6 +76,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-15T04:25:09Z",
     "issue": 19
+   }
+  },
+  "PPSA28997": {
+   "name": "God of War Sons of Sparta",
+   "works": 0,
+   "issues": 0,
+   "noStart": 1,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "noStart",
+    "game": "God of War Sons of Sparta",
+    "gameVersion": "",
+    "level": "",
+    "source": "",
+    "firmware": "",
+    "appVersion": "1.5.0",
+    "date": "2026-10-15T13:23:18Z",
+    "issue": 21
    }
   },
   "PPSA35399": {
