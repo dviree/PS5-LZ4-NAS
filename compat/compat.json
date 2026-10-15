@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-15T17:59:10Z",
+ "updated": "2026-10-15T19:31:54Z",
  "games": {
   "PPSA03396": {
    "name": "The Last of Us Part I",
@@ -190,6 +190,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-15T14:54:37Z",
     "issue": 27
+   }
+  },
+  "PPSA32802": {
+   "name": "FATAL FRAME II: Crimson Butterfly REMAKE",
+   "works": 0,
+   "issues": 0,
+   "noStart": 1,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "noStart",
+    "game": "FATAL FRAME II: Crimson Butterfly REMAKE",
+    "gameVersion": "",
+    "level": "",
+    "source": "",
+    "firmware": "",
+    "appVersion": "1.5.0",
+    "date": "2026-10-15T19:31:44Z",
+    "issue": 29
    }
   },
   "PPSA35399": {
