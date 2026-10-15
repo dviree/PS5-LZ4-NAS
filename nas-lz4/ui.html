@@ -291,9 +291,9 @@ button.two small{font-size:11px;font-weight:500;opacity:.75;line-height:1.25;whi
     <div id="eng-inst"></div>
     <div class="mut" id="eng-info"></div>
     <div class="filters" id="eng-acts">
-      <button class="two" onclick="engAct('engine_install', 'Download the newest engine from GitHub and install it in the Payload Manager on the PS5? The engine there now is kept as lz4-compression.elf.orig.')">Install ELF on PS5<small>download from GitHub, copy over FTP, keep the old one</small></button>
-      <button class="two" onclick="engAct('engine_start')">Start it now<small>send it to the ELF loader (port 9021)</small></button>
-      <button class="two danger" onclick="engAct('engine_restore', 'Put the saved original engine (.orig) back?')">Restore the original<small>undo the install</small></button>
+      <button class="two" onclick="engAct('engine_install', 'Download the newest engine from GitHub and install it in the Payload Manager on the PS5? It overwrites the engine file there.')">Install ELF on PS5<small>download from GitHub, overwrite the old one over FTP</small></button>
+      <button class="two" onclick="engAct('engine_start')">Start it now<small>send it to an ELF loader (port 9021 or 9020)</small></button>
+      <button class="two danger" id="eng-restore" hidden onclick="engAct('engine_restore', 'Put the saved original engine (.orig) back?')">Restore the original<small>undo the install</small></button>
     </div>
     <div class="why" id="eng-msg"></div>
   </div>
@@ -1280,6 +1280,7 @@ async function engCheck() {
       off: 'Nothing answers on port 5920. Start LZ4 Compression from the Payload Manager on the PS5, or press Start it now.',
       'no-address': 'Save the PS5 address below first.'}[j.state] || '';
     engInfo = j; engInst(j);
+    document.getElementById('eng-restore').hidden = !(j.installed && j.installed.orig);
     document.getElementById('eng-auto').checked = !!j.auto;
     info.innerHTML = esc(why) + (j.host ? `<br>Engine at <code>http://${esc(j.host)}:${j.port}</code>` : '')
       + `<br>Installed to <code>${esc(j.path)}</code> from <code>${esc(j.repo)}</code>` + (j.cached ? ` · downloaded: ${esc(j.cached)}` : '');
@@ -1290,7 +1291,7 @@ async function engOneClick() {
   const upd = engInfo && engInfo.update;
   if (!confirm((upd ? `Update the LZ4 Compression engine on the PS5 from ${engInfo.installed.tag} to ${engInfo.latest}?`
     : 'Install the LZ4 Compression engine (ELF) on the PS5?') + `\n\nThe newest release is downloaded from GitHub (${engInfo ? engInfo.repo : 'your repository'}), `
-    + 'copied over FTP into the Payload Manager (the old one is kept as .orig) and started through the ELF loader (port 9021).')) return;
+    + 'copied over FTP into the Payload Manager (overwriting the old file) and started through an ELF loader (port 9021 or 9020) when one runs.')) return;
   const b = document.getElementById('b-elf'), small = document.getElementById('b-elf-st'), was = small.textContent;
   b.disabled = true; small.textContent = 'downloading and copying…';
   const post = action => fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -1302,7 +1303,7 @@ async function engOneClick() {
     // so the new file runs from the next start of the PS5 / Payload Manager.
     const st = (await (await fetch('/api/engine', {cache: 'no-store'})).json().catch(() => ({}))).state;
     if (st === 'connected' || st === 'original') {
-      alert(`Installed ${ins.j.tag} on the PS5` + (ins.j.backup ? ' (the old file is kept as .orig)' : '') + '.\n\n'
+      alert(`Installed ${ins.j.tag} on the PS5` + '' + '.\n\n'
         + 'The engine that runs now keeps going until the PS5 restarts; the new one starts after that '
         + '(or start LZ4 Compression again from the Payload Manager).');
       return;
@@ -1314,7 +1315,7 @@ async function engOneClick() {
       await new Promise(r => setTimeout(r, 2000));
       state = (await (await fetch('/api/engine', {cache: 'no-store'})).json().catch(() => ({}))).state;
     }
-    alert(`Installed ${ins.j.tag} on the PS5` + (ins.j.backup ? ' (the old engine is kept as .orig)' : '') + '.\n\n'
+    alert(`Installed ${ins.j.tag} on the PS5` + '' + '.\n\n'
       + (state === 'connected' ? 'The engine runs and is connected: transfers now keep the PS5 awake.'
         : run.ok ? 'Sent to the ELF loader, but the engine does not answer yet. Check again on the Remote tab in a moment.'
         : 'It could not be started from here (' + (run.j.error || '?') + '). Start LZ4 Compression from the Payload Manager on the PS5, or restart the PS5.'));
@@ -1362,10 +1363,10 @@ async function engAct(action, confirmText) {
   const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action})});
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) { msg.className = 'why bad'; msg.textContent = 'Failed: ' + (j.error || r.status); return; }
+  if (!r.ok) { msg.className = 'why bad'; msg.textContent = (action === 'engine_start' ? '' : 'Failed: ') + (j.error || r.status); return; }
   msg.className = 'why good';
   msg.textContent = action === 'engine_install' ? `Installed ${j.tag} (${(j.bytes / 1048576).toFixed(1)} MB).`
-      + (j.backup ? ' The old engine is kept as .orig.' : '') + ' Restart the PS5 or press Start it now to run it.'
+      + ' Restart the PS5 or press Start it now to run it.'
     : action === 'engine_start' ? `Sent ${j.tag}; it starts in a few seconds.` : 'The original engine is back; it runs after the next start.';
   setTimeout(() => { engCheck(); engHeader(); }, action === 'engine_start' ? 5000 : 500);
 }

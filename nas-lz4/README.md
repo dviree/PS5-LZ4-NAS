@@ -210,11 +210,12 @@ running) and can:
   newest release of this repository (checked against `SHA256SUMS`, cached in
   `state/engine`) and copies it over FTP to
   `/data/pldmgr/payloads/lz4-compression/lz4-compression.elf`, where the
-  Payload Manager loads it. The engine that was there is kept as
-  `lz4-compression.elf.orig`.
-- **Start it now**: sends the ELF to the PS5's ELF loader (port 9021) so it
-  runs without a restart.
-- **Restore the original**: puts the `.orig` file back.
+  Payload Manager loads it, overwriting the file that was there.
+- **Start it now**: sends the ELF to an ELF loader on the PS5 (port 9021,
+  then 9020) so it runs without a restart. Without a loader running, start
+  LZ4 Compression from the Payload Manager instead.
+- **Restore the original**: shown only when an earlier version left a
+  `lz4-compression.elf.orig` on the PS5; puts that file back.
 
 The header has the same install as one button, **Install ELF on PS5**
 (install, then start it if no engine runs yet).
@@ -226,7 +227,7 @@ isn't one of these releases (the original engine). When a newer release is
 out, the header button turns green and blinks: **Update available**. With
 *Update it automatically* on (the default), the web page container reads the
 ELF every 6 hours (`PS5LZ4_ENGINE_CHECK`, seconds; `0` turns it off) and
-replaces an older release of this repository with the newest one over FTP.
+overwrites an older release of this repository with the newest one over FTP.
 An engine that isn't from this repository is never replaced by itself. A
 running engine keeps going; the new file runs from the next start.
 
