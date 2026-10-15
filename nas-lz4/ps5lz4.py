@@ -64,6 +64,7 @@ FREE_MARGIN = int(float(os.environ.get("PS5LZ4_FREE_MARGIN_GB", "20")) * 1024**3
 
 # Pinned APR-EMU PackedStdio runtime embedded in ampr_pack_cli.
 RUNTIME_SHA256 = "69e6c4d5e4f5fb83c9e01815db5861c4c75734acbf4595cafa50d4c218116d1a"
+RUNTIME_NAME = "APR-EMU PackedStdio 0.4.2.1"
 RUNTIME_REL = "fakelib/libSceAmpr.sprx"
 RUNTIME_FILE = Path(os.environ.get("PS5LZ4_RUNTIME", "/opt/ps5lz4/libSceAmpr.sprx"))
 # Community game reports from the original project (compat/compat.json,
@@ -1973,6 +1974,34 @@ def ps5_ftp_list_conn(f, path: str) -> list[dict]:
     return items
 
 
+def ps5_ftp_apr(path: str) -> dict:
+    """APR-EMU in a game folder on the PS5: fakelib/libSceAmpr.sprx and whether
+    it is the PackedStdio build LZ4 packs need."""
+    import ftplib
+    path = ps5_ftp_path(path)
+    f = ps5_ftp_connect()
+    try:
+        fl = next((i["name"] for i in ps5_ftp_list_conn(f, path) if i["dir"] and i["name"].lower() == "fakelib"), None)
+        if not fl:
+            return {"path": None, "ok": False, "build": "missing: no fakelib folder"}
+        lib = next((i["name"] for i in ps5_ftp_list_conn(f, f"{path}/{fl}")
+                    if not i["dir"] and i["name"].lower() == "libsceampr.sprx"), None)
+        if not lib:
+            return {"path": None, "ok": False, "build": "missing: no libSceAmpr.sprx in fakelib"}
+        h = hashlib.sha256()
+        f.retrbinary(f"RETR {path}/{fl}/{lib}", h.update)
+        sha = h.hexdigest()
+        return {"path": f"{path}/{fl}/{lib}", "ok": sha == RUNTIME_SHA256,
+                "build": RUNTIME_NAME if sha == RUNTIME_SHA256 else f"another build ({sha[:12]}), not PackedStdio"}
+    except ftplib.error_perm as err:
+        raise ValueError(f"{path}: {err}")
+    finally:
+        try:
+            f.quit()
+        except Exception:
+            pass
+
+
 # Deleting is allowed only inside these, and never the drive or its top folders.
 FTP_DELETE_ROOTS = re.compile(r"^/(data|mnt/(usb|ext)\d+)/[^/]+/.+")
 
@@ -2446,7 +2475,7 @@ def dashboard_data() -> dict:
     return {"running": running, "job": job, "queue": queue.get("remaining") or [] if running else [],
             "interrupted": (not running) and bool(queue.get("remaining")),
             "free_bytes": free_bytes(OUTPUT), "games": rows, "totals": totals, "failed": failed,
-            "level": int(os.environ.get("PS5LZ4_LEVEL", "9")), "runtime": "PackedStdio 0.4.2.1",
+            "level": int(os.environ.get("PS5LZ4_LEVEL", "9")), "runtime": RUNTIME_NAME.removeprefix("APR-EMU "),
             "compat_updated": (read_json(COMPAT_FILE, {}) or {}).get("updated"),
             "requests": {"pending": pending, "pending_list": pending_list, "recent": done_req[::-1]}, "version": VERSION,
             "settings": {**get_settings(), "ps5_wake_key": "set" if get_settings()["ps5_wake_key"] else "",
@@ -2475,8 +2504,17 @@ def game_detail(game_id: str) -> dict:
     if not tid:
         m = TITLE_RE.search(game_id)
         tid = m.group(0).upper() if m else ""
+    apr = None
+    if out and out.is_dir():
+        rt = find_runtime(out)
+        if rt:
+            sha = hashlib.sha256(rt.read_bytes()).hexdigest()
+            apr = {"path": str(Path(HOST_OUTPUT) / rt.relative_to(OUTPUT)), "ok": sha == RUNTIME_SHA256,
+                   "build": RUNTIME_NAME if sha == RUNTIME_SHA256 else f"another build ({sha[:12]})"}
+        else:
+            apr = {"path": None, "ok": False, "build": "missing"}
     return {"id": game_id, "report": rep or None, "folder": folder, "work": work, "skipped": skipped,
-            "title_id": tid, "community": compat_games().get(tid), "community_repo": COMPAT_REPO}
+            "title_id": tid, "community": compat_games().get(tid), "community_repo": COMPAT_REPO, "apr": apr}
 
 
 def cmd_dashboard(_args) -> int:
@@ -2575,6 +2613,13 @@ def cmd_ui(args) -> int:
                 path = (parse_qs(urlparse(self.path).query).get("path") or ["/"])[0]
                 try:
                     return self.send(200, json.dumps(ps5_ftp_list(path), ensure_ascii=False).encode())
+                except Exception as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+            if self.path.startswith("/api/ftp/apr?"):
+                from urllib.parse import parse_qs, urlparse
+                path = (parse_qs(urlparse(self.path).query).get("path") or ["/"])[0]
+                try:
+                    return self.send(200, json.dumps(ps5_ftp_apr(path)).encode())
                 except Exception as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
             if self.path.startswith("/api/ftp/get?"):
