@@ -621,11 +621,12 @@ function compress(id) {
   const pfsc = g.kind === 'ffpfsc' ? `\n\nThis .ffpfsc image is already compressed (${gb(g.source_size)}). The LZ4 copy is usually about as large or larger, so it saves little or no space; Compress all leaves these out.` : '';
   act('start', `Compress ${g.name} with LZ4?${pfsc}${note}`, {game: id});
 }
-function reportLink(repo, tid, name, status) {
+function reportLink(repo, tid, name, status, extra = {}) {
   const forms = {works: 'Works', issues: 'Works with issues', nostart: "Won't start (black screen or crash on launch)", crash: 'Crashes in game'};
   const fw = (localStorage.getItem('fw') || '').trim();
   const p = [['template', 'compat.yml'], ['title', `[Game report] ${name}${status ? ': ' + forms[status] : ''}`],
-    ['title_id', tid], ['game', name], ['status', forms[status] || ''], ['firmware', fw], ['app_version', 'ps5-lz4 NAS']]
+    ['title_id', tid], ['game', name], ['status', forms[status] || ''], ['game_version', extra.version || ''],
+    ['level', extra.level || ''], ['source', extra.source || ''], ['firmware', fw], ['app_version', (data && data.lz4c_version) || 'ps5-lz4 NAS']]
     .filter(([, v]) => v);
   return `https://github.com/${repo}/issues/new?` + p.map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
 }
@@ -634,7 +635,10 @@ function communityHtml(g, det) {
   const c = det.community, repo = det.community_repo, tid = det.title_id || g.title_id || '';
   const all = tid ? `<a href="https://github.com/${esc(repo)}/issues?q=label%3Acompat+${encodeURIComponent(tid)}" target="_blank" rel="noopener">All reports</a>` : '';
   const mine = g.ps5 || (det.report || {}).ps5_result || 'works';
-  const report = tid ? `<a href="${esc(reportLink(repo, tid, g.name || tid, mine))}" target="_blank" rel="noopener">Report how it runs</a>` : '';
+  const extra = {version: (det.version || {}).version || '',
+    level: (((det.report || {}).codec || '').match(/(\d+)$/) || [])[1] || '',
+    source: {folder: 'Folder', exfat: 'exFAT image', ffpfsc: 'Uncompressed .ffpfsc', ffpfs: 'Uncompressed .ffpfsc'}[g.kind] || ''};
+  const report = tid ? `<a href="${esc(reportLink(repo, tid, g.name || tid, mine, extra))}" target="_blank" rel="noopener">Report how it runs</a>` : '';
   if (!c || !c.reports)
     return `<div class="csec"><h4>Community</h4><div class="mut">Nobody has reported ${esc(g.name || tid)} yet.</div>
       <div class="acts">${report}</div></div>`;

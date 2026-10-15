@@ -71,6 +71,19 @@ RUNTIME_FILE = Path(os.environ.get("PS5LZ4_RUNTIME", "/opt/ps5lz4/libSceAmpr.spr
 # refreshed by the fork sync and baked into each image).
 COMPAT_FILE = Path(os.environ.get("PS5LZ4_COMPAT", "/opt/ps5lz4/compat.json"))
 COMPAT_REPO = "theghostonline/PS5-LZ4-Compression"
+
+
+def lz4c_version() -> str:
+    """Version of the original project (LZ4 Compression) the packer here is built from."""
+    for p in (Path(__file__).with_name("lz4c-version.js"),
+              Path(__file__).resolve().parent.parent / "app" / "lz4-compression" / "version.js"):
+        try:
+            m = re.search(r"APP_VERSION\s*=\s*'([^']+)'", p.read_text())
+            if m:
+                return m.group(1)
+        except OSError:
+            pass
+    return ""
 PLAY_STATES = {  # ours -> (report form answer, label)
     "works": ("Works", "works"),
     "issues": ("Works with issues", "works with issues"),
@@ -1572,9 +1585,11 @@ def cmd_community(args) -> int:
     name = (rep.get("title_name") or e.id)[:60]
     params = [("template", "compat.yml"), ("title", f"[Game report] {name}: {form}"),
               ("title_id", rep.get("title_id") or e.title_id), ("game", name), ("status", form),
+              ("game_version", game_version(e.output, *([e.path] if e.kind == "folder" else []),
+                                            name=e.rel).get("version", "")),
               ("level", str((rep.get("codec") or "").split()[-1])), ("source", source),
               ("firmware", os.environ.get("PS5LZ4_FIRMWARE", "")),
-              ("app_version", f"ps5-lz4 NAS {VERSION}")]
+              ("app_version", lz4c_version() or f"ps5-lz4 NAS {VERSION}")]
     from urllib.parse import quote
     url = f"https://github.com/{COMPAT_REPO}/issues/new?" + "&".join(
         f"{k}={quote(v)}" for k, v in params if v)
@@ -2970,6 +2985,7 @@ def dashboard_data() -> dict:
     return {"running": running, "job": job, "queue": queue.get("remaining") or [] if running else [],
             "interrupted": (not running) and bool(queue.get("remaining")),
             "free_bytes": free_bytes(OUTPUT), "games": rows, "totals": totals, "failed": failed,
+            "lz4c_version": lz4c_version(),
             "level": int(os.environ.get("PS5LZ4_LEVEL", "9")), "runtime": RUNTIME_NAME.removeprefix("APR-EMU "),
             "compat_updated": compat_data().get("updated"),
             "requests": {"pending": pending, "pending_list": pending_list, "recent": done_req[::-1]}, "version": VERSION,
