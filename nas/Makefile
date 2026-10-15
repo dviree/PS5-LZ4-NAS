@@ -37,10 +37,11 @@ PROFILES := profiles/index.json $(wildcard profiles/*.toml)
 PROFILES_GEN := $(OUT)/gen/lz4_profiles.c
 
 LZ4_SRCS := third_party/lz4/lz4.c third_party/lz4/lz4hc.c
+QR_SRCS := third_party/qrcodegen/qrcodegen.c
 ZLIB_SRCS := $(addprefix third_party/zlib/,adler32.c compress.c crc32.c \
   deflate.c infback.c inffast.c inflate.c inftrees.c trees.c uncompr.c zutil.c)
 
-OBJS := $(patsubst %.c,$(OUT)/obj/%.o,$(C_SRCS) $(LZ4_SRCS) $(ZLIB_SRCS))
+OBJS := $(patsubst %.c,$(OUT)/obj/%.o,$(C_SRCS) $(LZ4_SRCS) $(ZLIB_SRCS) $(QR_SRCS))
 OBJS += $(patsubst %.c,%.o,$(GEN_SRCS) $(AMPR_RUNTIME_GEN) $(PROFILES_GEN))
 
 CFLAGS ?= -O2
@@ -48,7 +49,7 @@ CFLAGS += -std=gnu11 -pthread -Wall -Wno-format-truncation -Wno-restrict \
   -Wno-unused-function
 CFLAGS += -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64
 CFLAGS += -include nas/src/lzc_nas_compat.h
-CFLAGS += -Isrc -Ithird_party/lz4 -Ithird_party/zlib
+CFLAGS += -Isrc -Ithird_party/lz4 -Ithird_party/zlib -Ithird_party/qrcodegen
 CFLAGS += -DLZC_VERSION=\"$(BUILD_VERSION)\" -DBUILD_VERSION=\"$(BUILD_VERSION)\"
 CFLAGS += -DLZC_PORT=5920 -DVERSION_TAG=\"lz4-compression\"
 CFLAGS += -DMINIZ_USE_UNALIGNED_LOADS_AND_STORES=1
