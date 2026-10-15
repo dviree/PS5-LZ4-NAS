@@ -2651,6 +2651,98 @@ def engine_updater() -> None:
         time.sleep(ENGINE_CHECK_EVERY)
 
 
+# The LZ4 Compression app (the PPSA99420 tile, a native UI on the PS5) comes
+# from the original project's releases; ShadowMount+ adds the tile for the
+# folder in /data/homebrew. It talks to the engine on 127.0.0.1:5920.
+APP_REPO = os.environ.get("PS5LZ4_APP_REPO", "theghostonline/PS5-LZ4-Compression")
+APP_TITLE = "PPSA99420"
+APP_ASSET = f"LZ4-Compression-{APP_TITLE}.zip"
+APP_PATH = f"/data/homebrew/{APP_TITLE}"
+
+
+def app_fetch() -> tuple[Path, str]:
+    """The app zip of APP_REPO's latest release, cached in state/engine, SHA-256 checked."""
+    import hashlib
+    import urllib.request
+    hdr = {"User-Agent": "ps5-lz4", "Accept": "application/vnd.github+json"}
+    req = urllib.request.Request(f"https://api.github.com/repos/{APP_REPO}/releases/latest", headers=hdr)
+    with urllib.request.urlopen(req, timeout=20) as r:
+        rel = json.load(r)
+    tag = rel.get("tag_name") or "?"
+    asset = next((a for a in rel.get("assets", []) if a.get("name") == APP_ASSET), None)
+    if not asset:
+        raise ValueError(f"release {tag} of {APP_REPO} has no {APP_ASSET}")
+    want = str(asset.get("digest") or "").removeprefix("sha256:").lower()
+    ENGINE_DIR.mkdir(parents=True, exist_ok=True)
+    zp = ENGINE_DIR / APP_ASSET
+    known = read_json(ENGINE_DIR / "app.json", {}) or {}
+    if known.get("tag") == tag and zp.is_file():
+        return zp, tag
+    with urllib.request.urlopen(urllib.request.Request(asset["browser_download_url"],
+                                                       headers={"User-Agent": "ps5-lz4"}), timeout=120) as r:
+        data = r.read()
+    got = hashlib.sha256(data).hexdigest()
+    if want and want != got:
+        raise ValueError(f"the downloaded {APP_ASSET} does not match the SHA-256 GitHub lists")
+    tmp = zp.with_suffix(".part")
+    tmp.write_bytes(data)
+    tmp.replace(zp)
+    write_json(ENGINE_DIR / "app.json", {"tag": tag, "sha256": got, "bytes": len(data)})
+    return zp, tag
+
+
+def app_install() -> dict:
+    """Copy the app's PPSA99420 folder to /data/homebrew on the PS5, overwriting it."""
+    import zipfile
+    zp, tag = app_fetch()
+    with zipfile.ZipFile(zp) as z:
+        files = []
+        for i in z.infolist():
+            name = i.filename.replace("\\", "/")
+            if i.is_dir() or name.startswith("/") or ".." in name.split("/"):
+                continue
+            parts = name.split("/")
+            if APP_TITLE in parts:  # PPSA99420/... (possibly inside another folder)
+                rel = "/".join(parts[parts.index(APP_TITLE) + 1:])
+            else:
+                rel = name
+            if rel:
+                files.append((i, rel))
+        if not any(rel == "sce_sys/param.json" for _, rel in files):
+            raise ValueError(f"{APP_ASSET} has no {APP_TITLE}/sce_sys/param.json")
+        f = ps5_ftp_connect()
+        try:
+            made = set()
+            for i, rel in files:
+                d = f"{APP_PATH}/{rel}".rsplit("/", 1)[0]
+                if d not in made:
+                    ps5_ftp_mkdirs(f, d)
+                    made.add(d)
+                with z.open(i) as src:
+                    f.storbinary(f"STOR {APP_PATH}/{rel}", src, blocksize=1 << 20)
+        finally:
+            try:
+                f.quit()
+            except Exception:
+                pass
+    print(f"[{now()}] app {tag} ({len(files)} files) installed on the PS5 at {APP_PATH}", flush=True)
+    return {"tag": tag, "path": APP_PATH, "files": len(files)}
+
+
+def app_installed() -> bool | None:
+    try:
+        f = ps5_ftp_connect()
+    except Exception:
+        return None
+    try:
+        return "param.json" in (ps5_ftp_names(f, f"{APP_PATH}/sce_sys") or [])
+    finally:
+        try:
+            f.quit()
+        except Exception:
+            pass
+
+
 def ps5_ftp_zip(path: str, out) -> None:
     """Write a folder on the PS5 to out as a ZIP (stored, streamed, zip64)."""
     import zipfile
@@ -3799,6 +3891,9 @@ def cmd_ui(args) -> int:
                 return
             if self.path == "/api/engine":
                 return self.send(200, json.dumps(engine_status()).encode())
+            if self.path == "/api/app":
+                return self.send(200, json.dumps({"installed": app_installed(), "path": APP_PATH,
+                                                  "repo": APP_REPO}).encode())
             if self.path == "/api/engine/read":
                 try:
                     return self.send(200, json.dumps(engine_read()).encode())
@@ -3936,10 +4031,10 @@ def cmd_ui(args) -> int:
                 ENGINE_DIR.mkdir(parents=True, exist_ok=True)
                 write_json(ENGINE_AUTO, {"on": bool(req.get("on"))})
                 return self.send(200, json.dumps({"auto": engine_auto_on()}).encode())
-            if req.get("action") in ("engine_install", "engine_restore", "engine_start"):
+            if req.get("action") in ("engine_install", "engine_restore", "engine_start", "app_install"):
                 try:
                     fn = {"engine_install": engine_install, "engine_restore": engine_restore,
-                          "engine_start": engine_start}[req["action"]]
+                          "engine_start": engine_start, "app_install": app_install}[req["action"]]
                     return self.send(200, json.dumps(fn()).encode())
                 except Exception as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
