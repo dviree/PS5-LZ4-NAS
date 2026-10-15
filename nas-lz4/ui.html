@@ -260,6 +260,8 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     </div>
   </details>
   <div class="card"><h2>Library</h2><div class="scroll"><table id="games"></table></div></div>
+  <div class="card" id="pkgcard" hidden><h2>PS4 packages <span class="mut" style="font-weight:500">· .pkg, sent to the PS5 and installed there with ItemzFlow or etaHEN</span></h2>
+    <div class="scroll"><table id="pkgs"></table></div></div>
 </main>
 <main id="p-act" hidden>
   <div class="card"><h2>Packing</h2><div id="job"></div><div id="pq"></div></div>
@@ -336,6 +338,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     <div class="filters">
       <input id="s-ftp" placeholder="PS5 address, e.g. 192.168.1.50:2121" onchange="saveAddress()">
       <input id="s-dest" placeholder="Folder on the PS5, e.g. /mnt/usb0/homebrew" onchange="saveAddress()">
+      <input id="s-pkg" placeholder="PS4 packages on the PS5, e.g. /data/pkg" title="Where .pkg files are sent; install them from there with ItemzFlow or etaHEN" onchange="saveAddress()">
       <button onclick="saveAddress()">Save</button>
     </div>
     <div class="why good" id="s-saved"></div>
@@ -497,6 +500,28 @@ async function sendAfterToggle(id, on) {
     body: JSON.stringify({action: on ? 'send_after' : 'send_after_remove', game: id})});
   load();
 }
+function renderPkgs(d) {
+  const pk = d.pkgs || [], card = document.getElementById('pkgcard');
+  card.hidden = !pk.length;
+  if (!pk.length) return;
+  const dest = (d.settings || {}).ps4_dest || '/data/pkg', tf = d.transfer && d.transfer.state === 'running' ? d.transfer : null;
+  document.getElementById('pkgs').innerHTML = '<tr><th>Package</th><th>Type</th><th class="num">Size</th><th>PS5</th><th></th></tr>' + pk.map(p => {
+    const t = (d.transfers || {})[p.file], queued = (d.transfer_queue || []).includes('pkg:' + p.id), sending = tf && tf.game === p.file;
+    const state = sending ? `<span class="pill p-run">⬆️ ${tf.total ? Math.floor(100 * tf.bytes / tf.total) : 0} %</span>`
+      : queued ? '<span class="pill p-run">queued</span>'
+      : t && t.state === 'done' ? `<span class="good">in ${esc(dest)}</span><div class="why">install it with ItemzFlow or etaHEN</div>`
+      : t && t.state === 'failed' ? `<span class="bad">stopped at ${t.total ? Math.round(100 * t.bytes / t.total) : 0} %</span>` : '<span class="mut">–</span>';
+    const btn = sending || queued ? '' : `<button class="sm pri" data-g="${esc('pkg:' + p.id)}" data-n="${esc(p.name)}" onclick="pushPkg(this.dataset.g, this.dataset.n)">${t && t.state === 'failed' ? '▶ Resume' : t && t.state === 'done' ? 'Send again' : '⬆️ Send to PS5'}</button>`;
+    return `<tr><td class="c-game"><img class="ico" alt="" loading="lazy" src="/api/pkg/icon?id=${encodeURIComponent(p.id)}" onerror="this.remove()"><span class="gname">${esc(p.name)}</span>
+        <div class="why">${esc(p.title_id || '')}${p.version ? ' · v' + esc(p.version) : ''} · ${esc(p.file)}${p.error ? ` · <span class="bad">${esc(p.error)}</span>` : ''}</div></td>
+      <td><span class="pill p-no">${esc(p.category || 'PS4')}</span></td><td class="num">${gb(p.size)}</td><td>${state}</td><td>${btn}</td></tr>`;
+  }).join('');
+}
+function pushPkg(id, name) {
+  const s = data.settings || {};
+  if (!s.ps5_ftp) { alert('Enter the PS5 address on the Remote tab first.'); tab('ps5'); return; }
+  act('push', `Send the PS4 package ${name} to ${s.ps5_ftp}${s.ps4_dest || '/data/pkg'}?\n\nInstall it from there on the PS5 with ItemzFlow or etaHEN's package installer.`, {game: id});
+}
 function packLeft(j) {
   const e = j.eta || {}, l = e.job_left != null ? e.job_left : e.step_left;
   return (e.rate ? ' · ' + gb(e.rate) + '/s' : '') + (l != null ? ' · about ' + dur(l) + ' left' : '');
@@ -543,10 +568,11 @@ let settingsFilled = false;
 async function saveAddress() {
   const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action: 'settings', ps5_ftp: document.getElementById('s-ftp').value.trim(),
-      ps5_dest: document.getElementById('s-dest').value.trim()})});
+      ps5_dest: document.getElementById('s-dest').value.trim(), ps4_dest: document.getElementById('s-pkg').value.trim()})});
   if (!r.ok) { const j = await r.json().catch(() => ({})); alert('Not saved: ' + (j.error || r.status)); return; }
   data.settings.ps5_ftp = document.getElementById('s-ftp').value.trim();
   data.settings.ps5_dest = document.getElementById('s-dest').value.trim();
+  data.settings.ps4_dest = document.getElementById('s-pkg').value.trim() || '/data/pkg';
   const ok = document.getElementById('s-saved');
   ok.textContent = 'Saved ✓ ' + data.settings.ps5_ftp; setTimeout(() => { ok.textContent = ''; }, 4000);
   ftpLoaded = false; ps5State();
@@ -641,6 +667,7 @@ function render() {
   if (!settingsFilled && d.settings) {
     document.getElementById('s-ftp').value = d.settings.ps5_ftp || '';
     document.getElementById('s-dest').value = d.settings.ps5_dest || '';
+    document.getElementById('s-pkg').value = d.settings.ps4_dest || '/data/pkg';
     const kf = document.getElementById('s-key');
     kf.value = '';
     kf.placeholder = d.settings.ps5_wake_key ? 'Remote Play key saved (leave empty to keep it)' : 'Remote Play key (rp_regist_key)';
@@ -691,6 +718,7 @@ function render() {
   const pqEl = document.getElementById('pq'), pqs = (d.queue || []).filter(x => !d.job || x !== d.job.id);
   pqEl.innerHTML = pqs.length ? `<h4 class="qh">Queued (${pqs.length})</h4>` + pqs.map((x, i) =>
     `<div class="qrow"><span class="qn">${i + 1}</span><span class="qname">${esc(((d.games || []).find(g => g.id === x) || {}).name || x)}</span>${sendWhenPacked(x, true)}</div>`).join('') : '';
+  renderPkgs(d);
   const busyEl = document.getElementById('busy'), parts = [];
   const ijobs = Object.entries((d.images || {}).jobs || {}).filter(([k, j]) => j.state === 'running');
   ijobs.forEach(([k, j]) => parts.push(`💿 exFAT image <b>${esc(k)}</b> · ${esc(j.phase || '')} ${j.total ? Math.floor(100 * j.done / j.total) + ' %' : ''}`));

@@ -11,6 +11,7 @@
 set -euo pipefail
 
 LIBRARY="${LIBRARY:-/volume1/games/roms/ps5}"
+PS4_LIBRARY="${PS4_LIBRARY:-/volume1/games/roms/ps4}"  # PS4 .pkg files (optional, read-only)
 OUTPUT="${OUTPUT:-/volume1/games/ps5-lz4}"
 BASE="${BASE:-/volume2/docker/ps5-lz4}"
 NAS_USER="${NAS_USER:-nasuser}"
@@ -68,6 +69,15 @@ n_pfs=$(find "$LIBRARY/" -maxdepth 4 -iname '*.ffpfs' -type f 2>/dev/null | wc -
 n_vhash=$(find "$LIBRARY/" -maxdepth 4 -iname '*.ffpfsc.vhash' -type f 2>/dev/null | wc -l)
 n_dirs=$(find "$LIBRARY/" -maxdepth 4 -name eboot.bin -type f 2>/dev/null | wc -l)
 ok "library $LIBRARY: $n_exfat .exfat, $n_pfsc .ffpfsc ($n_vhash with .vhash), $n_pfs .ffpfs, $n_dirs game folders"
+PS4_MOUNT=""; PS4_RUN=()
+if [ -d "$PS4_LIBRARY" ]; then
+  n_pkg=$(find "$PS4_LIBRARY/" -maxdepth 4 -iname '*.pkg' -type f 2>/dev/null | wc -l)
+  ok "PS4 packages $PS4_LIBRARY: $n_pkg .pkg"
+  PS4_MOUNT="      - \"$PS4_LIBRARY:/library-ps4:ro\""
+  PS4_RUN=(-v "$PS4_LIBRARY:/library-ps4:ro" -e PS5LZ4_HOST_PS4_LIBRARY="$PS4_LIBRARY")
+else
+  warn "no PS4 package folder at $PS4_LIBRARY (set PS4_LIBRARY=... to list .pkg files)"
+fi
 
 for v in "$(dirname "$OUTPUT")" "$(dirname "$BASE")"; do
   [ -d "$v" ] || die "$v does not exist"
@@ -170,6 +180,7 @@ services:
       PS5LZ4_HOST_LIBRARY: "$LIBRARY"
       PS5LZ4_HOST_OUTPUT: "$OUTPUT"
       PS5LZ4_HOST_STATE: "$BASE/state"
+      PS5LZ4_HOST_PS4_LIBRARY: "$PS4_LIBRARY"
       PS5LZ4_LEVEL: "$LEVEL"
       PS5LZ4_FREE_MARGIN_GB: "$FREE_MARGIN_GB"
       PS5LZ4_DELETE_ORIGINALS: "$DELETE_ORIGINALS"
@@ -202,11 +213,13 @@ services:
       PS5LZ4_HOST_LIBRARY: "$LIBRARY"
       PS5LZ4_HOST_OUTPUT: "$OUTPUT"
       PS5LZ4_HOST_STATE: "$BASE/state"
+      PS5LZ4_HOST_PS4_LIBRARY: "$PS4_LIBRARY"
       PS5LZ4_LEVEL: "$LEVEL"
       PS5LZ4_DELETE_ORIGINALS: "$DELETE_ORIGINALS"
       TZ: "$TZ_NAME"
     volumes:
       - "$LIBRARY:/library:ro"
+$PS4_MOUNT
       - "$OUTPUT:/output:ro"
       - "$BASE/state:/state"
       - "$BASE/logs:/state/logs:ro"
@@ -251,7 +264,7 @@ else
     -p "$UI_PORT:5921" --label com.centurylinklabs.watchtower.enable="$WATCHTOWER" \
     -e PS5LZ4_HOST_LIBRARY="$LIBRARY" -e PS5LZ4_HOST_OUTPUT="$OUTPUT" -e PS5LZ4_LEVEL="$LEVEL" -e TZ="$TZ_NAME" \
     -v "$LIBRARY:/library:ro" -v "$OUTPUT:/output:ro" -v "$BASE/state:/state" \
-    -v "$BASE/logs:/state/logs:ro" -v "$BASE/reports:/state/reports:ro" \
+    -v "$BASE/logs:/state/logs:ro" -v "$BASE/reports:/state/reports:ro" ${PS4_RUN[@]+"${PS4_RUN[@]}"} \
     "$IMAGE" ps5lz4 ui --port 5921 >/dev/null
 fi
 sleep 2

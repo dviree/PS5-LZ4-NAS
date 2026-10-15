@@ -2003,7 +2003,8 @@ TRANSFERS = STATE / "transfers"
 def get_settings() -> dict:
     s = {"ps5_ftp": os.environ.get("PS5LZ4_PS5_FTP", ""),
          "ps5_dest": os.environ.get("PS5LZ4_PS5_DEST", "/mnt/usb0/homebrew"),
-         "ps5_wake_key": os.environ.get("PS5LZ4_PS5_WAKE_KEY", "")}
+         "ps5_wake_key": os.environ.get("PS5LZ4_PS5_WAKE_KEY", ""),
+         "ps4_dest": os.environ.get("PS5LZ4_PS4_DEST", "/data/pkg")}
     s.update({k: v for k, v in (read_json(SETTINGS_PATH, {}) or {}).items() if k in s and isinstance(v, str)})
     return s
 
@@ -2019,7 +2020,10 @@ def save_settings(new: dict) -> dict:
     key = str(new.get("ps5_wake_key", s["ps5_wake_key"])).strip()
     if key and not re.fullmatch(r"[0-9A-Fa-f]{1,8}", key):
         raise ValueError("the Remote Play key is up to 8 hex characters (rp_regist_key in Chiaki)")
-    s.update(ps5_ftp=ftp, ps5_dest=dest, ps5_wake_key=key)
+    pdest = str(new.get("ps4_dest", s["ps4_dest"])).strip().rstrip("/") or "/data/pkg"
+    if not pdest.startswith("/") or ".." in pdest.split("/"):
+        raise ValueError("the PS4 package folder must be an absolute path on the PS5")
+    s.update(ps5_ftp=ftp, ps5_dest=dest, ps5_wake_key=key, ps4_dest=pdest)
     stored = read_json(SETTINGS_PATH, {}) or {}
     stored.update(s)  # keeps the pairing details (RP key, MAC, name)
     write_settings(stored)
@@ -3267,6 +3271,133 @@ def images_data() -> dict:
     return {"jobs": jobs, "ready": ready}
 
 
+# --------------------------------------------------------------------------
+# PS4 packages (.pkg): listed from the PS4 folder (and the library), sent as
+# one file to the PS5's package folder (default /data/pkg), where ItemzFlow or
+# etaHEN's installer installs them. Nothing is packed or changed.
+
+PS4_LIBRARY = Path(os.environ.get("PS5LZ4_PS4_LIBRARY", "/library-ps4"))
+HOST_PS4_LIBRARY = os.environ.get("PS5LZ4_HOST_PS4_LIBRARY", str(PS4_LIBRARY))
+PKG_CATEGORY = {"gd": "Game", "gp": "Update", "ac": "DLC", "gde": "Game", "gdk": "Game", "gdc": "App"}
+_pkg_cache: dict = {}
+
+
+def pkg_roots() -> dict:
+    return {k: p for k, p in (("ps4", PS4_LIBRARY), ("ps5", LIBRARY)) if p.is_dir()}
+
+
+def pkg_entries(fh) -> dict:
+    """The PKG's file table: entry id -> (offset, size)."""
+    import struct
+    head = fh.read(0x30)
+    if head[:4] != b"\x7fCNT":
+        raise ValueError("not a PS4 package")
+    count, table = struct.unpack(">I", head[0x10:0x14])[0], struct.unpack(">I", head[0x18:0x1C])[0]
+    fh.seek(table)
+    out = {}
+    for _ in range(min(count, 4096)):
+        e = fh.read(32)
+        if len(e) < 32:
+            break
+        eid, _name, _f1, _f2, off, size = struct.unpack(">IIIIII", e[:24])
+        out[eid] = (off, size)
+    return out
+
+
+def parse_sfo(data: bytes) -> dict:
+    import struct
+    if data[:4] != b"\x00PSF":
+        return {}
+    keys, vals, n = struct.unpack("<III", data[8:20])
+    out = {}
+    for i in range(min(n, 512)):
+        ko, fmt, ln, _mx, do = struct.unpack("<HHIII", data[20 + 16 * i: 36 + 16 * i])
+        k = data[keys + ko: data.index(b"\0", keys + ko)].decode(errors="replace")
+        raw = data[vals + do: vals + do + ln]
+        out[k] = struct.unpack("<I", raw[:4])[0] if fmt == 0x0404 else raw.rstrip(b"\0").decode("utf-8", "replace")
+    return out
+
+
+def pkg_info(path: Path) -> dict:
+    """Title, title ID, content ID, type and version of a .pkg (cached by size and time)."""
+    st = path.stat()
+    key = (str(path), st.st_size, int(st.st_mtime))
+    if key in _pkg_cache:
+        return _pkg_cache[key]
+    info = {"size": st.st_size}
+    try:
+        with open(path, "rb") as fh:
+            ents = pkg_entries(fh)
+            fh.seek(0x40)
+            info["content_id"] = fh.read(36).rstrip(b"\0").decode(errors="replace")
+            if 0x1000 in ents:
+                off, size = ents[0x1000]
+                fh.seek(off)
+                sfo = parse_sfo(fh.read(min(size, 1 << 20)))
+                info.update(name=sfo.get("TITLE", ""), title_id=sfo.get("TITLE_ID", ""),
+                            category=PKG_CATEGORY.get(str(sfo.get("CATEGORY", "")), str(sfo.get("CATEGORY", ""))),
+                            version=sfo.get("APP_VER") or sfo.get("VERSION") or "")
+            info["icon"] = 0x1200 in ents
+    except (OSError, ValueError) as err:
+        info["error"] = str(err)
+    if not info.get("title_id"):
+        m = re.search(r"CUSA\d{5}", info.get("content_id", "") + " " + path.name, re.I)
+        info["title_id"] = m.group(0).upper() if m else ""
+    info.setdefault("name", "")
+    info["name"] = info["name"] or re.sub(r"\.pkg$", "", path.name, flags=re.I)
+    _pkg_cache[key] = info
+    return info
+
+
+def scan_pkgs() -> list[dict]:
+    out = []
+    for root_key, root in pkg_roots().items():
+        def walk(d: Path, depth: int):
+            try:
+                kids = sorted(d.iterdir(), key=lambda p: p.name.lower())
+            except OSError:
+                return
+            for p in kids:
+                if p.name.startswith("."):
+                    continue
+                if p.is_dir() and depth < 3:
+                    walk(p, depth + 1)
+                elif p.is_file() and p.suffix.lower() == ".pkg":
+                    rel = str(p.relative_to(root))
+                    host = HOST_PS4_LIBRARY if root_key == "ps4" else HOST_LIBRARY
+                    out.append({"id": f"{root_key}/{rel}", "rel": rel, "file": p.name,
+                                "path": str(Path(host) / rel), **pkg_info(p)})
+        walk(root, 0)
+    return out
+
+
+def pkg_path(pid: str) -> Path:
+    """The .pkg file for an id from scan_pkgs (refuses anything outside the roots)."""
+    root_key, _, rel = pid.partition("/")
+    root = pkg_roots().get(root_key)
+    if not root or not rel or ".." in rel.split("/") or rel.startswith("/"):
+        raise SystemExit(f"{pid} is not a package in the library")
+    p = root / rel
+    if not p.is_file() or p.suffix.lower() != ".pkg" or not under(p, root):
+        raise SystemExit(f"{pid} is not a package in the library")
+    return p
+
+
+def pkg_icon(pid: str) -> bytes | None:
+    try:
+        p = pkg_path(pid)
+        with open(p, "rb") as fh:
+            ents = pkg_entries(fh)
+            if 0x1200 not in ents:
+                return None
+            off, size = ents[0x1200]
+            fh.seek(off)
+            data = fh.read(min(size, 4 << 20))
+        return data if data[:8] == b"\x89PNG\r\n\x1a\n" else None
+    except (OSError, ValueError, SystemExit):
+        return None
+
+
 class TransferStopped(Exception):
     """Stop pressed: not retried like a network error."""
 
@@ -3323,7 +3454,10 @@ def push_one(game: str, force: bool = False) -> int:
     # or an .exfat/.ffpfs/.ffpfsc image as one file); anything else is an LZ4 copy.
     entry = None
     image = game.startswith("img:")
-    if image:
+    pkg = game.startswith("pkg:")
+    if pkg:
+        out = pkg_path(game[4:])  # a PS4 package, as one file
+    elif image:
         # An LZ4 copy's .exfat image from the output folder, as one file.
         out = OUTPUT / game[4:]
         if "/" in game[4:] or not out.name.endswith("-lz4.exfat") or not out.is_file():
@@ -3341,13 +3475,14 @@ def push_one(game: str, force: bool = False) -> int:
     single = out.is_file()
     host, _, port = cfg["ps5_ftp"].partition(":")
     port = int(port or 2121)
-    dest = cfg["ps5_dest"] if single else f"{cfg['ps5_dest']}/{out.name}"
+    dest_root = cfg["ps4_dest"] if pkg else cfg["ps5_dest"]
+    dest = dest_root if single else f"{dest_root}/{out.name}"
     root = out.parent if single else out
     files = [out] if single else sorted(p for p in out.rglob("*") if p.is_file())
     total = sum(p.stat().st_size for p in files)
     st_path = TRANSFERS / f"{out.name}.json"
-    st = {"game": out.name, "dest": f"{cfg['ps5_ftp']}{cfg['ps5_dest']}/{out.name}", "state": "running",
-          "pid": os.getpid(), "source": "original" if entry else "lz4 image" if image else "lz4", "request": game,
+    st = {"game": out.name, "dest": f"{cfg['ps5_ftp']}{dest_root}/{out.name}", "state": "running",
+          "pid": os.getpid(), "source": "original" if entry else "lz4 image" if image else "ps4 package" if pkg else "lz4", "request": game,
           "bytes": 0, "total": total, "files": len(files), "files_done": 0, "skipped": 0,
           "current": "", "started": now(), "error": None, "verified": 0}
     write_json(st_path, st)
@@ -3465,14 +3600,15 @@ def push_one(game: str, force: bool = False) -> int:
         if not tid:
             m = TITLE_RE.search(out.name)
             tid = m.group(0).upper() if m else ""
-        names = ps5_ftp_names(ftp, cfg["ps5_dest"])
+        names = ps5_ftp_names(ftp, dest_root)
         if names is None:  # the folder isn't there yet
             names = []
-            ps5_ftp_mkdirs(ftp, cfg["ps5_dest"])
+            ps5_ftp_mkdirs(ftp, dest_root)
             ftp.voidcmd("TYPE I")
-        dupes = [n for n in names if tid and tid in n.upper() and n != out.name]
+        # (PS4 packages are installed from there, not mounted: no such limit.)
+        dupes = [n for n in names if tid and tid in n.upper() and n != out.name] if not pkg else []
         if dupes and not force:
-            raise RuntimeError(f"{cfg['ps5_dest']} on the PS5 already has {tid}: {', '.join(dupes)}. "
+            raise RuntimeError(f"{dest_root} on the PS5 already has {tid}: {', '.join(dupes)}. "
                                "Delete or move it first (ShadowMountPlus mounts one copy per title)")
         made = set()
 
@@ -3826,6 +3962,7 @@ def dashboard_data() -> dict:
             "delete_originals": DELETE_ORIGINALS,
             "send_after": list(read_json(SEND_AFTER, {}) or {}),
             "images": images_data(),
+            "pkgs": scan_pkgs(),
             "level": int(os.environ.get("PS5LZ4_LEVEL", "9")), "runtime": RUNTIME_NAME.removeprefix("APR-EMU "),
             "compat_updated": compat_data().get("updated"),
             "requests": {"pending": pending, "pending_list": pending_list, "recent": done_req[::-1]}, "version": VERSION,
@@ -4239,6 +4376,17 @@ def cmd_ui(args) -> int:
                 self.end_headers()
                 self.wfile.write(png)
                 return
+            if self.path.startswith("/api/pkg/icon?"):
+                from urllib.parse import parse_qs, urlparse
+                data = pkg_icon((parse_qs(urlparse(self.path).query).get("id") or [""])[0])
+                if not data:
+                    return self.send(404, b'{"error":"no icon"}')
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "max-age=86400")
+                self.end_headers()
+                return self.wfile.write(data)
             if self.path == "/api/engine":
                 return self.send(200, json.dumps(engine_status()).encode())
             if self.path == "/api/app":
@@ -4492,8 +4640,13 @@ def cmd_ui(args) -> int:
                 req = {"action": "push", "game": q[0]}
             if req.get("action") == "push":
                 game = str(req.get("game") or "")
-                if not game or game.startswith("-") or "/" in game:
+                if not game or game.startswith("-") or ("/" in game and not game.startswith("pkg:")):
                     return self.send(400, b'{"error":"no game"}')
+                if game.startswith("pkg:"):
+                    try:
+                        pkg_path(game[4:])
+                    except SystemExit as err:
+                        return self.send(400, json.dumps({"error": str(err)}).encode())
                 if not get_settings()["ps5_ftp"]:
                     return self.send(400, json.dumps({"error": "PS5 FTP address missing"}).encode())
                 res = start_push(game, bool(req.get("force")))
