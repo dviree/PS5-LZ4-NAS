@@ -1872,6 +1872,7 @@ REQUESTS = STATE / "requests"
 STEPS = ["source", "check", "pack", "verify", "restore", "publish"]
 UI_ACTIONS = {  # action -> ps5lz4 arguments (game and result are checked separately)
     "fix": ["lz4", "--fix"],
+    "check": ["apr"],
     "apr": ["apr", "--fix"],
     "stop": ["stop"],
     "resume": ["start", "--resume"],
@@ -1947,9 +1948,20 @@ def dashboard_data() -> dict:
         if e.duplicate_of and res["status"] != "done":
             continue
         verdict, why, can = classify(e, res, cache)
+        skey = "size:" + str(e.path)
+        try:
+            ssig = f"{int(e.path.stat().st_mtime)}"
+            hit = cache.get(skey)
+            if hit and hit.get("sig") == ssig:
+                src_size = hit["bytes"]
+            else:
+                src_size = e.size()
+                cache[skey] = {"sig": ssig, "bytes": src_size}
+        except OSError:
+            src_size = None
         rep = read_json(REPORTS / f"{e.id}.json") or {}
         g = games.get((e.title_id or "").upper()) or {}
-        row = {"id": e.id, "rel": e.rel, "kind": e.kind, "title_id": e.title_id,
+        row = {"id": e.id, "rel": e.rel, "kind": e.kind, "source_size": src_size, "title_id": e.title_id,
                "name": rep.get("title_name") or e.name or e.rel, "verdict": verdict, "why": why,
                "can_queue": can, "running": e.id == current,
                "queued": e.id in (queue.get("remaining") or []) and running,
@@ -2065,6 +2077,14 @@ def run_request(req: dict) -> dict:
             return {"ok": False, "output": f"unknown result {result!r}"}
         argv.append(result)
     me = [sys.executable, os.path.abspath(__file__)]
+    if action == "check":
+        # "Kontrollera": read-only. Format and APR-EMU of every LZ4 game, and
+        # which games can still become LZ4. Nothing is changed.
+        rep = subprocess.run(me + ["apr"], capture_output=True, text=True, timeout=6 * 3600)
+        lst = subprocess.run(me + ["lz4"], capture_output=True, text=True, timeout=3600)
+        text = ("LZ4-spelen:\n" + (rep.stdout + rep.stderr).strip() +
+                "\n\nBiblioteket:\n" + (lst.stdout + lst.stderr).strip())
+        return {"ok": rep.returncode == 0, "output": text[-3000:]}
     if action == "fix":
         # "Fixa allt": repair every finished LZ4 game (APR-EMU, on-disk boot
         # files), then queue every game that can still become LZ4.

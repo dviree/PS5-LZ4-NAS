@@ -47,7 +47,7 @@ a{color:var(--acc)}
 .filters{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
 .filters input{font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--txt);flex:1;min-width:180px}
 .mine{font-size:11px;font-weight:600;color:var(--acc);margin-left:6px}
-.cm{font-size:12px;margin-top:2px}
+.cm{font-size:12px;margin-top:2px}.kind{font-weight:600}
 .csec{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:14px 0}
 .csec h4{margin:0 0 6px;font-size:14px}.cbar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--chip);margin:8px 0}
 .cbar i{display:block;height:100%}
@@ -65,6 +65,7 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
 <header>
   <h1>ps5-lz4</h1><span class="sub" id="sub"></span><span class="sp"></span>
   <button id="b-resume" hidden onclick="act('resume')">Fortsätt kön</button>
+  <button title="Visar läget för alla spel utan att ändra något" onclick="act('check')">Kontrollera</button>
   <button class="pri" id="b-fix" title="Reparerar alla färdiga LZ4-spel och packar alla som kan bli LZ4"
     onclick="act('fix', 'Fixa allt?\n\n1. Alla färdiga LZ4-spel repareras: rätt APR-EMU och filerna PS5:an läser direkt från disk.\n2. Alla spel som kan bli LZ4 köas och packas, ett i taget.\n\nPågår ett jobb startar det här när jobbet är klart.')">Fixa allt</button>
 </header>
@@ -136,7 +137,8 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
 <script>
 const STEP_SV = {source: 'Källa', check: 'Kontroll', pack: 'Packning', verify: 'Verifiering', restore: 'Återställningstest', publish: 'Publicering'};
 const PS5_SV = {works: 'fungerar', issues: 'med problem', nostart: 'startar inte', crash: 'kraschar'};
-const ACT_SV = {fix: 'Fixa allt', apr: 'Reparera alla', stop: 'Stoppa', resume: 'Fortsätt kön', start: 'Packa', community: 'PS5-resultat'};
+const KIND_SV = {folder: 'spelmapp', exfat: 'exFAT-image', ffpfsc: '.ffpfsc-image (PFSC-komprimerad)', ffpfs: '.ffpfs-image', lz4: 'LZ4-mapp'};
+const ACT_SV = {check: 'Kontrollera', fix: 'Fixa allt', apr: 'Reparera alla', stop: 'Stoppa', resume: 'Fortsätt kön', start: 'Packa', community: 'PS5-resultat'};
 let data = null;
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -256,7 +258,7 @@ function render() {
       const action = waiting ? '<span class="pill p-run">väntar</span>' : g.can_queue && !g.running && !g.queued
         ? `<button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game)">Komprimera</button>` : '';
       const why = g.verdict !== 'LZ4' && !g.running ? `<div class="why">${esc(g.why)}</div>` : '';
-      return `<tr class="row" data-id="${esc(g.id)}" onclick="openGame(this.dataset.id)"><td>${esc(g.name)}${g.output_only ? '<span class="mine">LZ4-MAPPEN</span>' : ''}<div class="why">${esc(g.title_id)}</div><div class="cm">${community(g.community)}</div>${g.output && (data.transfers || {})[g.output.split('/').pop()] ? `<div class="cm">${xferText(data.transfers[g.output.split('/').pop()])}</div>` : ''}${why}</td>
+      return `<tr class="row" data-id="${esc(g.id)}" onclick="openGame(this.dataset.id)"><td>${esc(g.name)}${g.output_only ? '<span class="mine">LZ4-MAPPEN</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_SV[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div><div class="cm">${community(g.community)}</div>${g.output && (data.transfers || {})[g.output.split('/').pop()] ? `<div class="cm">${xferText(data.transfers[g.output.split('/').pop()])}</div>` : ''}${why}</td>
         <td><span class="pill ${v[0]}">${v[1]}</span></td>
         <td class="num">${gb(g.source_bytes)}</td><td class="num">${gb(g.output_bytes)}</td>
         <td class="num">${g.saved_percent != null ? `<b>${gb(g.source_bytes - g.output_bytes)}</b> · ${Math.round(g.saved_percent)} %
@@ -333,7 +335,8 @@ function gameHtml(g, det) {
   const rows = [
     ['Status', esc(v) + (g.why && g.verdict !== 'LZ4' ? `<div class="why">${esc(g.why)}</div>` : '')],
     ['Title ID', esc(g.title_id || '–')],
-    ['Källa', g.output_only ? 'finns inte i biblioteket' : esc(g.rel || '–')],
+    ['Källa', g.output_only ? 'finns inte i biblioteket' : `${esc(KIND_SV[g.kind] || g.kind)}${g.source_size ? ' · ' + gb(g.source_size) : ''}<div class="why">${esc(g.rel || '')}</div>` +
+      (g.verdict !== 'LZ4' && g.kind !== 'folder' && !g.output_only ? '<div class="why">Packas upp till en arbetsmapp på NAS:en före LZ4-packningen; originalet ändras inte.</div>' : '')],
     ['Original', gb(g.source_bytes)],
     ['LZ4', gb(g.output_bytes)],
     ['Sparat', g.saved_percent != null ? `${gb(g.source_bytes - g.output_bytes)} (${Math.round(g.saved_percent)} %)` : '–'],
