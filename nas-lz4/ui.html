@@ -85,7 +85,14 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
     <div class="filters">
       <input id="s-ftp" placeholder="PS5 FTP, t.ex. 192.168.50.90:2121">
       <input id="s-dest" placeholder="Mål på PS5:an, t.ex. /mnt/usb0/homebrew">
+    </div>
+    <div class="mut">Väcka PS5:an från viloläge (som Chiaki): ange Remote Play-nyckeln, <code>rp_regist_key</code> i Chiakis
+    inställningar (8 hextecken, t.ex. <code>1a2b3c4d</code>). Då väcks konsolen automatiskt när du trycker <b>Överför till PS5</b>.</div>
+    <div class="filters">
+      <input id="s-key" placeholder="Remote Play-nyckel (rp_regist_key)" autocomplete="off">
       <button onclick="saveSettings()">Spara</button>
+      <button onclick="act('wake')">Väck PS5 nu</button>
+      <span class="pill p-inte" id="ps5st">PS5: ?</span>
     </div>
   </div>
   <div class="card"><h2>Rapportera</h2>
@@ -151,7 +158,8 @@ async function act(action, confirmText, extra = {}) {
 async function saveSettings() {
   const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action: 'settings', ps5_ftp: document.getElementById('s-ftp').value,
-      ps5_dest: document.getElementById('s-dest').value})});
+      ps5_dest: document.getElementById('s-dest').value,
+      ps5_wake_key: document.getElementById('s-key').value})});
   const j = await r.json().catch(() => ({}));
   alert(r.ok ? 'Sparat.' : 'Gick inte: ' + (j.error || r.status));
   settingsFilled = false; load();
@@ -161,7 +169,8 @@ function push(id, name) {
   const s = data.settings || {};
   if (!s.ps5_ftp) { alert('Fyll i PS5:ans FTP-adress under "Överföring till PS5" först.'); return; }
   const t = (data.transfers || {})[id];
-  act('push', `Överför ${name} till ${s.ps5_ftp}${s.ps5_dest}?\n\nPS5:an måste vara på med FTP-servern igång.` +
+  act('push', `Överför ${name} till ${s.ps5_ftp}${s.ps5_dest}?\n\n` +
+    (s.ps5_wake_key ? 'Är PS5:an i viloläge väcks den först.' : 'PS5:an måste vara på med FTP-servern igång.') +
     (t && t.state === 'failed' ? '\n\nDen förra överföringen avbröts; den fortsätter där den slutade.' : ''), {game: id});
 }
 function xferText(t) {
@@ -176,6 +185,7 @@ function render() {
   if (!settingsFilled && d.settings) {
     document.getElementById('s-ftp').value = d.settings.ps5_ftp || '';
     document.getElementById('s-dest').value = d.settings.ps5_dest || '';
+    document.getElementById('s-key').value = d.settings.ps5_wake_key || '';
     settingsFilled = true;
   }
   const xf = document.getElementById('xfer'), tf = d.transfer;
@@ -410,7 +420,15 @@ async function load() {
   }
 }
 try { document.getElementById('fw').value = localStorage.getItem('fw') || ''; } catch (e) {}
-load(); setInterval(load, 5000);
+async function ps5State() {
+  try {
+    const r = await (await fetch('/api/ps5', {cache: 'no-store'})).json();
+    const el = document.getElementById('ps5st'), m = {on: ['p-LZ4', 'PS5: på'], standby: ['p-run', 'PS5: viloläge'],
+      unknown: ['p-inte', 'PS5: svarar inte'], unset: ['p-inte', 'PS5: ingen adress']}[r.status] || ['p-inte', 'PS5: ?'];
+    el.className = 'pill ' + m[0]; el.textContent = m[1];
+  } catch (e) {}
+}
+load(); setInterval(load, 5000); ps5State(); setInterval(ps5State, 15000);
 try { if (location.hash === '#community' || localStorage.getItem('tab') === 'comm') tab('comm'); } catch (e) {}
 </script>
 </body>
