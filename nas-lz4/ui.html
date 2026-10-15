@@ -44,6 +44,7 @@ a{color:var(--acc)}
 .tabs{display:flex;gap:4px;padding:10px 16px 0;max-width:1280px;margin:0 auto}
 .tabs button{background:none;border-radius:8px 8px 0 0;color:var(--mut);padding:8px 14px}
 .steps-list{margin:10px 0 0;padding-left:20px;line-height:1.5}.steps-list ul{padding-left:18px;margin:4px 0}.steps-list li{margin-bottom:4px}
+.ico{float:left;width:40px;height:40px;border-radius:8px;object-fit:cover;margin:0 10px 4px 0}.ico.big{width:72px;height:72px;border-radius:12px}.fi{display:inline-block;text-align:center;font-size:26px;line-height:40px}
 .tabs button.on{background:var(--card);color:var(--txt);box-shadow:inset 0 -2px 0 var(--acc)}
 .filters{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
 .filters input{font:inherit;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--txt);flex:1;min-width:180px}
@@ -328,7 +329,7 @@ function render() {
       const action = waiting ? '<span class="pill p-run">waiting</span>' : g.can_queue && !g.running && !g.queued
         ? `<button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game)">Compress</button>` : '';
       const why = g.verdict !== 'LZ4' && !g.running ? `<div class="why">${esc(g.why)}</div>` : '';
-      return `<tr class="row" data-id="${esc(g.id)}" onclick="if(!event.target.closest('select,button,a'))openGame(this.dataset.id)"><td>${esc(g.name)}${g.output_only ? '<span class="mine">LZ4 FOLDER</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_EN[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div>${placeHtml(g)}<div class="cm">${community(g.community)}</div>${g.output && (data.transfers || {})[g.output.split('/').pop()] ? `<div class="cm">${xferText(data.transfers[g.output.split('/').pop()])}</div>` : ''}${why}</td>
+      return `<tr class="row" data-id="${esc(g.id)}" onclick="if(!event.target.closest('select,button,a'))openGame(this.dataset.id)"><td><img class="ico" alt="" loading="lazy" src="/api/icon?id=${encodeURIComponent(g.id)}" onerror="this.remove()">${esc(g.name)}${g.output_only ? '<span class="mine">LZ4 FOLDER</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_EN[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div>${placeHtml(g)}<div class="cm">${community(g.community)}</div>${g.output && (data.transfers || {})[g.output.split('/').pop()] ? `<div class="cm">${xferText(data.transfers[g.output.split('/').pop()])}</div>` : ''}${why}</td>
         <td><span class="pill ${v[0]}">${v[1]}</span></td>
         <td class="num">${gb(g.source_bytes)}</td><td class="num">${gb(g.output_bytes)}</td>
         <td class="num">${g.saved_percent != null ? `<b>${gb(g.source_bytes - g.output_bytes)}</b> · ${Math.round(g.saved_percent)} %
@@ -449,7 +450,7 @@ function gameHtml(g, det) {
     acts.push(`<button class="pri" ${busy ? 'disabled title="a transfer is running"' : ''} data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}"
       onclick="push(this.dataset.id, this.dataset.name)">${tr && tr.state === 'done' ? 'Send again' : 'Send to PS5'}</button>`);
   }
-  return `<h3>${esc(g.name)}</h3><div class="mut">${esc(g.title_id || '')}</div>
+  return `<img class="ico big" alt="" src="/api/icon?id=${encodeURIComponent(g.id)}" onerror="this.remove()"><h3>${esc(g.name)}</h3><div class="mut">${esc(g.title_id || '')}</div>
     ${communityHtml(g, det)}
     <div class="kv">${rows.map(([k, x]) => `<div>${k}</div><div>${x}</div>`).join('')}</div>
     <div class="acts">${acts.join('') || '<span class="mut">Nothing to do for this game.</span>'}</div>`;
@@ -480,7 +481,7 @@ async function ftpGo(path) {
     const del = (p, dir) => /^\/(data|mnt\/(usb|ext)\d+)\/[^/]+\/.+/.test(p)
       ? `<button class="sm" style="float:right;margin-left:8px" data-p="${esc(p)}" data-dir="${dir ? 1 : ''}" onclick="ftpDelete(this.dataset.p, this.dataset.dir)">Delete</button>` : '';
     list.innerHTML = (j.items.length ? j.items.map(i => i.dir || i.link
-      ? `<tr class="row" data-p="${esc(join(i.name))}" onclick="if(!event.target.closest('button'))ftpGo(this.dataset.p)"><td style="white-space:normal">${i.link ? '' : del(join(i.name), true)}📁 ${esc(i.name)}${i.link ? ' ↪' : ''}<div class="why">${esc(i.modified)}</div></td></tr>`
+      ? `<tr class="row" data-p="${esc(join(i.name))}" onclick="if(!event.target.closest('button'))ftpGo(this.dataset.p)"><td style="white-space:normal">${i.link ? '' : del(join(i.name), true)}${folderIcon(join(i.name))}${esc(i.name)}${i.link ? ' ↪' : ''}<div class="why">${esc(i.modified)}</div></td></tr>`
       : `<tr><td style="white-space:normal">${del(join(i.name), false)}📄 <a href="/api/ftp/get?path=${encodeURIComponent(join(i.name))}" download>${esc(i.name)}</a><div class="why">${gb(i.size)} · ${esc(i.modified)}</div></td></tr>`
     ).join('') : '<tr><td class="mut">Empty folder.</td></tr>');
   } catch (e) { msg.innerHTML = `<span class="bad">${esc(String(e))}</span>`; }
@@ -522,6 +523,12 @@ async function aprCheck(path, el) {
       : j.ok ? `<span class="good">APR-EMU on the PS5: ${esc(j.build)} ✓</span> ${esc(j.path)}`
       : `<span class="bad">APR-EMU on the PS5: ${esc(j.build)}</span>${j.path ? ' ' + esc(j.path) : ''}. Send the game again to replace it.`;
   } catch (e) { el.innerHTML = `<span class="bad">${esc(String(e))}</span>`; }
+}
+// Game folders (two levels down or more) get their icon0.png; others a folder sign.
+function folderIcon(p) {
+  return p.split('/').length > 3
+    ? `<img class="ico" alt="" loading="lazy" src="/api/ftp/icon?path=${encodeURIComponent(p)}" onerror="this.outerHTML='<span class=&quot;ico fi&quot;>📁</span>'">`
+    : '<span class="ico fi">📁</span>';
 }
 let comm = null;
 function tab(t) {
