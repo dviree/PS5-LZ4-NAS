@@ -78,6 +78,7 @@ körs inne i containern som din användare, så filerna ägs av `sureahad`.
 | `./lz4-ps5.sh report` | Originalstorlek, LZ4-storlek och besparing per spel och totalt |
 | `./lz4-ps5.sh verify "Mitt spel-lz4"` | Verifierar ett färdigt resultat igen (alla block avkodas, CRC) |
 | `./lz4-ps5.sh clean <namn>` | Tar bort arbetsmappen för ett misslyckat spel |
+| `./lz4-ps5.sh update` | Hämtar senaste imagen och startar om containern direkt (väntar inte på Watchtower; vägrar om ett spel packas) |
 | `./lz4-ps5.sh doctor` | Självkontroll |
 
 Alternativ till `start`/`run`: `--level N` (1–4 LZ4 fast, 5–12 LZ4 HC,
