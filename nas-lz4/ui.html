@@ -76,8 +76,18 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
   <div id="error" class="err" hidden></div>
   <div class="kpis" id="kpis"></div>
   <div class="card" id="job" hidden></div>
+  <div class="card" id="xfer" hidden></div>
   <div class="card" id="failed" hidden></div>
   <div class="card"><h2>Bibliotek</h2><div class="scroll"><table id="games"></table></div></div>
+  <div class="card"><h2>Överföring till PS5</h2>
+    <div class="mut">Direkt via FTP till PS5:ans ftpsrv (port 2121), inte via monteringen. Varje fil storlekskontrolleras och
+    programfilerna jämförs byte för byte. Avbruten överföring fortsätter där den slutade när du trycker igen.</div>
+    <div class="filters">
+      <input id="s-ftp" placeholder="PS5 FTP, t.ex. 192.168.1.50:2121">
+      <input id="s-dest" placeholder="Mål på PS5:an, t.ex. /mnt/usb0/homebrew">
+      <button onclick="saveSettings()">Spara</button>
+    </div>
+  </div>
   <div class="card"><h2>Rapportera</h2>
     <div class="mut">Välj PS5-resultat i kolumnen <b>PS5</b> för ett LZ4-spel. Resultatet sparas här, och under
     <i>Senaste åtgärder</i> kommer en ifylld länk för att dela det med communityn (originalprojektets spelrapporter).</div>
@@ -134,12 +144,49 @@ async function act(action, confirmText, extra = {}) {
   if (confirmText && !confirm(confirmText)) return;
   const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action, ...extra})});
-  if (!r.ok) alert('Kunde inte skicka: ' + r.status);
+  if (!r.ok) { let m = r.status; try { m = (await r.json()).error || m; } catch (e) {} alert('Gick inte: ' + m); }
   setTimeout(load, 800);
+}
+
+async function saveSettings() {
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'settings', ps5_ftp: document.getElementById('s-ftp').value,
+      ps5_dest: document.getElementById('s-dest').value})});
+  const j = await r.json().catch(() => ({}));
+  alert(r.ok ? 'Sparat.' : 'Gick inte: ' + (j.error || r.status));
+  settingsFilled = false; load();
+}
+let settingsFilled = false;
+function push(id, name) {
+  const s = data.settings || {};
+  if (!s.ps5_ftp) { alert('Fyll i PS5:ans FTP-adress under "Överföring till PS5" först.'); return; }
+  const t = (data.transfers || {})[id];
+  act('push', `Överför ${name} till ${s.ps5_ftp}${s.ps5_dest}?\n\nPS5:an måste vara på med FTP-servern igång.` +
+    (t && t.state === 'failed' ? '\n\nDen förra överföringen avbröts; den fortsätter där den slutade.' : ''), {game: id});
+}
+function xferText(t) {
+  if (!t) return '';
+  if (t.state === 'running') return `överförs ${t.total ? Math.round(100 * t.bytes / t.total) : 0} %`;
+  if (t.state === 'done') return `<span class="good">på PS5:an</span> ${esc((t.finished || '').slice(0, 16))}`;
+  return `<span class="bad">överföring misslyckades</span>`;
 }
 
 function render() {
   const d = data;
+  if (!settingsFilled && d.settings) {
+    document.getElementById('s-ftp').value = d.settings.ps5_ftp || '';
+    document.getElementById('s-dest').value = d.settings.ps5_dest || '';
+    settingsFilled = true;
+  }
+  const xf = document.getElementById('xfer'), tf = d.transfer;
+  if (tf) {
+    const pct = tf.total ? 100 * tf.bytes / tf.total : 0;
+    xf.hidden = false;
+    xf.innerHTML = `<h2>Överför till PS5: ${esc(tf.game)}</h2>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <div class="mut" style="margin-top:6px">${gb(tf.bytes)} / ${gb(tf.total)} (${pct.toFixed(0)} %) · fil ${tf.files_done} av ${tf.files} · ${esc(tf.current || '')}</div>
+      <div class="why">${esc(tf.dest)}</div>`;
+  } else xf.hidden = true;
   document.getElementById('sub').textContent = `LZ4 HC nivå ${d.level} · APR-EMU ${d.runtime}`;
   document.getElementById('b-resume').hidden = !d.interrupted;
   const t = d.totals, saved = t.source - t.output;
@@ -185,7 +232,7 @@ function render() {
       const action = waiting ? '<span class="pill p-run">väntar</span>' : g.can_queue && !g.running && !g.queued
         ? `<button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game)">Komprimera</button>` : '';
       const why = g.verdict !== 'LZ4' && !g.running ? `<div class="why">${esc(g.why)}</div>` : '';
-      return `<tr class="row" data-id="${esc(g.id)}" onclick="openGame(this.dataset.id)"><td>${esc(g.name)}${g.output_only ? '<span class="mine">LZ4-MAPPEN</span>' : ''}<div class="why">${esc(g.title_id)}</div><div class="cm">${community(g.community)}</div>${why}</td>
+      return `<tr class="row" data-id="${esc(g.id)}" onclick="openGame(this.dataset.id)"><td>${esc(g.name)}${g.output_only ? '<span class="mine">LZ4-MAPPEN</span>' : ''}<div class="why">${esc(g.title_id)}</div><div class="cm">${community(g.community)}</div>${g.output && (data.transfers || {})[g.output.split('/').pop()] ? `<div class="cm">${xferText(data.transfers[g.output.split('/').pop()])}</div>` : ''}${why}</td>
         <td><span class="pill ${v[0]}">${v[1]}</span></td>
         <td class="num">${gb(g.source_bytes)}</td><td class="num">${gb(g.output_bytes)}</td>
         <td class="num">${g.saved_percent != null ? `<b>${gb(g.source_bytes - g.output_bytes)}</b> · ${Math.round(g.saved_percent)} %
@@ -275,6 +322,8 @@ function gameHtml(g, det) {
     rows.push(['PS5', esc(r.playable_on_ps5 || 'ej testat')]);
     rows.push(['Klar', esc(r.finished || '–')]);
   }
+  const tx = (data.transfers || {})[g.output ? g.output.split('/').pop() : g.id];
+  if (tx) rows.push(['PS5-överföring', `${xferText(tx)}<div class="why">${esc(tx.dest || '')}${tx.verified ? ` · ${tx.verified} programfiler kontrollerade` : ''}${tx.error ? `<br><span class="bad">${esc(tx.error)}</span>` : ''}</div>`]);
   if (w && w.error) rows.push(['Senaste fel', `<span class="bad">${esc(w.error)}</span><div class="why">steg ${esc(w.step || '')}</div>`]);
 
   const acts = [];
@@ -286,6 +335,12 @@ function gameHtml(g, det) {
       <option value="">PS5-resultat: ${g.ps5 ? esc(PS5_SV[g.ps5]) : 'ej testat'}</option>
       ${Object.entries(PS5_SV).map(([k, s]) => `<option value="${k}">${s}</option>`).join('')}</select>`);
   if (g.running) acts.push(`<button onclick="act('stop', 'Stoppa jobbet? Det kan återupptas senare.')">Stoppa</button>`);
+  const tr = (data.transfers || {})[g.output ? g.output.split('/').pop() : g.id];
+  if (g.verdict === 'LZ4' && g.output) {
+    const busy = data.transfer && data.transfer.state === 'running';
+    acts.push(`<button class="pri" ${busy ? 'disabled title="en överföring pågår"' : ''} data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}"
+      onclick="push(this.dataset.id, this.dataset.name)">${tr && tr.state === 'done' ? 'Överför igen' : 'Överför till PS5'}</button>`);
+  }
   return `<h3>${esc(g.name)}</h3><div class="mut">${esc(g.title_id || '')}</div>
     ${communityHtml(g, det)}
     <div class="kv">${rows.map(([k, x]) => `<div>${k}</div><div>${x}</div>`).join('')}</div>

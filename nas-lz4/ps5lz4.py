@@ -1534,6 +1534,213 @@ def cmd_doctor(_args) -> int:
 # ps5-lz4 container and carries out what the page asks for. The page never
 # runs jobs itself and needs no Docker socket.
 
+# --------------------------------------------------------------------------
+# transfer to the PS5 over FTP (ftpsrv). Runs where there is a network: the
+# ps5-lz4-ui container, never the network-less ps5-lz4 container.
+
+SETTINGS_PATH = STATE / "settings.json"
+TRANSFERS = STATE / "transfers"
+
+
+def get_settings() -> dict:
+    s = {"ps5_ftp": os.environ.get("PS5LZ4_PS5_FTP", ""),
+         "ps5_dest": os.environ.get("PS5LZ4_PS5_DEST", "/mnt/usb0/homebrew")}
+    s.update({k: v for k, v in (read_json(SETTINGS_PATH, {}) or {}).items() if k in s and isinstance(v, str)})
+    return s
+
+
+def save_settings(new: dict) -> dict:
+    s = get_settings()
+    ftp = str(new.get("ps5_ftp", s["ps5_ftp"])).strip()
+    dest = str(new.get("ps5_dest", s["ps5_dest"])).strip().rstrip("/") or "/"
+    if ftp and not re.fullmatch(r"[A-Za-z0-9.\-]+(:\d{1,5})?", ftp):
+        raise ValueError("FTP address must look like 192.168.1.20:2121")
+    if not dest.startswith("/") or ".." in dest.split("/"):
+        raise ValueError("destination must be an absolute path on the PS5")
+    s.update(ps5_ftp=ftp, ps5_dest=dest)
+    write_json(SETTINGS_PATH, s)
+    return s
+
+
+def transfer_running() -> dict | None:
+    for f in TRANSFERS.glob("*.json") if TRANSFERS.is_dir() else []:
+        st = read_json(f, {}) or {}
+        if st.get("state") == "running":
+            try:
+                os.kill(int(st.get("pid", 0)), 0)
+                return st
+            except (OSError, ValueError):
+                st.update(state="failed", error="interrupted (container restarted?); press again to resume")
+                write_json(f, st)
+    return None
+
+
+def output_for(game: str) -> Path:
+    """Resolve a library id/name or an LZ4 folder name to the LZ4 folder."""
+    for cand in (OUTPUT / game, OUTPUT / f"{game}-lz4", OUTPUT / f"{safe_name(game)}-lz4"):
+        if cand.is_dir() and (cand / "ampr_assets.index").is_file() and cand.parent == OUTPUT:
+            return cand
+    for e in scan_library():
+        if game in (e.id, e.rel, e.title_id) and e.output.is_dir():
+            return e.output
+    raise SystemExit(f"no finished LZ4 folder for {game!r} in {OUTPUT}")
+
+
+def cmd_push(args) -> int:
+    """Copy a finished LZ4 game to the PS5 over FTP and check it."""
+    import ftplib
+    ensure_dirs()
+    TRANSFERS.mkdir(exist_ok=True)
+    cfg = get_settings()
+    if not cfg["ps5_ftp"]:
+        raise SystemExit("set the PS5 FTP address first (web page: Inställningar, or PS5LZ4_PS5_FTP)")
+    if transfer_running():
+        raise SystemExit("a transfer is already running")
+    out = output_for(args.game)
+    problem = lz4_format_problem(out)
+    if problem:
+        raise SystemExit(f"{out.name} is not a complete LZ4 game: {problem}")
+    host, _, port = cfg["ps5_ftp"].partition(":")
+    port = int(port or 2121)
+    dest = f"{cfg['ps5_dest']}/{out.name}"
+    files = sorted(p for p in out.rglob("*") if p.is_file())
+    total = sum(p.stat().st_size for p in files)
+    st_path = TRANSFERS / f"{out.name}.json"
+    st = {"game": out.name, "dest": f"{cfg['ps5_ftp']}{dest}", "state": "running", "pid": os.getpid(),
+          "bytes": 0, "total": total, "files": len(files), "files_done": 0, "skipped": 0,
+          "current": "", "started": now(), "error": None, "verified": 0}
+    write_json(st_path, st)
+    last = [0.0]
+
+    def save(force=False):
+        if force or time.time() - last[0] > 1:
+            write_json(st_path, st)
+            last[0] = time.time()
+
+    def connect():
+        f = ftplib.FTP()
+        f.connect(host, port, timeout=60)
+        f.login()
+        f.voidcmd("TYPE I")
+        try:
+            # ftpsrv decrypts SELF files on download and reports their
+            # decrypted size; SELF turns that off for this connection.
+            f.sendcmd("SELF")
+        except ftplib.all_errors:
+            pass
+        return f
+
+    def rsize(f, path):
+        try:
+            f.voidcmd("TYPE I")  # listings switch the connection to ASCII
+            return f.size(path)
+        except ftplib.all_errors:
+            return None
+
+    try:
+        ftp = connect()
+        # Two copies of one title confuse ShadowMountPlus.
+        tid = ""
+        pj = out / "sce_sys" / "param.json"
+        if pj.is_file():
+            tid = parse_param_json(pj.read_bytes())[0].upper()
+        if not tid:
+            m = TITLE_RE.search(out.name)
+            tid = m.group(0).upper() if m else ""
+        try:
+            names = [n.rsplit("/", 1)[-1] for n in ftp.nlst(cfg["ps5_dest"])]
+        except ftplib.error_perm:
+            names = []
+            ftp.mkd(cfg["ps5_dest"])
+        dupes = [n for n in names if tid and tid in n.upper() and n != out.name]
+        if dupes and not args.force:
+            raise RuntimeError(f"{cfg['ps5_dest']} on the PS5 already has {tid}: {', '.join(dupes)}. "
+                               "Delete or move it first (ShadowMountPlus mounts one copy per title)")
+        made = set()
+
+        def mkdirs(path):
+            parts, cur = path.strip("/").split("/"), ""
+            for part in parts:
+                cur += "/" + part
+                if cur not in made:
+                    try:
+                        ftp.mkd(cur)
+                    except ftplib.error_perm:
+                        pass
+                    made.add(cur)
+
+        mkdirs(dest)
+        for d in sorted(q for q in out.rglob("*") if q.is_dir()):
+            mkdirs(f"{dest}/{d.relative_to(out).as_posix()}")  # empty folders too
+        programs = []
+        for p in files:
+            rel = p.relative_to(out).as_posix()
+            remote = f"{dest}/{rel}"
+            size = p.stat().st_size
+            st["current"] = rel
+            with open(p, "rb") as fh:
+                if fh.read(4) in PROGRAM_MAGICS:
+                    programs.append((p, remote))
+            for attempt in range(3):
+                try:
+                    if rsize(ftp, remote) == size:
+                        st["skipped"] += 1
+                        break
+                    mkdirs(remote.rsplit("/", 1)[0])
+                    start = st["bytes"]
+
+                    def cb(chunk, start=start):
+                        st["bytes"] += len(chunk)
+                        save()
+                    with open(p, "rb") as fh:
+                        ftp.storbinary(f"STOR {remote}", fh, blocksize=1 << 20, callback=cb)
+                    got = rsize(ftp, remote)
+                    if got is not None and got != size:
+                        st["bytes"] = start
+                        raise RuntimeError(f"{rel}: PS5 has {got} bytes, expected {size}")
+                    break
+                except (ftplib.all_errors, RuntimeError) as err:
+                    if "No space" in str(err) or attempt == 2:
+                        raise RuntimeError(f"{rel}: {err}")
+                    try:
+                        ftp.close()
+                    except Exception:
+                        pass
+                    time.sleep(3)
+                    ftp = connect()
+            else:
+                pass
+            st["files_done"] += 1
+            st["bytes"] = sum(q.stat().st_size for q in files[: st["files_done"]])
+            save()
+        # Byte check of the program files (the ones ftpsrv would decrypt).
+        for p, remote in programs:
+            st["current"] = "checking " + p.relative_to(out).as_posix()
+            save(True)
+            want = hashlib.sha256(p.read_bytes()).hexdigest()
+            for attempt in range(2):
+                h = hashlib.sha256()
+                ftp.retrbinary(f"RETR {remote}", h.update, blocksize=1 << 20)
+                if h.hexdigest() == want:
+                    break
+                if attempt:
+                    raise RuntimeError(f"{p.relative_to(out)} differs on the PS5 (SHA-256) after a second upload")
+                with open(p, "rb") as fh:  # same size, other bytes: upload it again
+                    ftp.storbinary(f"STOR {remote}", fh, blocksize=1 << 20)
+            st["verified"] += 1
+        ftp.quit()
+        st.update(state="done", current="", finished=now())
+        save(True)
+        print(f"done: {out.name} -> {st['dest']} ({human(total)}, {st['verified']} program files "
+              f"checked byte for byte, {st['skipped']} already there)")
+        return 0
+    except Exception as err:
+        st.update(state="failed", error=str(err)[:500], finished=now())
+        save(True)
+        print(f"FAILED: {err}", file=sys.stderr)
+        return 1
+
+
 REQUESTS = STATE / "requests"
 STEPS = ["source", "check", "pack", "verify", "restore", "publish"]
 UI_ACTIONS = {  # action -> ps5lz4 arguments (game and result are checked separately)
@@ -1679,7 +1886,9 @@ def dashboard_data() -> dict:
             "free_bytes": free_bytes(OUTPUT), "games": rows, "totals": totals, "failed": failed,
             "level": int(os.environ.get("PS5LZ4_LEVEL", "9")), "runtime": "PackedStdio 0.4.2.1",
             "compat_updated": (read_json(COMPAT_FILE, {}) or {}).get("updated"),
-            "requests": {"pending": pending, "pending_list": pending_list, "recent": done_req[::-1]}, "version": VERSION}
+            "requests": {"pending": pending, "pending_list": pending_list, "recent": done_req[::-1]}, "version": VERSION,
+            "settings": get_settings(), "transfer": transfer_running(),
+            "transfers": {f.stem: read_json(f, {}) for f in TRANSFERS.glob("*.json")} if TRANSFERS.is_dir() else {}}
 
 
 def game_detail(game_id: str) -> dict:
@@ -1812,6 +2021,28 @@ def cmd_ui(args) -> int:
                 req = json.loads(self.rfile.read(min(n, 4096)) or b"{}")
             except ValueError:
                 return self.send(400, b'{"error":"bad request"}')
+            if req.get("action") == "settings":
+                try:
+                    s = save_settings(req)
+                except ValueError as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+                cache["at"] = 0
+                return self.send(200, json.dumps(s).encode())
+            if req.get("action") == "push":
+                game = str(req.get("game") or "")
+                if not game or game.startswith("-") or "/" in game:
+                    return self.send(400, b'{"error":"no game"}')
+                if not get_settings()["ps5_ftp"]:
+                    return self.send(400, json.dumps({"error": "PS5:ans FTP-adress saknas"}).encode())
+                if transfer_running():
+                    return self.send(409, b'{"error":"a transfer is already running"}')
+                argv = [sys.executable, os.path.abspath(__file__), "push", game] + (["--force"] if req.get("force") else [])
+                TRANSFERS.mkdir(exist_ok=True)
+                with open(os.devnull, "w") as devnull:
+                    subprocess.Popen(argv, stdout=devnull, stderr=devnull, stdin=subprocess.DEVNULL,
+                                     start_new_session=True)
+                cache["at"] = 0
+                return self.send(200, b'{"started":true}')
             if req.get("action") not in UI_ACTIONS:
                 return self.send(400, b'{"error":"unknown action"}')
             req = {k: req.get(k) for k in ("action", "game", "result")}
@@ -1885,6 +2116,10 @@ def main() -> int:
     sp.add_argument("game", nargs="?", help="# from scan, name or title ID")
     sp.add_argument("result", nargs="?", help="works | issues | nostart | crash")
     sp.set_defaults(func=cmd_community)
+    sp = sub.add_parser("push", help="copy a finished LZ4 game to the PS5 over FTP (runs in ps5-lz4-ui)")
+    sp.add_argument("game", help="LZ4 folder name, library name or title ID")
+    sp.add_argument("--force", action="store_true", help="copy even if the PS5 has another copy of the title")
+    sp.set_defaults(func=cmd_push)
     sp = sub.add_parser("dashboard", help="everything the web page shows, as JSON")
     sp.set_defaults(func=cmd_dashboard)
     sp = sub.add_parser("agent", help=argparse.SUPPRESS)
