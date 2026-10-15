@@ -66,8 +66,8 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
   <h1>ps5-lz4</h1><span class="sub" id="sub"></span><span class="sp"></span>
   <button id="b-resume" hidden onclick="act('resume')">Fortsätt kön</button>
   <button title="Visar läget för alla spel utan att ändra något" onclick="act('check')">Kontrollera</button>
-  <button class="pri" id="b-fix" title="Reparerar alla färdiga LZ4-spel och packar alla som kan bli LZ4"
-    onclick="act('fix', 'Fixa allt?\n\n1. Alla färdiga LZ4-spel repareras: rätt APR-EMU och filerna PS5:an läser direkt från disk.\n2. Alla spel som kan bli LZ4 köas och packas, ett i taget.\n\nPågår ett jobb startar det här när jobbet är klart.')">Fixa allt</button>
+  <button class="pri" id="b-fix" title="Komprimerar alla spel som kan bli LZ4 (ett i taget) och reparerar de färdiga"
+    onclick="act('fix', 'Komprimera allt?\n\n1. Alla spel som kan bli LZ4 köas och komprimeras, ett i taget.\n2. Färdiga LZ4-spel repareras först vid behov: rätt APR-EMU och filerna PS5:an läser direkt från disk.\n\nPågår ett jobb startar det här när jobbet är klart.')">Komprimera allt</button>
 </header>
 <nav class="tabs">
   <button id="t-mine" class="on" onclick="tab('mine')">Mina spel</button>
@@ -138,7 +138,7 @@ tr.row{cursor:pointer}tr.row:hover td{background:var(--chip)}
 const STEP_SV = {source: 'Källa', check: 'Kontroll', pack: 'Packning', verify: 'Verifiering', restore: 'Återställningstest', publish: 'Publicering'};
 const PS5_SV = {works: 'fungerar', issues: 'med problem', nostart: 'startar inte', crash: 'kraschar'};
 const KIND_SV = {folder: 'spelmapp', exfat: 'exFAT-image', ffpfsc: '.ffpfsc-image (PFSC-komprimerad)', ffpfs: '.ffpfs-image', lz4: 'LZ4-mapp'};
-const ACT_SV = {check: 'Kontrollera', fix: 'Fixa allt', apr: 'Reparera alla', stop: 'Stoppa', resume: 'Fortsätt kön', start: 'Packa', community: 'PS5-resultat'};
+const ACT_SV = {check: 'Kontrollera', fix: 'Komprimera allt', apr: 'Reparera alla', stop: 'Stoppa', resume: 'Fortsätt kön', start: 'Packa', community: 'PS5-resultat'};
 let data = null;
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));

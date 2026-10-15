@@ -1,191 +1,239 @@
-# ps5-lz4: LZ4 HC-packning av PS5-spel på NAS:en
+# ps5-lz4: LZ4 HC packing of PS5 games on a NAS
 
-All extraktion, LZ4-komprimering, verifiering och filhantering sker i en
-Docker-container på NAS:en. Inget körs på PS5:an eller Macen.
+All extraction, LZ4 compression, verification and file handling happen in
+Docker containers on the NAS. Nothing runs on the PS5 except the game.
 
-- **Riktig LZ4 HC**, nivå 9 som standard: projektets egen packare
-  (`ampr_pack_cli`, samma C-kod som PS5-appen 1.4.2). Ingen zlib/PFSC.
-- **APR-EMU PackedStdio-runtime** (SHA-256 `69e6c4d5…`) läggs i
-  `fakelib/libSceAmpr.sprx`.
-- **Originalen rörs aldrig**: biblioteket monteras skrivskyddat (`:ro`) i
-  containern, och verktyget raderar bara i sin egen arbetsmapp.
-- **Containern har inget nätverk** (`network_mode: none`) och ändrar inga
-  andra containrar eller NAS-inställningar.
+- **Real LZ4 HC**, level 9 by default, with the original project's packer
+  (`ampr_pack_cli`, the same C code as the PS5 app). No zlib/PFSC.
+- **APR-EMU PackedStdio runtime** 0.4.2.1 (SHA-256 `69e6c4d5…`) goes into
+  `fakelib/libSceAmpr.sprx`. It is the only APR-EMU build that reads LZ4 packs.
+- **Originals are never touched:** the library is mounted read-only (`:ro`),
+  and the tool only deletes inside its own work folder.
+- **The packing container has no network** (`network_mode: none`) and changes
+  no other containers or NAS settings.
 
-## Installation
+![Web page](../.github/screenshot.png)
 
-Som root på NAS:en (`sudo -i`):
+## Install
+
+As root on the NAS (`sudo -i`):
 
 ```sh
 mkdir -p /volume2/docker/ps5-lz4 && cd /volume2/docker/ps5-lz4
-curl -L https://github.com/dviree/PS5-LZ4-NAS/archive/refs/heads/nas-build.tar.gz | tar xz
-mv PS5-LZ4-NAS-nas-build src
+curl -fL https://github.com/dviree/PS5-LZ4-NAS/archive/refs/heads/main.tar.gz -o src.tar.gz \
+  && tar xzf src.tar.gz && mv PS5-LZ4-NAS-main src && rm src.tar.gz
 
-# 1. Kontrollera bara: arkitektur, Docker, kataloger, ledigt utrymme,
-#    befintliga filer och containrar. Ändrar ingenting.
+# 1. Check only: architecture, Docker, folders, free space, existing files
+#    and containers. Changes nothing.
 bash src/nas-lz4/install.sh --check
 
-# 2. Installera (bygget tar några minuter, därför nohup)
-nohup bash src/nas-lz4/install.sh > install.log 2>&1 &
-tail -f install.log
+# 2. Install
+nohup bash src/nas-lz4/install.sh > install.log 2>&1
+tail -20 install.log
 ```
 
-Installationen:
+The install:
 
-- skapar `docker-compose.yml`, `.env`, `lz4-ps5.sh`, `logs/`, `reports/` och
-  `state/` i `/volume2/docker/ps5-lz4/`;
-- bygger imagen `ps5-lz4:local` (logg: `logs/build.log`);
-- startar containern `ps5-lz4`;
-- kör en självkontroll (`doctor`) och listar biblioteket.
+- writes `docker-compose.yml`, `.env`, `lz4-ps5.sh`, `logs/`, `reports/` and
+  `state/` into `/volume2/docker/ps5-lz4/`;
+- pulls the image `ghcr.io/dviree/ps5-lz4:latest` (or builds it on the NAS
+  when it can't be pulled; log: `logs/build.log`);
+- starts the containers `ps5-lz4` (packing, no network) and `ps5-lz4-ui`
+  (web page);
+- runs a self-check (`doctor`), lists the library and prints the web page
+  address.
 
-Filer från ett tidigare skript (`Dockerfile`, `lz4-ps5.sh` m.fl.)
-säkerhetskopieras till `backup-<tid>/` och skrivs inte över utan backup. En
-gammal `/volume1/games/ps5-lz4/.work/` lämnas orörd; verktyget använder
-`.ps5lz4-work/`.
+Files from an earlier script (`Dockerfile`, `lz4-ps5.sh` and others) are
+backed up to `backup-<time>/` before anything is replaced. An old
+`/volume1/games/ps5-lz4/.work/` is left alone; the tool uses `.ps5lz4-work/`.
 
-Standardvärden går att ändra med miljövariabler, t.ex.
-`NAS_USER=sureahad LIBRARY=/volume1/games/roms/ps5 OUTPUT=/volume1/games/ps5-lz4 bash src/nas-lz4/install.sh`.
+Defaults can be changed with environment variables, for example
+`NAS_USER=me LIBRARY=/volume1/games/roms/ps5 OUTPUT=/volume1/games/ps5-lz4 UI_PORT=5921 bash src/nas-lz4/install.sh`.
 
-## Uppdateringar och Watchtower
+## Updates and Watchtower
 
-GitHub bygger imagen `ghcr.io/dviree/ps5-lz4:latest` efter varje ändring,
-också när forken hämtar nytt från originalprojektet. Installationen hämtar
-den, och Watchtower håller den uppdaterad. Går den inte att hämta byggs
-imagen på NAS:en i stället, och då lämnar Watchtower containern ifred.
+GitHub builds `ghcr.io/dviree/ps5-lz4:latest` after every change, including
+each sync from the original project. Watchtower keeps it up to date. If the
+image can't be pulled it is built on the NAS instead, and Watchtower leaves
+that container alone.
 
-- Med `WATCHTOWER_LIFECYCLE_HOOKS=true` på Watchtower-containern väntar
-  Watchtower med uppdateringen tills inget spel packas.
-- Startar containern om fortsätter en ofärdig kö efter senast klara steg.
+- With `WATCHTOWER_LIFECYCLE_HOOKS=true` on the Watchtower container,
+  Watchtower waits until no game is being packed.
+- When the container restarts, an unfinished queue continues after the last
+  finished step.
+- `./lz4-ps5.sh update` pulls the newest image right away (it refuses while a
+  game is packed).
 
-## Webbsida
+## Web page
 
-`http://<NAS-IP>:5921` (annan port: `UI_PORT=5930 bash src/nas-lz4/install.sh`).
-Visar biblioteket (LZ4 / kan bli LZ4 / inte LZ4 med orsak), pågående jobb
-steg för steg, kön, besparingar, ditt PS5-resultat och communityns rapporter.
-Knappar: packa ett spel, **Fixa allt** (reparerar alla färdiga LZ4-spel och
-packar alla som kan bli LZ4), stoppa, fortsätt kön och spara PS5-resultat
-(med länk för att dela det).
+`http://<NAS IP>:5921`
 
-Sidan körs i en egen container (`ps5-lz4-ui`). Den ser biblioteket och
-LZ4-spelen skrivskyddat, har ingen Docker-socket och kör aldrig jobb själv:
-den lämnar en beställning som `ps5-lz4` (utan nätverk) utför. Sidan har
-ingen inloggning, så den ska bara nås från ditt hemnätverk.
+- **Library:** every game with its source type (game folder, exFAT image,
+  `.ffpfsc`, `.ffpfs`) and size, LZ4 status (LZ4 / can be LZ4 / not LZ4 with
+  the reason), original and LZ4 size with the saving, your PS5 result and the
+  community reports. Games that exist only in the LZ4 folder are listed too.
+- **Click a game** for details (sizes, LZ4 folder, compression, checks, last
+  error, community reports) and the buttons **Komprimera** (compress),
+  **Överför till PS5** (send to PS5) and the PS5 result.
+- **Kontrollera** (check): read-only check of every LZ4 game (format,
+  APR-EMU, files the PS5 reads from disk) and of what can still become LZ4.
+- **Komprimera allt** (compress all): compresses every game that can be LZ4,
+  one at a time, and first repairs finished LZ4 games where needed.
+- **Running job:** the six steps with live progress and a stop button (the
+  job can be resumed).
+- **Community tab:** every game reported by other players, with search,
+  filters and sorting.
+- **Send to the PS5**, **wake** and **pair**: see below.
 
-## Kommandon
+The page runs in its own container (`ps5-lz4-ui`). It sees the library and
+the LZ4 games read-only, has no Docker socket and never runs packing jobs: it
+leaves a request that `ps5-lz4` (no network) carries out. Transfers to the
+PS5 run in `ps5-lz4-ui` because they need the network. The page has no
+login, so only reach it from your home network (or over a VPN such as
+Tailscale), never through a router port forward.
 
-Kör från `/volume2/docker/ps5-lz4/` med `sudo` (Docker kräver root). Jobben
-körs inne i containern som din användare, så filerna ägs av `sureahad`.
+## Send to the PS5
 
-| Kommando | Vad det gör |
+Under **Överföring till PS5** set the PS5's FTP address (ftpsrv, for example
+`192.168.1.20:2121`) and the destination (for example `/mnt/usb0/homebrew`).
+**Överför till PS5** on a game then:
+
+- copies the LZ4 folder straight to ftpsrv (not through an rclone mount);
+- turns off ftpsrv's SELF decryption, which would otherwise report other
+  sizes for program files;
+- refuses if the destination already holds another copy of the same title ID
+  (ShadowMountPlus mounts one copy per title);
+- checks the size of every file and compares the program files (`eboot.bin`,
+  `.prx`, `.sprx`) by SHA-256, uploading one again if it differs;
+- resumes an interrupted transfer by skipping finished files.
+
+### Wake from rest mode and pair (like Chiaki)
+
+If the PS5 doesn't answer, the transfer wakes it first with the Remote Play
+wake-up Chiaki uses, waits for ftpsrv and then copies. That needs the
+registration key, which you get by **pairing**:
+
+1. On the PS5: Settings › System › Remote Play › Link Device. An 8-digit PIN
+   is shown.
+2. On the page under **Koppla PS5:an**: the PSN account ID (base64 as in
+   Chiaki, decimal, or 0x-hex; with a fake signed-in account it is the ID the
+   activation tool set) and the PIN, then **Koppla**.
+
+If you have already paired in Chiaki, you can enter its `rp_regist_key`
+(up to 8 hex characters) instead. The keys are stored in
+`state/settings.json` (readable by the owner only) and never sent back to the
+page. The pairing code is a port of chiaki-ng's registration
+(`ps5regist.py`, AGPL-3.0).
+
+## Commands
+
+Run from `/volume2/docker/ps5-lz4/` with `sudo` (Docker needs root). Jobs run
+inside the container as your NAS user, so the files belong to that user.
+
+| Command | What it does |
 | --- | --- |
-| `./lz4-ps5.sh lz4` | En rad per spel: `LZ4` (klart och formatet kontrollerat), `kan bli LZ4`, `inte LZ4` (med orsak) eller `FEL` |
-| `./lz4-ps5.sh lz4 --fix` | Packar alla spel som kan bli LZ4, i bakgrunden |
-| `./lz4-ps5.sh community` | Hur spelen fungerar för andra (rapporter från originalprojektet) och ditt eget PS5-resultat |
-| `./lz4-ps5.sh community <spel> works` | Sparar ditt resultat (`works`, `issues`, `nostart`, `crash`) och ger en länk för att dela det |
-| `./lz4-ps5.sh scan --check` | Listar biblioteket med nummer, status och om spelet kan använda LZ4 (läser `eboot.bin` direkt ur `.exfat` utan extraktion) |
-| `./lz4-ps5.sh start 3` | Startar spel nr 3 i bakgrunden (nohup). Flera spel blir en kö: `start 3 5 "Mitt spel.exfat" PPSA12345` |
-| `./lz4-ps5.sh start --all` | Alla spel som inte är klara |
-| `./lz4-ps5.sh run 3` | Samma som `start`, men i förgrunden |
-| `./lz4-ps5.sh status` | Pågående jobb, steg och förlopp, kö och fel |
-| `./lz4-ps5.sh stop` | Stoppar jobbet; arbetet sparas |
-| `./lz4-ps5.sh start --resume` | Fortsätter en stoppad eller avbruten kö (även efter omstart av container/NAS) efter senast klara steg |
-| `./lz4-ps5.sh report` | Originalstorlek, LZ4-storlek och besparing per spel och totalt |
-| `./lz4-ps5.sh verify "Mitt spel-lz4"` | Verifierar ett färdigt resultat igen (alla block avkodas, CRC) |
-| `./lz4-ps5.sh clean <namn>` | Tar bort arbetsmappen för ett misslyckat spel |
-| `./lz4-ps5.sh update` | Hämtar senaste imagen och startar om containern direkt (väntar inte på Watchtower; vägrar om ett spel packas) |
-| `./lz4-ps5.sh push <spel>` | För över ett färdigt LZ4-spel till PS5:an via FTP och kontrollerar det (FTP-adress sätts på webbsidan eller med `PS5LZ4_PS5_FTP`) |
-| `docker exec -u <PUID> ps5-lz4-ui ps5lz4 wake` | Väcker PS5:an från viloläge med Remote Play-nyckeln (som Chiaki). Webbsidan gör det automatiskt vid överföring |
-| `docker exec -u <PUID> ps5-lz4-ui ps5lz4 pair <PIN> <konto-ID>` | Kopplar NAS:en till PS5:an för Remote Play-väckning, som Chiaki (PIN från *Fjärrspel › Länka enhet*). Webbsidan har samma knapp |
-| `./lz4-ps5.sh doctor` | Självkontroll |
+| `./lz4-ps5.sh lz4` | One line per game: `LZ4` (done, format checked), `kan bli LZ4` (can be LZ4), `inte LZ4` (not LZ4, with the reason) or `FEL` (error) |
+| `./lz4-ps5.sh lz4 --fix` | Packs every game that can be LZ4, in the background |
+| `./lz4-ps5.sh apr` / `apr --fix` | Checks / repairs every LZ4 game: pinned APR-EMU and the files the PS5 reads from disk |
+| `./lz4-ps5.sh community` | How the games run for others (reports from the original project) and your own PS5 result |
+| `./lz4-ps5.sh community <game> works` | Saves your result (`works`, `issues`, `nostart`, `crash`) and prints a prefilled link to share it |
+| `./lz4-ps5.sh scan --check` | Lists the library with numbers, status and LZ4 compatibility (reads `eboot.bin` straight from `.exfat` images) |
+| `./lz4-ps5.sh start 3` | Starts game 3 in the background. Several games make a queue: `start 3 5 "My game.exfat" PPSA12345` |
+| `./lz4-ps5.sh start --all` | Every game that isn't done |
+| `./lz4-ps5.sh run 3` | Like `start`, in the foreground |
+| `./lz4-ps5.sh status` | Running job, step and progress, queue and errors |
+| `./lz4-ps5.sh stop` | Stops the job; the work is kept |
+| `./lz4-ps5.sh start --resume` | Continues a stopped or interrupted queue after the last finished step |
+| `./lz4-ps5.sh report` | Original size, LZ4 size and saving per game and in total |
+| `./lz4-ps5.sh verify "My game-lz4"` | Verifies a finished result again (every block decoded, CRC) |
+| `./lz4-ps5.sh clean <name>` | Removes the work folder of a failed game |
+| `./lz4-ps5.sh update [--force]` | Pulls the newest image and restarts the containers now |
+| `./lz4-ps5.sh push <game>` | Sends a finished LZ4 game to the PS5 over FTP and checks it |
+| `docker exec -u <PUID> ps5-lz4-ui ps5lz4 wake` | Wakes the PS5 from rest mode |
+| `docker exec -u <PUID> ps5-lz4-ui ps5lz4 pair <PIN> <account ID>` | Pairs with the PS5 for Remote Play wake-up |
+| `./lz4-ps5.sh doctor` | Self-check |
 
-Alternativ till `start`/`run`: `--level N` (1–4 LZ4 fast, 5–12 LZ4 HC,
-standard 9), `--require-vhash` (hoppa över `.ffpfsc` utan `.vhash`) och
-`--force-image` (packa en image även om samma spel finns som mapp).
+Options for `start`/`run`: `--level N` (1–4 LZ4 fast, 5–12 LZ4 HC, default
+9), `--require-vhash` (skip `.ffpfsc` images without a `.vhash`) and
+`--force-image` (pack an image even when the same game exists as a folder).
 
-**Testa ett spel först:** `scan --check`, sedan `start <nr>` för ett
-kompatibelt spel, sedan `status` och `report`. Kontrollera det på PS5:an
-innan du kör `start --all`.
+**Try one game first:** `scan --check`, then `start <#>` for a compatible
+game, then `status` and `report`. Test it on the PS5 before `start --all`.
 
-## Vad som händer med varje spel
+## What happens to each game
 
-1. **Källa**
-   - **Spelmapp:** används direkt (skrivskyddad), ingen extraktion.
-   - **`.exfat`:** extraheras med MkPFS 1.1.0:s exFAT-läsare (ingen mount,
-     ingen privilegierad container). Varje fil kontrolleras mot imagens
-     katalog: att den finns och har rätt storlek.
-   - **`.ffpfs` / `.ffpfsc`:** först packas den yttre PFS-imagen upp, sedan
-     den inre (`pfs_image.dat` eller `.exfat`). Om `<image>.vhash` finns
-     (skrivs av PS5-appen/Game Compressor) kontrolleras varje 64 KiB-block i
-     den inre imagen mot dess SHA-256. Avvikelse = jobbet stoppas.
-   - Finns samma spel (samma Title ID) både som mapp och som image används
-     mappen och imagen hoppas över.
-2. **Kompatibilitet** (samma regel som PS5-appen): spelet måste importera
-   `libSceAmpr` i `eboot.bin` eller `sce_module/*.prx`, eller redan ha
-   APR-EMU i `fakelib/`. Annars hoppas det över. Redan LZ4-packade spel och
-   spel där LZ4 inte kan krympa något hoppas också över.
-3. **Packning:** LZ4 HC på alla kärnor utom en (N100: 3 workers), med
-   lägre prioritet (`nice`/`ionice`) så att andra tjänster inte svälts.
-   Profilen väljs automatiskt: en egen TOML i
-   `state/profiles/<TITLEID>.toml`, annars en medföljande profil (ASTRO BOT,
-   UFC 6, Insomniac, Unity), annars den skanningsbaserade. Packaren jämför
-   varje packad fil byte för byte med källan.
-4. **Verifiering:**
-   - `ampr_pack_cli verify` kontrollerar manifest och CRC, avkodar varje
-     chunk och jämför igen byte för byte med källan.
-   - Formatet kontrolleras: `AMPRPAK4`-index, `AMPRDAT3`-volymer, sidecars
-     och att runtime-filen är exakt den fastlåsta PackedStdio-versionen.
-5. **Återställningstest:** allt packas upp till en temporär mapp och varje
-   fil jämförs byte för byte med källan. Bara `ampr_emu.index` och
-   `fakelib/libSceAmpr.sprx` får skilja sig (de läggs till eller byts ut
-   avsiktligt).
-6. **Publicering:** resultatet flyttas till
-   `/volume1/games/ps5-lz4/<namn>-lz4/`. Rapporten skrivs till
-   `reports/<namn>.json` och `summary.tsv`. Arbetsmappen (extraktion,
-   verktygsloggar) raderas. En kort logg per spel finns kvar i
-   `logs/<namn>.log`.
+1. **Source**
+   - **Game folder:** used as it is (read-only), no extraction.
+   - **`.exfat`:** extracted with MkPFS 1.1.0's exFAT reader (no mount, no
+     privileged container). Every file is checked against the image's
+     directory: present and the right size.
+   - **`.ffpfs` / `.ffpfsc`:** the outer PFS image is unpacked, then the
+     inner one (`pfs_image.dat` or `.exfat`). If `<image>.vhash` exists
+     (written by the PS5 app or Game Compressor), every 64 KiB block of the
+     inner image is checked against its SHA-256; a mismatch stops the job.
+   - When the same game (title ID) exists as a folder and as an image, the
+     folder is used and the image skipped.
+2. **Compatibility** (the PS5 app's rule): a program file must import
+   `libSceAmpr`, or the game already ships APR-EMU in `fakelib/`. Otherwise
+   it is skipped. Already packed games and games LZ4 can't shrink are
+   skipped too.
+3. **Packing:** LZ4 HC on all cores but one, at lower priority (`nice` /
+   `ionice`) so other services keep running. The profile is chosen
+   automatically: your own TOML in `state/profiles/<TITLEID>.toml`, else a
+   bundled one (ASTRO BOT, UFC 6, Insomniac, Unity), else the scan-based
+   one. The packer compares every packed file byte for byte with the source.
+4. **Verification:**
+   - `ampr_pack_cli verify` checks the manifest and CRC, decodes every chunk
+     and compares it byte for byte with the source again.
+   - The format is checked: `AMPRPAK4` index, `AMPRDAT3` volumes, sidecars,
+     and that the runtime is exactly the pinned PackedStdio build.
+5. **Restore test:** everything is unpacked to a temporary folder and every
+   file compared byte for byte with the source. Only `ampr_emu.index` and
+   `fakelib/libSceAmpr.sprx` may differ (they are added or replaced on
+   purpose).
+6. **Publish:** the result moves to `/volume1/games/ps5-lz4/<name>-lz4/`, the
+   report is written to `reports/<name>.json` and `summary.tsv`, and the work
+   folder is deleted. A short log per game stays in `logs/<name>.log`.
 
-Misslyckas något steg behålls arbetsmappen i
-`/volume1/games/ps5-lz4/.ps5lz4-work/<namn>/` för felsökning (`status` visar
-felet). Kör samma spel igen så fortsätter det efter senast klara steg.
-Ett steg som avbröts mitt i görs om från början. Ett befintligt resultat
-skrivs aldrig över.
+If a step fails the work folder stays in
+`/volume1/games/ps5-lz4/.ps5lz4-work/<name>/` for troubleshooting (`status`
+shows the error). Running the same game again continues after the last
+finished step; a step that was interrupted is redone. An existing result is
+never overwritten.
 
-Utrymme: allt stort hamnar på `/volume1`. Räkna med ungefär 3× spelets
-uppackade storlek ledigt under jobbet (extraktion + packar +
-återställningstest); verktyget kontrollerar det före varje steg och
-behåller 20 GB marginal (`PS5LZ4_FREE_MARGIN_GB` i `docker-compose.yml`).
+Space: everything large goes to the output volume. Plan for about 3× the
+game's unpacked size free during a job (extraction + packs + restore test).
+The tool checks before every step and keeps a 20 GB margin
+(`PS5LZ4_FREE_MARGIN_GB`).
 
-## Verifierat på NAS:en ≠ spelbart på PS5
+## Verified on the NAS is not tested on the PS5
 
-`verified_on_nas: true` i rapporten betyder att LZ4-paketen är korrekta: varje
-fil kommer tillbaka byte för byte. Det betyder **inte** att spelet är testat
-på konsolen (`playable_on_ps5: not tested`). Att spela kräver:
+`verified_on_nas: true` means the LZ4 packs are correct: every file comes back
+byte for byte. It does **not** mean the game was tested on the console. To
+play it, it needs:
 
-- **Ett annat format än `.ffpfsc`.** Resultatet är en vanlig spelmapp med
-  `ampr_assets.index`, `.pak`-volymer, sidecars, `ampr_emu.index` och
-  `fakelib/libSceAmpr.sprx`.
-- **Rätt runtime.** Paketen kan bara läsas av APR-EMU PackedStdio-runtime
-  (0.4.2.1), som ligger i mappen. Byt den inte mot en annan APR-EMU-version.
-- **ShadowMountPlus** som laddar `fakelib/libSceAmpr.sprx` i stället för
-  systemmodulen. Kopiera mappen till konsolen, t.ex. `/data/homebrew/` eller
-  en extern disk, så tar ShadowMountPlus upp den. Uppströmsprojektet är
-  testat på firmware 13.60 med ShadowMountPlus 1.7.
-- **Rätt profil.** Resultatet varierar mellan spel. Uppströms säger att en
-  trace-baserad profil är säkrare än den automatiska; lägg en sådan TOML i
-  `state/profiles/<TITLEID>.toml`.
-- **Behåll originalet tills spelet har startats.** Uppströms har LZ4 från
-  `.ffpfsc`-källor ännu inte testats på konsol.
+- **ShadowMountPlus**, which loads `fakelib/libSceAmpr.sprx` instead of the
+  system module. Copy the folder to the console (for example `/data/homebrew/`
+  or an external drive). Keep one copy per title ID there.
+- **The right runtime.** Only APR-EMU PackedStdio 0.4.2.1 reads the packs, and
+  it is in the folder. Don't replace it with another APR-EMU version;
+  `Kontrollera` / `apr` find it if something did.
+- **The right profile.** Results vary per game; a trace-based profile in
+  `state/profiles/<TITLEID>.toml` is safer than the automatic one.
+- **The original until it has run.** Keep it until the game has started.
 
-## Filer
+Mark the result on the web page and share it with the community.
+
+## Files
 
 ```
 /volume2/docker/ps5-lz4/
-  src/                  källkod (det här repot)
+  src/                  source (this repository)
   docker-compose.yml    .env    lz4-ps5.sh
-  logs/                 build.log, <spel>.log, queue-*.log
-  reports/              <spel>.json, <spel>.skipped.json, summary.tsv
-  state/                kö, lås, egna profiler (state/profiles/)
+  logs/                 build.log, <game>.log, queue-*.log
+  reports/              <game>.json, <game>.skipped.json, summary.tsv
+  state/                queue, lock, settings, own profiles (state/profiles/)
 /volume1/games/ps5-lz4/
-  <spel>-lz4/           färdiga LZ4-spel
-  .ps5lz4-work/         arbetsmappar (tomma efter lyckade jobb)
+  <game>-lz4/           finished LZ4 games
+  .ps5lz4-work/         work folders (empty after successful jobs)
 ```

@@ -2086,7 +2086,7 @@ def run_request(req: dict) -> dict:
                 "\n\nBiblioteket:\n" + (lst.stdout + lst.stderr).strip())
         return {"ok": rep.returncode == 0, "output": text[-3000:]}
     if action == "fix":
-        # "Fixa allt": repair every finished LZ4 game (APR-EMU, on-disk boot
+        # "Komprimera allt": repair every finished LZ4 game (APR-EMU, on-disk boot
         # files), then queue every game that can still become LZ4.
         rep = subprocess.run(me + ["apr", "--fix"], capture_output=True, text=True, timeout=6 * 3600)
         out = subprocess.run(me + argv, capture_output=True, text=True, timeout=6 * 3600)

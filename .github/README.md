@@ -6,7 +6,9 @@ except the game. A fork of
 [theghostonline/PS5-LZ4-Compression](https://github.com/theghostonline/PS5-LZ4-Compression),
 kept in sync with it every six hours.
 
-Swedish user guide: [nas-lz4/README.md](../nas-lz4/README.md).
+Full guide: [nas-lz4/README.md](../nas-lz4/README.md).
+
+![Web page](screenshot.png)
 
 ## What it does
 
@@ -22,8 +24,8 @@ Swedish user guide: [nas-lz4/README.md](../nas-lz4/README.md).
 - **Originals are never changed:** the library is mounted read-only.
 - **Web page** (port 5921): library with LZ4 status, source type and size,
   live job steps and progress, savings per game, one-click **Komprimera**,
-  **Kontrollera** (read-only check) and **Fixa allt** (repair finished games and
-  pack the rest), and the **community game reports** from the original project
+  **Kontrollera** (read-only check) and **Komprimera allt** (compress every game
+  that can be LZ4, repairing finished ones), and the **community game reports** from the original project
   on every title and in their own tab.
 - **Send to the PS5** over FTP (ftpsrv, port 2121): SELF decryption turned off,
   every file size checked, program files compared by SHA-256, duplicate title
