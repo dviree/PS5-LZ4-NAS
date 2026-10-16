@@ -27,8 +27,8 @@ header h1{font-size:17px;margin:0;letter-spacing:-.2px}.sub{color:var(--mut);fon
 .sp{flex:1}
 .hacts{display:flex;gap:8px;flex-wrap:wrap}
 /* buttons */
-button,label.btn{font:inherit;font-weight:600;border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:8px 15px;cursor:pointer;background:linear-gradient(135deg,var(--btn1),var(--btn2));color:#fff;text-shadow:0 1px 1px rgba(40,0,80,.25);box-shadow:4px 4px 10px var(--nd),-4px -4px 10px var(--nl),inset 0 1px 0 rgba(255,255,255,.22);transition:filter .15s,transform .08s,box-shadow .15s;display:inline-flex;align-items:center;gap:6px;line-height:1.3}
-button:hover,label.btn:hover{filter:brightness(1.08) saturate(1.05);box-shadow:0 4px 16px var(--btnglow),inset 0 1px 0 rgba(255,255,255,.25)}
+button,label.btn,a.btn{text-decoration:none;font:inherit;font-weight:600;border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:8px 15px;cursor:pointer;background:linear-gradient(135deg,var(--btn1),var(--btn2));color:#fff;text-shadow:0 1px 1px rgba(40,0,80,.25);box-shadow:4px 4px 10px var(--nd),-4px -4px 10px var(--nl),inset 0 1px 0 rgba(255,255,255,.22);transition:filter .15s,transform .08s,box-shadow .15s;display:inline-flex;align-items:center;gap:6px;line-height:1.3}
+button:hover,label.btn:hover,a.btn:hover{filter:brightness(1.08) saturate(1.05);box-shadow:0 4px 16px var(--btnglow),inset 0 1px 0 rgba(255,255,255,.25)}
 button:active{transform:translateY(1px)}
 button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--btn1);outline-offset:2px}
 button.pri{background:var(--pri);box-shadow:0 4px 18px var(--btnglow),inset 0 1px 0 rgba(255,255,255,.3)}
@@ -457,12 +457,16 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
 <main id="p-up" hidden>
   <div class="card">
     <div class="dhead"><h2 style="margin:0">PS5 Upload</h2><span class="sp"></span>
-      <a class="sm" id="up-open" target="_blank" rel="noopener">Open in a new tab ↗</a></div>
+      <a class="btn" id="up-open" target="_blank" rel="noopener">Open in a new tab ↗</a></div>
     <div class="mut"><a href="https://github.com/phantomptr/ps5upload" target="_blank" rel="noopener">ps5upload</a> (GPL-3.0) by phantomptr,
     its own engine and web UI, running in its own container on this NAS: uploads with resume, installs, collection, file browser,
     cheats, fan curve and more. Address of its web UI:
       <input id="up-url" placeholder="http://NAS:19113" style="font:inherit;padding:4px 8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--txt);min-width:240px" onchange="saveUp(this.value)">
     </div>
+    <div class="mut" style="margin-top:6px">Forgets the PS5? It keeps the PS5's address in the browser, and Safari gives a page
+    shown inside another page its own storage that it may throw away: open it in a new tab (and add that to the home screen).
+    Its pairing key lives in the container's <code>/data</code>: map <code>/data</code> to a folder on the NAS, or every container
+    update makes a new key the PS5 refuses.</div>
     <div id="up-msg" class="why"></div>
     <iframe id="up-frame" title="PS5 Upload" style="width:100%;height:78vh;border:0;border-radius:14px;margin-top:10px;background:#111" hidden></iframe>
   </div>
