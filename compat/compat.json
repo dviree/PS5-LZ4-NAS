@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T09:38:30Z",
+ "updated": "2026-10-16T11:07:47Z",
  "games": {
   "PPSA01593": {
    "name": "Hogwarts Legacy",
@@ -209,6 +209,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-14T21:29:31Z",
     "issue": 15
+   }
+  },
+  "PPSA17221": {
+   "name": "Minecraft",
+   "works": 0,
+   "issues": 0,
+   "noStart": 1,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "noStart",
+    "game": "Minecraft",
+    "gameVersion": "01.044.000",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T11:07:36Z",
+    "issue": 38
    }
   },
   "PPSA17942": {
