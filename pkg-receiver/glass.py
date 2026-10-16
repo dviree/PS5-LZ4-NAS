@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-REV = "glass.7"  # build suffix; bump it on every change so the NAS restarts the receiver
+REV = "glass.8"  # build suffix; bump it on every change so the NAS restarts the receiver
 
 
 def c_lines(css: str) -> str:

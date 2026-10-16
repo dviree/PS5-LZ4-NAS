@@ -428,6 +428,8 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
 <main id="p-smp" hidden>
   <div class="card">
     <div class="dhead"><h2 style="margin:0">ShadowMount library</h2><span class="sp"></span>
+      <button class="sm" onclick="smpLog('smp_log')">ShadowMount log</button>
+      <button class="sm" onclick="smpLog('smp_klog')">Kernel log</button>
       <button class="sm" onclick="smpAct('smp_scan', '', '', 'Ask ShadowMountPlus to scan for games now?')">Rescan</button>
       <button class="sm" onclick="loadSmp()">Refresh</button></div>
     <div class="mut" id="smp-sub"><b id="smp-count"></b> The games ShadowMountPlus has put on the PS5's home screen, read from its own API through pkg-receiver
@@ -435,6 +437,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     alone, but the next scan finds it again; <b>Hide</b> also renames its folder or image with a leading dot, so it stays off until you
     rename it back (PS5 games tab, ⚠ Needs attention, Fix).</div>
     <div class="filters"><input id="smp-q" placeholder="Search name or Title ID" oninput="renderSmp()"></div>
+    <div id="smp-log" hidden></div>
     <div id="smp-list" class="pg-grid"></div>
   </div>
 </main>
@@ -1459,6 +1462,26 @@ function renderSmp() {
           ${g.installed && g.can_uninstall !== false && g.path && !g.path.split('/').pop().startsWith('.') ? `<button class="sm danger" data-t="${esc(g.title_id)}" data-p="${esc(g.path)}" data-n="${esc(g.title_name || g.title_id)}" onclick="smpAct('smp_hide', this.dataset.t, this.dataset.p, 'Hide ' + this.dataset.n + '?\n\nThe tile goes off the home screen and its source is renamed with a leading dot, so scans skip it. Nothing is deleted.')">Hide</button>` : ''}
         </div>
       </div></div>`).join('') : '<div class="mut">No games.</div>';
+}
+async function smpLog(action) {
+  const el = document.getElementById('smp-log');
+  el.hidden = false; el.innerHTML = '<div class="mut">Reading the log…</div>';
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { el.innerHTML = `<div class="bad">${esc(j.error || r.status)}</div>`; return; }
+  // The log text is the longest string (or list of strings) in the answer.
+  let text = '';
+  for (const v of Object.values(j)) {
+    const t = Array.isArray(v) ? v.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join('\n') : typeof v === 'string' ? v : '';
+    if (t.length > text.length) text = t;
+  }
+  const lines = (text || JSON.stringify(j, null, 2)).split('\n');
+  const bad = /error|fail|denied|panic|abort|cannot|can't|unable|invalid|timeout/i;
+  const nbad = lines.filter(l => bad.test(l)).length;
+  el.innerHTML = `<div class="dhead" style="margin-top:10px"><b>${action === 'smp_log' ? 'ShadowMount debug log' : 'Kernel log'}</b>
+      <span class="mut">${lines.length} lines${nbad ? ` · <span class="bad">${nbad} with errors</span>` : ''}</span><span class="sp"></span>
+      <button class="sm" onclick="document.getElementById('smp-log').hidden=true">Close</button></div>
+    <pre class="log" style="max-height:340px;overflow:auto;white-space:pre-wrap">${lines.slice(-400).map(l => bad.test(l) ? `<span class="bad">${esc(l)}</span>` : esc(l)).join('\n')}</pre>`;
 }
 async function smpAct(action, tid, path, question) {
   if (question && !confirm(question)) return;

@@ -1,7 +1,7 @@
 /* ShadowMountPlus (PS5-LZ4 NAS): SMP's HTTP/JSON API listens on
  * 127.0.0.1:10101, on the PS5 only; this passes a fixed set of its routes
  * through for the NAS page (list games, icons, unmount, uninstall = take a
- * game off the home screen without touching its source, rescan). Nothing
+ * game off the home screen without touching its source, rescan, its logs). Nothing
  * that moves or deletes a source is passed.
  *   POST /api/smp?route=/api/v1/games   (body: SMP's JSON request)
  *   GET  /api/smp-icon?title_id=PPSA01234 */
@@ -10,7 +10,7 @@
 
 static const char *smp_routes[] = { "/api/v1/version", "/api/v1/games",
     "/api/v1/games/info", "/api/v1/games/unmount", "/api/v1/games/uninstall",
-    "/api/v1/scan", "/api/v1/storage", NULL };
+    "/api/v1/scan", "/api/v1/storage", "/api/v1/debug-log", "/api/v1/kernel-log", NULL };
 
 /* One request to SMP; returns the response body (malloc'ed, NUL-ended) or
  * NULL. *len gets its length. */

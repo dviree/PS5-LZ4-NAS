@@ -3606,6 +3606,29 @@ def saves_zip(h, backup: str) -> None:
                 z.write(p, p.relative_to(d).as_posix())
 
 
+def metrics_text() -> str:
+    """Prometheus metrics (idea from ps5-exporter): the library, packing,
+    transfers, downloads by the PS5 and save backups; GET /metrics."""
+    out = []
+
+    def m(name, help_, value, labels=""):
+        out.append(f"# HELP ps5lz4_{name} {help_}\n# TYPE ps5lz4_{name} gauge\nps5lz4_{name}{labels} {value}")
+    reports = [read_json(f, {}) or {} for f in (REPORTS.glob("*.json") if REPORTS.is_dir() else [])]
+    m("lz4_games", "LZ4 games packed and verified on the NAS", len([r for r in reports if r.get("finished")]))
+    m("saved_bytes", "bytes saved by LZ4 packing", sum(r.get("saved_bytes") or 0 for r in reports))
+    m("job_running", "1 while a packing job runs", 1 if job_running()[0] else 0)
+    xs = [read_json(f, {}) or {} for f in transfer_files()]
+    m("transfer_running", "1 while a transfer to the PS5 runs", 1 if any(x.get("state") == "running" for x in xs) else 0)
+    m("transfer_queue", "games waiting to be sent to the PS5", len(transfer_queue()))
+    m("transfers_failed", "transfers that ended failed", len([x for x in xs if x.get("state") == "failed"]))
+    dl = dl_snapshot()
+    m("ps5_downloads_active", "packages or images the PS5 is downloading from the NAS",
+      len([d for d in dl if d["status"] == "downloading"]))
+    m("ps5_download_rate_bytes", "bytes per second the PS5 downloads from the NAS", sum(d["rate"] for d in dl))
+    m("save_backups", "save data backups on the NAS", len([d for d in SAVES.iterdir() if d.is_dir()]) if SAVES.is_dir() else 0)
+    return "\n".join(out) + "\n"
+
+
 def ps5_notify(text: str, wait: bool = False) -> None:
     """A notification on the PS5 (pkg-receiver Glass build 7+, /api/notify);
     best effort, in the background (wait: up to 5 s, for a process about to end)."""
@@ -4610,6 +4633,30 @@ def pkg_catalog() -> list[dict]:
     return out
 
 
+FPKGI_REGION = {"UP": "USA", "EP": "EUR", "JP": "JAP", "HP": "ASIA", "KP": "ASIA", "IP": "ASIA"}
+
+
+def fpkgi_feed(kind: str, host: str) -> dict:
+    """The package library as an FPKGi feed (the PS5 store app that reads
+    {"DATA": {url: {name, size, region, version, release, min_fw, cover_url}}}
+    lists, idea from FPKGi / fpkgi-server): GAMES, UPDATES or DLC, with
+    download and cover links on this catalog port."""
+    import urllib.parse
+    want = {"GAMES": ("Game", "App"), "UPDATES": ("Update",), "DLC": ("DLC",)}.get(kind.upper(), ())
+    data = {}
+    for p in scan_pkgs():
+        if (p.get("category") or "Game") not in want:
+            continue
+        q = urllib.parse.quote(p["id"])
+        cid = p.get("content_id") or ""
+        data[f"http://{host}/pkg/{q}"] = {
+            "name": p.get("name") or p["file"], "size": p.get("size") or 0,
+            "title_id": p.get("title_id") or "", "region": FPKGI_REGION.get(cid[:2].upper(), ""),
+            "version": p.get("version") or "", "release": None, "min_fw": None,
+            "cover_url": f"http://{host}/icon/{q}" if p.get("icon") else None}
+    return {"DATA": data}
+
+
 def catalog_server() -> None:
     """Web page container: the pkg-sender style catalog on CATALOG_PORT."""
     import http.server
@@ -4639,6 +4686,9 @@ def catalog_server() -> None:
             path = self.path.split("?")[0]
             if path == "/catalog":
                 return self._json(pkg_catalog())
+            m = re.fullmatch(r"/fpkgi/(GAMES|UPDATES|DLC)\.json", path, re.I)
+            if m:
+                return self._json(fpkgi_feed(m.group(1), self.headers.get("Host") or f"127.0.0.1:{CATALOG_PORT}"))
             if path.startswith("/pkg/"):
                 return serve_pkg(self, unquote(path[5:]))
             if path.startswith("/icon/"):
@@ -5758,6 +5808,8 @@ def cmd_ui(args) -> int:
                 except ValueError:
                     key = ""
                 return self.send(200, json.dumps(_verify.get(key) or {"state": "none"}).encode())
+            if self.path == "/metrics":
+                return self.send(200, metrics_text().encode(), "text/plain; version=0.0.4")
             if self.path == "/api/saves":
                 return self.send(200, json.dumps({"job": _saves_job, "backups": saves_list()}).encode())
             if self.path.startswith("/api/saves/zip?"):
@@ -6057,6 +6109,8 @@ def cmd_ui(args) -> int:
                 try:
                     if a == "smp_scan":
                         res = smp("/api/v1/scan", {"reset_attempts": False})
+                    elif a in ("smp_log", "smp_klog"):
+                        res = smp("/api/v1/debug-log" if a == "smp_log" else "/api/v1/kernel-log", {})
                     elif not re.fullmatch(r"(CUSA|PPSA|LAPY|FAKE)\d{5}", tid):
                         raise ValueError("bad Title ID")
                     elif a == "smp_unmount":
