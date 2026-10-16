@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T23:13:28Z",
+ "updated": "2026-10-16T23:17:28Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -437,6 +437,25 @@
     "appVersion": "",
     "date": "2026-10-16T22:09:00Z",
     "issue": 54
+   }
+  },
+  "PPSA25153": {
+   "name": "Jurassic World Evolution 3",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Jurassic World Evolution 3",
+    "gameVersion": "",
+    "level": "7",
+    "source": "Folder",
+    "firmware": "13.40",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T23:17:19Z",
+    "issue": 60
    }
   },
   "PPSA25286": {
