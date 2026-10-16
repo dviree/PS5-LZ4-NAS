@@ -141,6 +141,18 @@ that container alone.
   next scan finds the game again); **Hide** also renames the source with a
   leading dot, so scans skip it until it is renamed back; **Unmount**;
   **Rescan**. Delete on the PS5 games tab also uses it to take a tile off.
+- **RAR archives (Activity tab):** a game in the library packed as RAR
+  parts (`name.part1.rar`, … or `name.rar` + `name.r00`, …) gets
+  **📦 Extract to exFAT**: unrar extracts it (checking every file's CRC)
+  into a hidden temp folder in `<library>/_extracted`, the game folder in it
+  is packed into `<name> [TITLEID].exfat` there and every file is compared
+  byte for byte, then the temp folder is removed. The image shows up in the
+  library like any other game. Only `_extracted` is mounted writable; the
+  RAR files stay unless you press **🗑 Delete RAR files**, which needs
+  `DELETE_ORIGINALS=yes` and a finished, checked image. A failed extract
+  keeps its temp folder for a look. Needs about twice the game's size free
+  for a while. The install script creates and mounts `_extracted`, so run
+  it again once.
 - **Saves tab** (idea from P5 Manager): **Back up all saves now** copies
   every save folder on the PS5 (`/user/home/<user>/savedata_prospero` for
   PS5 games and `savedata` for PS4 games) to `state/saves/<date>/` over FTP,

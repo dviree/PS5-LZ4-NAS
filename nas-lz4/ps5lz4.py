@@ -3847,11 +3847,12 @@ def image_state(key: str, **st) -> None:
     write_json(p, cur)
 
 
-def exfat_build(src: Path, final: Path, key: str, tmpdir: Path) -> int:
+def exfat_build(src: Path, final: Path, key: str, tmpdir: Path, state=None) -> int:
     """Pack folder src into the image final (through tmpdir on the same disk),
     then compare every file in the image with src byte for byte. Returns the
     image size. On failure the half-made image stays in tmpdir."""
     from mkpfs.exfat import ExfatReader  # pinned MkPFS 1.1.0
+    st = state or (lambda **kw: image_state(key, **kw))
     links = [p for p in src.rglob("*") if p.is_symlink()]
     if links:
         raise SystemExit(f"{src.name} has symlinks ({links[0].relative_to(src)}); exFAT can't hold them")
@@ -3863,7 +3864,7 @@ def exfat_build(src: Path, final: Path, key: str, tmpdir: Path) -> int:
         raise SystemExit(f"not enough free space for the image: {human(need)} needed, "
                          f"{human(free_bytes(tmpdir))} free")
     tmp = tmpdir / final.name
-    image_state(key, state="running", phase="building the image", done=0, total=total,
+    st(state="running", phase="building the image", done=0, total=total,
                 source=str(src), image=str(final), started=now(), error=None)
     with open(tmpdir / "mkpfs.log", "w") as log:
         proc = subprocess.Popen([MKPFS, "pack", "exfat", "--no-progress", "--overwrite", str(src), str(tmp)],
@@ -3874,7 +3875,7 @@ def exfat_build(src: Path, final: Path, key: str, tmpdir: Path) -> int:
                 got = tmp.stat().st_blocks * 512
             except OSError:
                 got = 0
-            image_state(key, done=min(got, total))
+            st(done=min(got, total))
             if IMAGE_STOP.exists():
                 proc.terminate()
                 proc.wait()
@@ -3883,7 +3884,7 @@ def exfat_build(src: Path, final: Path, key: str, tmpdir: Path) -> int:
         tail = (tmpdir / "mkpfs.log").read_text(errors="replace")[-600:]
         raise SystemExit(f"MkPFS could not build the image: {tail.strip()}")
     # Check: the same files, the same sizes, the same bytes.
-    image_state(key, phase="checking the image byte for byte", done=0, total=total)
+    st(phase="checking the image byte for byte", done=0, total=total)
     done = 0
     last = time.time()
     with open(tmp, "rb") as fh:
@@ -3904,7 +3905,7 @@ def exfat_build(src: Path, final: Path, key: str, tmpdir: Path) -> int:
                     done += len(chunk)
                     if time.time() - last > 3:
                         last = time.time()
-                        image_state(key, done=done)
+                        st(done=done)
                         if IMAGE_STOP.exists():
                             raise ImageStopped()
                 if f.read(1):
@@ -3913,6 +3914,177 @@ def exfat_build(src: Path, final: Path, key: str, tmpdir: Path) -> int:
     os.replace(tmp, final)
     shutil.rmtree(tmpdir, ignore_errors=True)
     return size
+
+
+# RAR archives in the library (a game as name.part1.rar, name.part2.rar, ...
+# or name.rar + name.r00, ...): extracted with unrar (CRC of every file
+# checked) into a hidden temp folder in LIBRARY/_extracted, packed into a
+# checked .exfat image there, and the temp folder removed. The archives stay
+# unless deleted on purpose (DELETE_ORIGINALS=yes).
+EXTRACTED = LIBRARY / "_extracted"
+EXTRACTS = STATE / "extract"
+_RAR_PART = re.compile(r"^(.*)\.part0*(\d+)\.rar$", re.I)
+_RAR_OLD = re.compile(r"^(.*)\.r(\d\d)$", re.I)
+
+
+def rar_sets(d: Path) -> list[dict]:
+    """The RAR sets in folder d: base name, first volume, every volume."""
+    sets: dict = {}
+    try:
+        files = [p for p in d.iterdir() if p.is_file() and not p.name.startswith(".")]
+    except OSError:
+        return []
+    for p in files:
+        m = _RAR_PART.match(p.name)
+        if m:
+            sets.setdefault(m.group(1), {"vols": []})["vols"].append((int(m.group(2)), p))
+            continue
+        m = _RAR_OLD.match(p.name)
+        if m:
+            sets.setdefault(m.group(1), {"vols": []})["vols"].append((int(m.group(2)) + 2, p))
+        elif p.suffix.lower() == ".rar":
+            sets.setdefault(p.stem, {"vols": []})["vols"].append((1, p))
+    out = []
+    for base, v in sorted(sets.items()):
+        vols = [p for _, p in sorted(v["vols"], key=lambda x: x[0])]
+        if vols[0].suffix.lower() != ".rar":
+            continue  # .r00 parts without their .rar
+        out.append({"base": base, "first": vols[0], "vols": vols})
+    return out
+
+
+def extract_key(first: Path) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", str(first.relative_to(LIBRARY)))[:150]
+
+
+def scan_archives() -> list[dict]:
+    out = []
+    if not LIBRARY.is_dir():
+        return out
+
+    def walk(d: Path, depth: int):
+        for st in rar_sets(d):
+            key = extract_key(st["first"])
+            out.append({"id": str(st["first"].relative_to(LIBRARY)), "dir": str(d.relative_to(LIBRARY)),
+                        "name": d.name if d != LIBRARY and len(rar_sets(d)) == 1 else st["base"],
+                        "parts": len(st["vols"]), "size": sum(p.stat().st_size for p in st["vols"]),
+                        "state": read_json(EXTRACTS / f"{key}.json", None)})
+        if depth >= 3:
+            return
+        try:
+            kids = sorted(p for p in d.iterdir() if p.is_dir() and not p.name.startswith("."))
+        except OSError:
+            return
+        for p in kids:
+            if p == EXTRACTED or (p / "eboot.bin").is_file():
+                continue
+            walk(p, depth + 1)
+    walk(LIBRARY, 0)
+    return out
+
+
+def rar_set_for(rel: str) -> dict:
+    first = (LIBRARY / rel).resolve()
+    if not under(first, LIBRARY.resolve()) or not first.is_file():
+        raise SystemExit(f"{rel} is not an archive in the library")
+    st = next((x for x in rar_sets(first.parent) if x["first"].resolve() == first), None)
+    if not st:
+        raise SystemExit(f"{rel} is not the first part of a RAR archive")
+    return st
+
+
+def cmd_extract(args) -> int:
+    """Extract a RAR archive from the library and make a checked .exfat of the game in it."""
+    ensure_dirs()
+    st = rar_set_for(args.archive)
+    first = st["first"]
+    key = extract_key(first)
+    state_p = EXTRACTS / f"{key}.json"
+    EXTRACTS.mkdir(parents=True, exist_ok=True)
+
+    def state(**kw):
+        cur = read_json(state_p, {}) or {}
+        cur.update(kw, updated=time.time())
+        write_json(state_p, cur)
+    if not shutil.which("unrar"):
+        raise SystemExit("unrar is missing in this image: update the container")
+    if not EXTRACTED.is_dir() or not os.access(EXTRACTED, os.W_OK):
+        raise SystemExit(f"{EXTRACTED} is not writable: run the install script again (it mounts it)")
+    lock = open(EXTRACTS / ".lock", "a+")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        raise SystemExit("another archive is being extracted; wait for it")
+    tmp = EXTRACTED / f".{key}.partial"
+    try:
+        # Size inside the archive: the last line of `unrar l` is the total.
+        lst = subprocess.run(["unrar", "l", "-p-", str(first)], capture_output=True, text=True)
+        tail = [l for l in lst.stdout.splitlines() if l.strip()]
+        m = re.match(r"\s*(\d+)\s", tail[-1]) if tail else None
+        total = int(m.group(1)) if m else sum(p.stat().st_size for p in st["vols"])
+        need = int(total * 2.05) + (2 << 30)  # the folder and the image, a while both
+        if free_bytes(EXTRACTED) < need:
+            raise SystemExit(f"not enough free space in {EXTRACTED}: {human(need)} needed "
+                             f"(the game and its image), {human(free_bytes(EXTRACTED))} free")
+        state(state="running", phase="extracting", done=0, total=total, archive=args.archive,
+              started=now(), error=None, image=None)
+        tmp.mkdir(parents=True, exist_ok=True)
+        log = LOGS / f"extract-{_dt.datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+        with open(log, "w") as fh:
+            proc = subprocess.Popen(["unrar", "x", "-o+", "-y", "-p-", str(first), str(tmp) + "/"],
+                                    stdout=fh, stderr=subprocess.STDOUT)
+            while proc.poll() is None:
+                time.sleep(3)
+                got = sum(p.stat().st_size for p in tmp.rglob("*") if p.is_file())
+                state(done=min(got, total))
+        if proc.returncode != 0:
+            raise SystemExit(f"unrar failed (code {proc.returncode}; CRC or missing part?): "
+                             f"{log.read_text(errors='replace')[-400:].strip()}")
+        # The game folder inside: the one with sce_sys/param.json (or eboot.bin).
+        cands = [p.parent.parent for p in tmp.rglob("sce_sys/param.json")] or [p.parent for p in tmp.rglob("eboot.bin")]
+        cands = sorted(set(cands), key=lambda p: len(p.parts))
+        if not cands:
+            raise SystemExit("no PS5 game (sce_sys/param.json) inside the archive; it was extracted to "
+                             f"{tmp.name} in {EXTRACTED} and left there")
+        game = cands[0]
+        tid, title = ("", "")
+        if (game / "sce_sys" / "param.json").is_file():
+            tid, title = parse_param_json((game / "sce_sys" / "param.json").read_bytes())
+        name = re.sub(r'[\\/:*?"<>|]+', " ", (title or st["base"]).strip()) or st["base"]
+        final = EXTRACTED / (f"{name} [{tid.upper()}].exfat" if tid else f"{name}.exfat")
+        if final.exists():
+            raise SystemExit(f"{final.name} already exists in {EXTRACTED}")
+        size = exfat_build(game, final, key, EXTRACTED / f".{key}.img", state=lambda **kw: state(
+            **({**kw, "phase": "image: " + kw["phase"]} if "phase" in kw else kw)))
+        shutil.rmtree(tmp)  # our own temp copy; the archive is untouched
+        state(state="done", phase="", done=size, total=size, finished=now(),
+              image=str(Path(HOST_LIBRARY) / final.relative_to(LIBRARY)))
+        print(f"{final.name}: {human(size)}, extracted with CRC checks and every file checked byte for byte "
+              f"in the image; the RAR files are unchanged")
+        return 0
+    except ImageStopped:
+        state(state="stopped", error="stopped; press again to start over")
+        return 1
+    except (SystemExit, OSError) as err:
+        state(state="failed", error=str(err))  # temp data stays for a look
+        raise
+    finally:
+        lock.close()
+
+
+def cmd_delete_rars(args) -> int:
+    """Delete the volumes of a RAR archive whose game is extracted and imaged."""
+    if not DELETE_ORIGINALS:
+        raise SystemExit("deleting originals is off: install with DELETE_ORIGINALS=yes to allow it")
+    st = rar_set_for(args.archive)
+    done = read_json(EXTRACTS / f"{extract_key(st['first'])}.json", {}) or {}
+    img = done.get("image")
+    if done.get("state") != "done" or not img or not (EXTRACTED / Path(img).name).is_file():
+        raise SystemExit("extract it first: the RAR files go only after a checked .exfat exists")
+    for p in st["vols"]:
+        p.unlink()
+    print(f"deleted {len(st['vols'])} RAR files of {st['base']}; the game is in {Path(img).name}")
+    return 0
 
 
 def _image_lock():
@@ -5165,6 +5337,8 @@ UI_ACTIONS = {  # action -> ps5lz4 arguments (game and result are checked separa
     "delete_original": ["delete-original"],
     "make_exfat": ["make-exfat"],
     "remove_exfat": ["remove-exfat"],
+    "extract": ["extract"],
+    "delete_rars": ["delete-rars"],
 }
 
 
@@ -5378,6 +5552,7 @@ def dashboard_data() -> dict:
             "free_bytes": free_bytes(OUTPUT), "games": rows, "totals": totals, "failed": failed,
             "lz4c_version": lz4c_version(),
             "delete_originals": DELETE_ORIGINALS,
+            "archives": scan_archives(),
             "send_after": list(read_json(SEND_AFTER, {}) or {}),
             "images": images_data(),
             "pkgs": scan_pkgs(),
@@ -5513,7 +5688,7 @@ def run_request(req: dict) -> dict:
     if action not in UI_ACTIONS:
         return {"ok": False, "output": f"unknown action {action!r}"}
     argv = list(UI_ACTIONS[action])
-    if action in ("start", "community", "remove", "delete_original", "make_exfat", "remove_exfat"):
+    if action in ("start", "community", "remove", "delete_original", "make_exfat", "remove_exfat", "extract", "delete_rars"):
         game = str(req.get("game") or "")
         if not game or game.startswith("-") or len(game) > 300:
             return {"ok": False, "output": "no game given"}
@@ -5524,9 +5699,9 @@ def run_request(req: dict) -> dict:
             return {"ok": False, "output": f"unknown result {result!r}"}
         argv.append(result)
     me = [sys.executable, os.path.abspath(__file__)]
-    if action == "make_exfat":
-        # Long jobs: they run on their own; the page follows state/images.
-        log = LOGS / f"exfat-{_dt.datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+    if action in ("make_exfat", "extract"):
+        # Long jobs: they run on their own; the page follows state/images (state/extract).
+        log = LOGS / f"{'exfat' if action == 'make_exfat' else 'extract-run'}-{_dt.datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
         with open(log, "a") as fh:
             subprocess.Popen(["nohup"] + me + argv, stdout=fh, stderr=subprocess.STDOUT,
                              stdin=subprocess.DEVNULL, start_new_session=True)
@@ -6360,6 +6535,12 @@ def main() -> int:
     sp = sub.add_parser("make-exfat", help="make a checked .exfat image of a finished LZ4 copy")
     sp.add_argument("game")
     sp.set_defaults(func=cmd_make_exfat)
+    sp = sub.add_parser("extract", help="extract a RAR archive in the library into a checked .exfat image")
+    sp.add_argument("archive", help="the first part, relative to the library")
+    sp.set_defaults(func=cmd_extract)
+    sp = sub.add_parser("delete-rars", help="delete an extracted RAR archive (needs DELETE_ORIGINALS=yes)")
+    sp.add_argument("archive")
+    sp.set_defaults(func=cmd_delete_rars)
     sp = sub.add_parser("remove-exfat", help="delete the .exfat image of an LZ4 copy")
     sp.add_argument("game")
     sp.set_defaults(func=cmd_remove_exfat)
