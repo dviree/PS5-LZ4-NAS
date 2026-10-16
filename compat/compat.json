@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T22:09:11Z",
+ "updated": "2026-10-16T22:36:44Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -494,6 +494,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-16T21:59:44Z",
     "issue": 52
+   }
+  },
+  "PPSA25991": {
+   "name": "Senua's Saga Hellblade II",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Senua's Saga Hellblade II",
+    "gameVersion": "01.002.000",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T22:36:32Z",
+    "issue": 56
    }
   },
   "PPSA26344": {
