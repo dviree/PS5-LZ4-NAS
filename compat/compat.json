@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T22:01:02Z",
+ "updated": "2026-10-16T22:09:11Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -418,6 +418,25 @@
     "appVersion": "ps5-lz4 NAS",
     "date": "2026-10-15T14:19:58Z",
     "issue": 26
+   }
+  },
+  "PPSA24913": {
+   "name": "ACE COMBAT 8",
+   "works": 0,
+   "issues": 0,
+   "noStart": 1,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "noStart",
+    "game": "ACE COMBAT 8",
+    "gameVersion": "",
+    "level": "",
+    "source": "exFAT image",
+    "firmware": "",
+    "appVersion": "",
+    "date": "2026-10-16T22:09:00Z",
+    "issue": 54
    }
   },
   "PPSA25286": {
