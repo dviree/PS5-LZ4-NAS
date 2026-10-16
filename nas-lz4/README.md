@@ -415,6 +415,15 @@ column names, found by title ID in any column, else by name, with **Open the
 sheet** next to it. `PS5LZ4_FFPFSC_SHEET` is the CSV export URL (empty turns
 it off).
 
+## Compress on the PS5
+
+On the **PS5 games** tab, an unpacked PS5 game (PPSA…, not LZ4, no warnings) has
+**⚡ Compress on PS5**. The NAS starts the LZ4 Compression engine on the console
+(Payload Manager or the ELF loader, next to pkg-receiver) and asks it to `lz4-pack`
+the game there at level 9. The original is kept (`deletePolicy=keep`); the packed
+copy lands next to it. A banner shows progress and has **Cancel**. Nothing is copied
+over the network. Check the result with Verify, then test it on the PS5.
+
 ## exFAT images of LZ4 games
 
 Some games only start when they run from an image instead of a folder. In
