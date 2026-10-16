@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T14:53:07Z",
+ "updated": "2026-10-16T14:54:36Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -392,10 +392,10 @@
    "lastReport": {
     "status": "works",
     "game": "Sword Of The Sea",
-    "gameVersion": "",
-    "level": "",
+    "gameVersion": "01.510.000",
+    "level": "7",
     "source": "Folder",
-    "firmware": "",
+    "firmware": "13.60",
     "appVersion": "1.5.0",
     "date": "2026-10-16T12:46:36Z",
     "issue": 41
