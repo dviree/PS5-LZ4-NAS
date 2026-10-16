@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T20:33:40Z",
+ "updated": "2026-10-16T21:00:10Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -114,6 +114,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-15T13:57:06Z",
     "issue": 25
+   }
+  },
+  "PPSA06960": {
+   "name": "Mandragora: Whispers of the Witch Tree",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Mandragora: Whispers of the Witch Tree",
+    "gameVersion": "",
+    "level": "",
+    "source": "",
+    "firmware": "",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T21:00:00Z",
+    "issue": 50
    }
   },
   "PPSA07631": {
