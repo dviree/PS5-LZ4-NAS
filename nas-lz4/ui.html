@@ -342,7 +342,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     <div class="filters">
       <input id="s-ftp" placeholder="PS5 address, e.g. 192.168.1.50:2121" onchange="saveAddress()">
       <input id="s-dest" placeholder="Folder on the PS5, e.g. /mnt/usb0/homebrew" onchange="saveAddress()">
-      <input id="s-pkg" placeholder="PS4 packages on the PS5, e.g. /data/pkg" title="Where .pkg files are sent; install them from there with ItemzFlow or etaHEN" onchange="saveAddress()">
+      <input id="s-pkg" placeholder="PS4 packages on the PS5, e.g. /mnt/usb0" title="Where .pkg files are sent; install them from there with ItemzFlow or etaHEN" onchange="saveAddress()">
       <button onclick="saveAddress()">Save</button>
       <button onclick="findPs5()" title="Search the network for PS5 consoles (also in rest mode)">🔍 Find PS5</button>
     </div>
@@ -511,7 +511,7 @@ function renderPkgs(d) {
   const pk = d.pkgs || [], card = document.getElementById('pkgcard');
   card.hidden = !pk.length;
   if (!pk.length) return;
-  const dest = (d.settings || {}).ps4_dest || '/data/pkg', tf = d.transfer && d.transfer.state === 'running' ? d.transfer : null;
+  const dest = (d.settings || {}).ps4_dest || '/mnt/usb0', tf = d.transfer && d.transfer.state === 'running' ? d.transfer : null;
   document.getElementById('pkgs').innerHTML = '<tr><th>Package</th><th>Type</th><th class="num">Size</th><th>PS5</th><th></th></tr>' + pk.map(p => {
     const t = (d.transfers || {})[p.file], queued = (d.transfer_queue || []).includes('pkg:' + p.id), sending = tf && tf.game === p.file;
     const state = sending ? `<span class="pill p-run">⬆️ ${tf.total ? Math.floor(100 * tf.bytes / tf.total) : 0} %</span>`
@@ -529,7 +529,7 @@ function renderPkgs(d) {
 async function pkgInstall(id, name, via) {
   const s = data.settings || {};
   if (!s.ps5_ftp) { alert('Enter the PS5 address on the Remote tab first.'); tab('ps5'); return; }
-  if (!confirm(via === 'local' ? `Install ${name} on the PS5 from ${s.ps4_dest || '/data/pkg'}?`
+  if (!confirm(via === 'local' ? `Install ${name} on the PS5 from ${s.ps4_dest || '/mnt/usb0'}?`
       : `Install ${name} on the PS5?\n\nThe PS5 downloads it from this NAS and installs it; follow it in the PS5's notifications / Downloads.`)) return;
   const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'pkg_install', game: id, via})});
   const j = await r.json().catch(() => ({}));
@@ -538,7 +538,7 @@ async function pkgInstall(id, name, via) {
 function pushPkg(id, name) {
   const s = data.settings || {};
   if (!s.ps5_ftp) { alert('Enter the PS5 address on the Remote tab first.'); tab('ps5'); return; }
-  act('push', `Send the PS4 package ${name} to ${s.ps5_ftp}${s.ps4_dest || '/data/pkg'}?\n\nInstall it from there on the PS5 with ItemzFlow or etaHEN's package installer.`, {game: id});
+  act('push', `Send the PS4 package ${name} to ${s.ps5_ftp}${s.ps4_dest || '/mnt/usb0'}?\n\nInstall it from there on the PS5 with ItemzFlow or etaHEN's package installer.`, {game: id});
 }
 function packLeft(j) {
   const e = j.eta || {}, l = e.job_left != null ? e.job_left : e.step_left;
@@ -621,7 +621,7 @@ async function saveAddress() {
   if (!r.ok) { const j = await r.json().catch(() => ({})); alert('Not saved: ' + (j.error || r.status)); return; }
   data.settings.ps5_ftp = document.getElementById('s-ftp').value.trim();
   data.settings.ps5_dest = document.getElementById('s-dest').value.trim();
-  data.settings.ps4_dest = document.getElementById('s-pkg').value.trim() || '/data/pkg';
+  data.settings.ps4_dest = document.getElementById('s-pkg').value.trim() || '/mnt/usb0';
   const ok = document.getElementById('s-saved');
   ok.textContent = 'Saved ✓ ' + data.settings.ps5_ftp; setTimeout(() => { ok.textContent = ''; }, 4000);
   ftpLoaded = false; ps5State();
@@ -716,7 +716,7 @@ function render() {
   if (!settingsFilled && d.settings) {
     document.getElementById('s-ftp').value = d.settings.ps5_ftp || '';
     document.getElementById('s-dest').value = d.settings.ps5_dest || '';
-    document.getElementById('s-pkg').value = d.settings.ps4_dest || '/data/pkg';
+    document.getElementById('s-pkg').value = d.settings.ps4_dest || '/mnt/usb0';
     document.getElementById('s-notify').value = d.settings.notify_url || '';
     const kf = document.getElementById('s-key');
     kf.value = '';

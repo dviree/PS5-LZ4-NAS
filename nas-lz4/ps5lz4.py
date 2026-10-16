@@ -2004,7 +2004,7 @@ def get_settings() -> dict:
     s = {"ps5_ftp": os.environ.get("PS5LZ4_PS5_FTP", ""),
          "ps5_dest": os.environ.get("PS5LZ4_PS5_DEST", "/mnt/usb0/homebrew"),
          "ps5_wake_key": os.environ.get("PS5LZ4_PS5_WAKE_KEY", ""),
-         "ps4_dest": os.environ.get("PS5LZ4_PS4_DEST", "/data/pkg"),
+         "ps4_dest": os.environ.get("PS5LZ4_PS4_DEST", "/mnt/usb0"),
          "notify_url": os.environ.get("PS5LZ4_NOTIFY_URL", "")}
     s.update({k: v for k, v in (read_json(SETTINGS_PATH, {}) or {}).items() if k in s and isinstance(v, str)})
     return s
@@ -2021,7 +2021,7 @@ def save_settings(new: dict) -> dict:
     key = str(new.get("ps5_wake_key", s["ps5_wake_key"])).strip()
     if key and not re.fullmatch(r"[0-9A-Fa-f]{1,8}", key):
         raise ValueError("the Remote Play key is up to 8 hex characters (rp_regist_key in Chiaki)")
-    pdest = str(new.get("ps4_dest", s["ps4_dest"])).strip().rstrip("/") or "/data/pkg"
+    pdest = str(new.get("ps4_dest", s["ps4_dest"])).strip().rstrip("/") or "/mnt/usb0"
     if not pdest.startswith("/") or ".." in pdest.split("/"):
         raise ValueError("the PS4 package folder must be an absolute path on the PS5")
     nurl = str(new.get("notify_url", s["notify_url"])).strip()
@@ -3706,7 +3706,7 @@ def images_data() -> dict:
 
 # --------------------------------------------------------------------------
 # PS4 packages (.pkg): listed from the PS4 folder (and the library), sent as
-# one file to the PS5's package folder (default /data/pkg), where ItemzFlow or
+# one file to the PS5's package folder (default the root of /mnt/usb0), where ItemzFlow or
 # etaHEN's installer installs them. Nothing is packed or changed.
 
 PS4_LIBRARY = Path(os.environ.get("PS5LZ4_PS4_LIBRARY", "/library-ps4"))
@@ -5853,6 +5853,12 @@ def cmd_ui(args) -> int:
     __import__("threading").Thread(target=transfer_queue_watcher, daemon=True).start()
     __import__("threading").Thread(target=rest_watcher, daemon=True).start()
     __import__("threading").Thread(target=receiver_autostarter, daemon=True).start()
+    # PS4 packages now go to the root of the USB drive (was /data/pkg).
+    stored = read_json(SETTINGS_PATH, {}) or {}
+    if stored.get("ps4_dest") == "/data/pkg":
+        stored["ps4_dest"] = "/mnt/usb0"
+        write_settings(stored)
+        print(f"[{now()}] PS4 package folder moved from /data/pkg to /mnt/usb0", flush=True)
     __import__("threading").Thread(target=notifier, daemon=True).start()
     if CATALOG_PORT > 0:
         __import__("threading").Thread(target=catalog_server, daemon=True).start()
