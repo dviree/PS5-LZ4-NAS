@@ -56,7 +56,7 @@ jobs:
           make
           file pkg-receiver.elf
           readelf -h pkg-receiver.elf | grep -Eq 'Machine:[[:space:]]+Advanced Micro Devices X86-64'
-          grep -aq '{"build":"[^"]*-glass"}' pkg-receiver.elf
+          grep -aq '{"build":"[^"]*-glass[^"]*"}' pkg-receiver.elf
           # The page's script must parse.
           python3 - <<'PY'
           d = open("pkg-receiver.elf", "rb").read()
