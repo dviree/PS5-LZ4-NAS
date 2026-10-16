@@ -145,6 +145,14 @@ that container alone.
   it: every LZ4 block decoded and its CRC checked, the file list, and the
   APR-EMU runtime; read-only, in the background. The button turns green
   (verified ✓) or red (failed ✗); the result is under Checks.
+- **Duplicates on the NAS (My games):** a Title ID in the library more than
+  once (other versions, or a folder and an image) is listed with each copy's
+  version and size; the newest is marked, the others can be deleted (needs
+  `DELETE_ORIGINALS=yes`; a copy of unknown version is never called older).
+- **Move between PS5 drives (ShadowMount tab):** **Move…** lists the drives
+  ShadowMountPlus can put a game on, with free space, and starts its own
+  move job (copied, checked, old copy removed), with progress, speed and
+  Cancel while that is still possible (receiver Glass build 9).
 - **RAR archives (Activity tab):** a game in the library packed as RAR
   parts (`name.part1.rar`, … or `name.rar` + `name.r00`, …) gets
   **📦 Extract to exFAT**: unrar extracts it (checking every file's CRC)
