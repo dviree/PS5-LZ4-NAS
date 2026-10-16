@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T02:18:46Z",
+ "updated": "2026-10-16T09:38:30Z",
  "games": {
   "PPSA01593": {
    "name": "Hogwarts Legacy",
@@ -57,6 +57,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-15T13:57:06Z",
     "issue": 25
+   }
+  },
+  "PPSA07631": {
+   "name": "SAROS",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "SAROS",
+    "gameVersion": "01.000.000",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.42",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T09:38:20Z",
+    "issue": 37
    }
   },
   "PPSA11386": {
