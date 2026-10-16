@@ -116,6 +116,11 @@ that container alone.
   and rules follow
   [pkg-sender-synology](https://github.com/mrggbond/pkg-sender-synology)
   (MIT).
+- **Notifications (Remote tab):** an [ntfy](https://ntfy.sh) topic URL or
+  any webhook (JSON `title`, `message`, `ok`; e.g. Home Assistant) gets a
+  push when packing, a check, a transfer to the PS5 or a download by the
+  PS5 finishes or fails. **Send a test** tries it. Also settable with
+  `PS5LZ4_NOTIFY_URL`.
 - **Downloads to the PS5 (Activity tab):** every package or image the PS5
   downloads from this NAS (installs from this page or from *pkg remote
   installer*), counted by the byte ranges sent: progress, speed, time left,
