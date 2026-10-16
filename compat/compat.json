@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T21:59:55Z",
+ "updated": "2026-10-16T22:01:02Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -90,11 +90,11 @@
     "game": "PRAGMATA",
     "gameVersion": "",
     "level": "7",
-    "source": "",
-    "firmware": "",
+    "source": "Folder",
+    "firmware": "13.60",
     "appVersion": "1.5.0",
-    "date": "2026-10-16T21:36:56Z",
-    "issue": 51
+    "date": "2026-10-16T22:00:53Z",
+    "issue": 53
    }
   },
   "PPSA03396": {
