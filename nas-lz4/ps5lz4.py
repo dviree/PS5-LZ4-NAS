@@ -4072,19 +4072,111 @@ def cmd_extract(args) -> int:
         lock.close()
 
 
+def rar_listing(first: Path) -> list[dict]:
+    """Every file in a RAR set (all volumes): name, size and the whole file's
+    CRC32 (from the volume where the file ends), or None when the archive
+    records another hash."""
+    out = subprocess.run(["unrar", "vt", "-v", "-p-", str(first)], capture_output=True, text=True)
+    if out.returncode != 0:
+        raise SystemExit(f"unrar could not list the archive: {(out.stdout + out.stderr)[-300:].strip()}")
+    files: dict = {}
+    cur = None
+    for line in out.stdout.splitlines():
+        k, _, v = line.strip().partition(": ")
+        if k == "Name":
+            cur = {"name": v, "type": "", "size": None, "crc": None}
+        elif cur is None:
+            continue
+        elif k == "Type":
+            cur["type"] = v
+            if v == "File":
+                cur = files.setdefault(cur["name"], cur)
+        elif k == "Size" and cur.get("type") == "File":
+            cur["size"] = int(v)
+        elif k == "CRC32" and cur.get("type") == "File":
+            cur["crc"] = int(v, 16)  # the last volume's line is the whole file's
+    return list(files.values())
+
+
 def cmd_delete_rars(args) -> int:
-    """Delete the volumes of a RAR archive whose game is extracted and imaged."""
+    """Delete the volumes of a RAR archive, but only after checking, right
+    now, that every file in it is in its .exfat image with the same size and
+    content (CRC32 from the archive, or byte for byte through unrar)."""
+    import zlib
+    from mkpfs.exfat import ExfatReader
     if not DELETE_ORIGINALS:
         raise SystemExit("deleting originals is off: install with DELETE_ORIGINALS=yes to allow it")
     st = rar_set_for(args.archive)
-    done = read_json(EXTRACTS / f"{extract_key(st['first'])}.json", {}) or {}
-    img = done.get("image")
-    if done.get("state") != "done" or not img or not (EXTRACTED / Path(img).name).is_file():
+    key = extract_key(st["first"])
+    state_p = EXTRACTS / f"{key}.json"
+    done = read_json(state_p, {}) or {}
+    img = EXTRACTED / Path(done.get("image") or "-").name
+    if done.get("state") != "done" or not img.is_file():
         raise SystemExit("extract it first: the RAR files go only after a checked .exfat exists")
-    for p in st["vols"]:
-        p.unlink()
-    print(f"deleted {len(st['vols'])} RAR files of {st['base']}; the game is in {Path(img).name}")
-    return 0
+
+    def state(**kw):
+        cur = read_json(state_p, {}) or {}
+        cur.update(kw, updated=time.time())
+        write_json(state_p, cur)
+    try:
+        files = rar_listing(st["first"])
+        # The game folder inside the archive: where sce_sys/param.json is.
+        pj = sorted((f["name"] for f in files if f["name"].endswith("sce_sys/param.json")), key=len)
+        prefix = pj[0][: -len("sce_sys/param.json")] if pj else ""
+        extra = [f for f in files if not f["name"].startswith(prefix)]
+        big = [f["name"] for f in extra if (f["size"] or 0) > 1 << 20]
+        if big:
+            raise SystemExit(f"the archive also holds files outside the game ({big[0]}, …) that are not in the "
+                             f"image; they would be lost, so nothing was deleted")
+        game = [f for f in files if f["name"].startswith(prefix)]
+        total = sum(f["size"] or 0 for f in game)
+        state(phase="checking the image against the archive before deleting", done=0, total=total, check_error=None)
+        checked = 0
+        last = time.time()
+        with open(img, "rb") as fh:
+            reader = ExfatReader(fh)
+            inside = {e.rel_path: e for e in reader.iter_files()}
+            for f in game:
+                rel = f["name"][len(prefix):]
+                e = inside.get(rel)
+                if e is None:
+                    raise SystemExit(f"{rel} is in the archive but not in the image")
+                if f["size"] is not None and e.length != f["size"]:
+                    raise SystemExit(f"{rel}: {e.length} bytes in the image, {f['size']} in the archive")
+                if f["crc"] is not None:
+                    crc = 0
+                    for chunk in reader.read_file(e):
+                        crc = zlib.crc32(chunk, crc)
+                        checked += len(chunk)
+                        if time.time() - last > 3:
+                            last = time.time()
+                            state(done=checked)
+                    if crc != f["crc"]:
+                        raise SystemExit(f"{rel} differs between the image and the archive (CRC32)")
+                else:
+                    # No CRC32 recorded: compare with the file unrar prints.
+                    proc = subprocess.Popen(["unrar", "p", "-inul", "-p-", str(st["first"]), f["name"]],
+                                            stdout=subprocess.PIPE)
+                    for chunk in reader.read_file(e):
+                        if proc.stdout.read(len(chunk)) != chunk:
+                            proc.kill()
+                            raise SystemExit(f"{rel} differs between the image and the archive")
+                        checked += len(chunk)
+                    if proc.stdout.read(1):
+                        proc.kill()
+                        raise SystemExit(f"{rel} is longer in the archive than in the image")
+                    if proc.wait() != 0:
+                        raise SystemExit(f"unrar could not read {rel} from the archive")
+                    state(done=checked)
+        for p in st["vols"]:
+            p.unlink()
+        state(phase="", rars_deleted=now(), done=total, total=total)
+        print(f"checked {len(game)} files of the image against the archive, then deleted {len(st['vols'])} RAR "
+              f"files of {st['base']}; the game is in {img.name}")
+        return 0
+    except (SystemExit, OSError) as err:
+        state(phase="", check_error=f"not deleted: {err}")
+        raise
 
 
 def _image_lock():
@@ -5699,7 +5791,7 @@ def run_request(req: dict) -> dict:
             return {"ok": False, "output": f"unknown result {result!r}"}
         argv.append(result)
     me = [sys.executable, os.path.abspath(__file__)]
-    if action in ("make_exfat", "extract"):
+    if action in ("make_exfat", "extract", "delete_rars"):
         # Long jobs: they run on their own; the page follows state/images (state/extract).
         log = LOGS / f"{'exfat' if action == 'make_exfat' else 'extract-run'}-{_dt.datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
         with open(log, "a") as fh:
