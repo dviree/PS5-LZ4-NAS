@@ -191,7 +191,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
   <a class="storelink" href="/store" title="Open the store view, made for the PS5 browser and a controller">🛒 Store</a><span class="sp"></span>
   <div class="hacts">
   <button class="two" id="b-resume" hidden onclick="act('resume')">Continue queue<small>resume interrupted packing</small></button>
-  <button class="two" id="b-elf" onclick="engOneClick()"><span id="b-elf-t">Install ELF on PS5</span><small id="b-elf-st">put the LZ4 engine on the PS5 and start it</small></button>
+  <button class="two" id="b-elf" onclick="rcvInstall(true)"><span id="b-elf-t">Install ELF on PS5</span><small id="b-elf-st">pkg-receiver: installs .pkg from this NAS</small></button>
   <button class="two" onclick="act('check')">Check all<small>check every game, read-only; unchanged ones from the saved results</small></button>
   <button class="two ghost" onclick="act('check_full', 'Check every game again, ignoring earlier results?\n\nThis reads every LZ4 game in full and can take a while.')">Full re-check<small>check every game again from scratch</small></button>
   <button class="two pri" id="b-fix"
@@ -293,51 +293,25 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     <div class="filters" style="margin-top:0">
       <span class="pill p-no" id="ps5st">PS5: ?</span>
       <button id="b-wake" onclick="wakeNow()">Wake PS5 now</button>
-      <button onclick="restNow()">Rest mode now</button>
     </div>
     <div class="why" id="wake-msg"></div>
     <div class="mut" id="paired"></div>
   </div>
-  <div class="card"><h2>LZ4 Compression engine on the PS5</h2>
-    <div class="mut">This page and the LZ4 Compression engine on the PS5 (port 5920) work together: while a game is
-    sent, the page asks the engine to keep the PS5 out of rest mode. That needs this project's build of the engine,
-    which answers <i>keep-awake</i>; the original build runs fine but can't be asked.</div>
-    <div class="filters"><span class="pill p-no" id="eng-st">Engine: ?</span>
-      <button class="sm" onclick="engCheck()">Check</button>
-      <button class="sm" onclick="engRead()">Read the ELF on the PS5</button>
-      <label class="mut chk"><input type="checkbox" id="eng-auto" onchange="engAuto(this.checked)"> Update it automatically</label>
-      <label class="mut chk" title="Only when this page woke the PS5 to send games, never while someone may be playing"><input type="checkbox" id="rest-auto" onchange="restAuto(this.checked)"> Rest mode when everything is sent</label></div>
-    <div class="why" id="rest-info"></div>
-    <div id="eng-inst"></div>
-    <div class="mut" id="eng-info"></div>
-    <div class="filters" id="eng-acts">
-      <button class="two" onclick="engAct('engine_install', 'Download the newest engine from GitHub and install it in the Payload Manager on the PS5? It overwrites the engine file there.')">Install ELF on PS5<small>download from GitHub, overwrite the old one over FTP</small></button>
-      <button class="two" onclick="engAct('engine_start')">Start it now<small>load it through Payload Manager; it takes over from the running one</small></button>
-      <button class="two danger" id="eng-restore" hidden onclick="engAct('engine_restore', 'Put the saved original engine (.orig) back?')">Restore the original<small>undo the install</small></button>
-    </div>
-    <div class="why" id="eng-msg"></div>
-    <h4 style="margin:16px 0 4px">App on the PS5 (the LZ4 Compression tile)</h4>
-    <div class="mut">The app is the UI on the PS5 itself, made for the controller: library, game pages and actions,
-    no browser needed. It talks to the engine and starts it when it isn't running. It comes from the original
-    project's release and goes to <code>/data/homebrew/PPSA99420</code>; ShadowMount+ then adds the tile
-    (close any running game if it doesn't show up).</div>
-    <div class="filters"><span class="pill p-no" id="app-st" style="align-self:center">App: ?</span>
-      <button class="two" onclick="appInstall()">Install app on PS5<small>download the tile and copy it over FTP</small></button></div>
-    <div class="why" id="app-msg"></div>
-  </div>
-  <div class="card"><h2>Package installer on the PS5 <span class="mut" style="font-weight:500">· pkg-receiver</span></h2>
-    <div class="mut">Installs <code>.pkg</code> games, updates and DLC with the PS5's own installer: the PS5 downloads the
-    package straight from this NAS. It is <a href="https://github.com/Loopayeh/pkg-sender" target="_blank" rel="noopener">pkg-receiver</a>
-    (pkg-sender, MIT), a payload on port 12800. <b>Install and start</b> copies it into Payload Manager and starts it.</div>
+  <div class="card"><h2>ELF on the PS5 <span class="mut" style="font-weight:500">· pkg-receiver</span></h2>
+    <div class="mut">The PS5 side is <a href="https://github.com/Loopayeh/pkg-sender" target="_blank" rel="noopener">pkg-receiver</a>
+    from pkg-sender (MIT), a payload on port 12800. It installs <code>.pkg</code> games, updates and DLC with the PS5's own
+    installer, downloading them straight from this NAS, and its own page on the PS5 (the <i>pkg remote installer</i>
+    shortcut on the home screen) lists this NAS's packages to install with the controller.
+    <b>Install and start</b> copies it into Payload Manager and starts it.</div>
     <div class="filters"><span class="pill p-no" id="rcv-st" style="align-self:center">pkg-receiver: ?</span>
       <button class="sm" onclick="rcvCheck()">Check</button>
-      <button class="two" onclick="rcvInstall()">Install and start<small>download from GitHub, copy over FTP, start it</small></button></div>
+      <button class="two" onclick="rcvInstall()">Install and start<small>download from GitHub, copy over FTP, start it</small></button>
+      <a class="sm" id="rcv-open" target="_blank" rel="noopener" style="align-self:center">Open its page</a></div>
     <div class="why" id="rcv-msg"></div>
   </div>
   <div class="card"><h2>PS5 storage</h2>
-    <div class="mut">Size and free space come live from the LZ4 Compression engine on the PS5 (engine v1.5.0-nas.3 or newer;
-    pkg-receiver also tells the internal SSD's). Without them: <b>Set size</b> once (as PS5 Settings › Storage or the
-    drive's label shows it) and <b>Measure</b> adds up the files on the drive.</div>
+    <div class="mut">The internal SSD's size and free space come live from pkg-receiver. For other drives, <b>Set size</b>
+    once (as PS5 Settings › Storage or the drive's label shows it) and <b>Measure</b> adds up the files on the drive.</div>
     <div id="drives" style="margin-top:8px"><button class="sm" onclick="loadDrives()">Show drives</button></div>
   </div>
   <div class="card"><h2>1. Address</h2>
@@ -1388,7 +1362,7 @@ function tab(t) {
   try { localStorage.setItem('tab', t); } catch (e) {}
   if (t === 'comm') loadComm();
   if (t === 'pg' && !pgData) loadPg();
-  if (t === 'ps5') { engCheck(); appCheck(); rcvCheck(); }
+  if (t === 'ps5') rcvCheck();
   if (t === 'ps5' && !window._drives) { window._drives = 1; loadDrives(); }
   if (t === 'ftp' && !ftpLoaded) ftpGo(ftpPath);
 }
@@ -1619,6 +1593,11 @@ async function rcvCheck() {
   const st = document.getElementById('rcv-st'), msg = document.getElementById('rcv-msg');
   try {
     const j = await (await fetch('/api/receiver', {cache: 'no-store'})).json();
+    const host = ((data && data.settings && data.settings.ps5_ftp) || '').split(':')[0];
+    const open = document.getElementById('rcv-open');
+    if (open) { open.hidden = !(j.running && host); if (host) open.href = `http://${host}:12800/`; }
+    document.getElementById('b-elf').classList.toggle('pri', !j.running);
+    document.getElementById('b-elf-st').textContent = j.running ? `pkg-receiver running ✓${j.build ? ' · ' + j.build : ''}` : 'not running: install and start pkg-receiver';
     st.className = 'pill ' + (j.running ? 'p-LZ4' : 'p-no');
     st.textContent = j.running ? `pkg-receiver: running ✓ ${j.build ? '(' + j.build + ')' : ''}` : 'pkg-receiver: not running';
     const sp = j.space || {}, busy = j.status && j.status.busy;
@@ -1627,15 +1606,15 @@ async function rcvCheck() {
       : 'Not answering on port 12800. Press Install and start, or start pkg-receiver from the Payload Manager.';
   } catch (e) { st.textContent = 'pkg-receiver: ?'; }
 }
-async function rcvInstall() {
-  if (!confirm('Download pkg-receiver.elf (github.com/Loopayeh/pkg-sender), copy it into Payload Manager on the PS5 and start it?')) return;
-  const msg = document.getElementById('rcv-msg');
-  msg.className = 'why'; msg.textContent = 'Downloading and copying to the PS5…';
+async function rcvInstall(fromHeader) {
+  if (!confirm('Install the ELF on the PS5?\n\npkg-receiver.elf (github.com/Loopayeh/pkg-sender) is downloaded, copied into Payload Manager on the PS5 and started.')) return;
+  const msg = document.getElementById('rcv-msg'), small = document.getElementById('b-elf-st');
+  msg.className = 'why'; msg.textContent = 'Downloading and copying to the PS5…'; small.textContent = 'installing…';
   const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'receiver_install'})});
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) { msg.className = 'why bad'; msg.textContent = 'Failed: ' + (j.error || r.status); return; }
-  msg.className = 'why good';
-  msg.textContent = `Installed to ${j.installed}. ` + (j.started ? `Started (${j.started}).` : j.note || '');
+  const text = r.ok ? `Installed to ${j.installed}. ` + (j.started ? `Started (${j.started}).` : j.note || '') : 'Failed: ' + (j.error || r.status);
+  msg.className = 'why ' + (r.ok ? 'good' : 'bad'); msg.textContent = text;
+  if (fromHeader) alert(text);
   setTimeout(rcvCheck, 4000);
 }
 async function engAct(action, confirmText) {
@@ -1689,7 +1668,7 @@ async function ps5State() {
   } catch (e) {}
 }
 load(); setInterval(load, 5000);
-setInterval(() => { if (!document.getElementById('p-comm').hidden) loadComm(); }, 60000); ps5State(); setInterval(ps5State, 15000); engHeader(); setInterval(engHeader, 60000);
+setInterval(() => { if (!document.getElementById('p-comm').hidden) loadComm(); }, 60000); ps5State(); setInterval(ps5State, 15000); rcvCheck(); setInterval(rcvCheck, 60000);
 try {
   const saved = {'#community': 'comm', '#remote': 'ps5', '#ftp': 'ftp', '#activity': 'act', '#games': 'pg'}[location.hash] || localStorage.getItem('tab');
   if (['comm', 'ps5', 'ftp', 'act', 'pg'].includes(saved)) tab(saved);

@@ -2608,7 +2608,7 @@ def engine_start() -> dict:
                      "start LZ4 Compression from the Payload Manager on the PS5, or restart the PS5.")
 
 ENGINE_AUTO = ENGINE_DIR / "auto.json"  # {"on": bool}: update the engine on the PS5 by itself
-ENGINE_CHECK_EVERY = int(os.environ.get("PS5LZ4_ENGINE_CHECK", str(6 * 3600)))
+ENGINE_CHECK_EVERY = int(os.environ.get("PS5LZ4_ENGINE_CHECK", "0"))  # LZ4 engine updates: off (pkg-receiver is the PS5 ELF)
 
 
 def engine_known(force: bool = False) -> dict:
@@ -4612,7 +4612,7 @@ REST_IDLE = int(os.environ.get("PS5LZ4_REST_IDLE", "180"))
 
 def rest_info() -> dict:
     r = read_json(REST_PATH, {}) or {}
-    r.setdefault("on", True)
+    r.setdefault("on", False)  # needs the LZ4 engine on the PS5; pkg-receiver can't
     return r
 
 

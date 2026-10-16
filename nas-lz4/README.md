@@ -196,6 +196,23 @@ game is on the PS5. **Install** sends it (queued behind other installs, with
 speed and time left), **Uninstall** deletes it from the PS5, **Pause** and
 **Resume install** continue where it stopped.
 
+## The ELF on the PS5: pkg-receiver
+
+The PS5 side is **pkg-receiver** from
+[Loopayeh/pkg-sender](https://github.com/Loopayeh/pkg-sender) (MIT). The
+header's **Install ELF on PS5** (and the Remote tab's **ELF on the PS5**
+card) downloads `pkg-receiver.elf`, copies it to
+`/data/pldmgr/payloads/pkg-receiver/pkg-receiver.elf` and starts it. It
+installs packages from this NAS, its own page on the PS5 lists this NAS's
+packages (see *Picking packages on the PS5*), and it reports the internal
+SSD's free space.
+
+The LZ4 Compression engine is no longer installed or updated from this
+page (`PS5LZ4_ENGINE_CHECK` is `0`), and rest mode after transfers is off,
+because both need that engine. If it runs on the PS5 anyway, transfers
+still ask it to keep the PS5 awake. The sections below describe it for
+that case.
+
 ## Keeping the PS5 awake during transfers
 
 While a game is sent, the NAS asks the LZ4 Compression engine on the PS5
