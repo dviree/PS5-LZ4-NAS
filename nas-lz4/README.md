@@ -109,6 +109,12 @@ that container alone.
   and on extended storage) with icon, name and version from their appmeta
   `param.sfo`, the size of `app.pkg` and of an installed patch; a filter
   picks PS5, PS4 or both. Those are uninstalled on the PS5 itself, not here.
+  **⚠ Needs attention** (idea from game-library-manager-ps5) lists what
+  ShadowMountPlus won't pick up: a hidden name (leading dot), a game one
+  folder too deep inside a wrapper folder, a folder without
+  `sce_sys/param.json`, an archive still to unpack, and two copies with one
+  Title ID. **Fix** renames over FTP: drops the dot, or moves the game
+  folder up and removes the emptied wrapper.
 - **PS5 packages (`.pkg` with the `\x7fFIH` header)** in the package
   folders are read too (embedded CNT, `param.json`: name, Title ID,
   version, game / patch / DLC / app), next to PS4 packages; a package

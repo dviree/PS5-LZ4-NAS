@@ -2980,6 +2980,26 @@ def ps5_games() -> dict:
                 except ftplib.all_errors:
                     continue
                 folders = [i for i in listing if i["dir"] and not i["name"].startswith(".")]
+                # What ShadowMountPlus won't pick up (idea from game-library-manager-ps5):
+                # hidden folders and images, and archives still to unpack.
+                for it in listing:
+                    low = it["name"].lower()
+                    if it["name"].startswith(".") and it["name"] not in (".", "..") and (
+                            it["dir"] or low.endswith((".exfat", ".ffpfs", ".ffpfsc"))):
+                        games.append({"path": f"{base}/{it['name']}", "folder": it["name"], "drive": drive,
+                                      "modified": it.get("modified", ""), "title_id": "", "version": "",
+                                      "name": it["name"].lstrip("."), "lz4": False, "fakelib": False,
+                                      "image": "", "size": it.get("size"), "on_nas": [], "attention": True,
+                                      "issues": [{"code": "hidden", "fix": True,
+                                                  "text": "the name starts with a dot, so ShadowMountPlus skips it"}]})
+                    elif (not it["dir"] and low.endswith((".zip", ".rar", ".7z"))
+                          and not re.search(r"\.part0*([2-9]|\d\d+)\.rar$", low)):
+                        games.append({"path": f"{base}/{it['name']}", "folder": it["name"], "drive": drive,
+                                      "modified": it.get("modified", ""), "title_id": "", "version": "",
+                                      "name": it["name"], "lz4": False, "fakelib": False, "image": "",
+                                      "size": it.get("size"), "on_nas": [], "attention": True,
+                                      "issues": [{"code": "archive", "fix": False,
+                                                  "text": "an archive: ShadowMountPlus can't use it until it is unpacked"}]})
                 # Images ShadowMountPlus mounts as they are.
                 for it in listing:
                     if not it["dir"] and it["name"].lower().endswith((".exfat", ".ffpfs", ".ffpfsc")):
@@ -3010,6 +3030,24 @@ def ps5_games() -> dict:
                     except (*ftplib.all_errors, ValueError):
                         m = TITLE_RE.search(it["name"])
                         g["title_id"] = m.group(0).upper() if m else ""
+                        # No sce_sys/param.json here: the game may sit one folder deeper.
+                        inner = []
+                        for sub in [n for n, i in names.items() if i["dir"] and n not in ("sce_sys", "sce_module", "fakelib")][:8]:
+                            try:
+                                if "sce_sys" in {i["name"].lower() for i in ps5_ftp_list_conn(f, f"{path}/{names[sub]['name']}")}:
+                                    inner.append(names[sub]["name"])
+                            except ftplib.all_errors:
+                                pass
+                        if "sce_sys" in names:
+                            g["issues"] = [{"code": "noparam", "fix": False,
+                                            "text": "sce_sys has no param.json: an incomplete copy?"}]
+                        elif len(inner) == 1:
+                            g["issues"] = [{"code": "wrapper", "fix": True, "inner": inner[0],
+                                            "text": f"the game is one folder deeper ({inner[0]}), where ShadowMountPlus doesn't look"}]
+                        else:
+                            g["issues"] = [{"code": "notgame", "fix": False,
+                                            "text": "no sce_sys/param.json: not a game folder ShadowMountPlus can use"}]
+                        g["attention"] = True
                     if not g["version"]:
                         g["version"] = game_version(name=it["name"]).get("version", "")
                     g["name"] = g["name"] or it["name"]
@@ -3031,6 +3069,9 @@ def ps5_games() -> dict:
         others = ([p for p in seen.get(g["title_id"].upper(), []) if p != g["path"]]
                   if g["title_id"] and not g.get("ps4") else [])
         g["duplicates"] = others
+        g.setdefault("issues", [])
+        if others:
+            g["attention"] = True
     return {"games": games, "listed": now()}
 
 
@@ -3083,6 +3124,49 @@ def ps4_apps(f, drives: list[str]) -> list[dict]:
                 pass
             out.append(g)
     return out
+
+
+def ps5_fix(path: str, code: str) -> dict:
+    """Fix what keeps ShadowMountPlus from seeing a game, by renaming over
+    FTP (nothing is deleted but an emptied wrapper folder): "hidden" drops the
+    leading dot; "wrapper" moves the game folder inside up next to it."""
+    import ftplib
+    path = ps5_ftp_path(path)
+    if not FTP_DELETE_ROOTS.match(path):
+        raise ValueError("only games inside /data, /mnt/usbN or /mnt/extN")
+    base, _, name = path.rpartition("/")
+    f = ps5_ftp_connect()
+    try:
+        have = {i["name"] for i in ps5_ftp_list_conn(f, base)}
+        if code == "hidden":
+            new = name.lstrip(".")
+            if not new or new in have:
+                raise ValueError(f"{base}/{new} already exists")
+            f.rename(path, f"{base}/{new}")
+            return {"renamed": f"{base}/{new}"}
+        if code == "wrapper":
+            inner = [i["name"] for i in ps5_ftp_list_conn(f, path) if i["dir"]
+                     and "sce_sys" in {j["name"].lower() for j in ps5_ftp_list_conn(f, f"{path}/{i['name']}")}]
+            if len(inner) != 1:
+                raise ValueError("expected exactly one game folder inside")
+            target = inner[0] if inner[0] not in have else f"{inner[0]}-moved"
+            if target in have:
+                raise ValueError(f"{base}/{target} already exists")
+            f.rename(f"{path}/{inner[0]}", f"{base}/{target}")
+            try:
+                if not ps5_ftp_list_conn(f, path):
+                    f.rmd(path)
+            except ftplib.all_errors:
+                pass
+            return {"moved": f"{base}/{target}"}
+        raise ValueError("nothing to fix for that")
+    except ftplib.all_errors as err:
+        raise ValueError(f"FTP: {err}")
+    finally:
+        try:
+            f.quit()
+        except Exception:
+            pass
 
 
 # Deleting is allowed only inside these, and never the drive or its top folders.
@@ -5332,6 +5416,11 @@ def cmd_ui(args) -> int:
                 ENGINE_DIR.mkdir(parents=True, exist_ok=True)
                 write_json(ENGINE_AUTO, {"on": bool(req.get("on"))})
                 return self.send(200, json.dumps({"auto": engine_auto_on()}).encode())
+            if req.get("action") == "ps5_fix":
+                try:
+                    return self.send(200, json.dumps(ps5_fix(str(req.get("path") or ""), str(req.get("code") or ""))).encode())
+                except ValueError as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if req.get("action") == "notify_test":
                 url = str(req.get("url") or get_settings().get("notify_url") or "")
                 if not url:

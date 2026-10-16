@@ -414,7 +414,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     <div class="filters">
       <input id="pg-q" placeholder="Search name or Title ID" oninput="renderPg()">
       <select id="pg-d" onchange="renderPg()"><option value="">All drives</option></select>
-      <select id="pg-k" onchange="renderPg()"><option value="">PS5 and PS4</option><option value="ps5">PS5 games</option><option value="ps4">PS4 games (installed)</option></select>
+      <select id="pg-k" onchange="renderPg()"><option value="">PS5 and PS4</option><option value="ps5">PS5 games</option><option value="ps4">PS4 games (installed)</option><option value="att">⚠ Needs attention</option></select>
       <select id="pg-s" onchange="renderPg()"><option value="name">Name</option><option value="size">Largest first</option><option value="drive">Drive</option></select>
     </div>
     <div id="pg-list" class="pg-grid"></div>
@@ -1296,11 +1296,12 @@ function renderPg() {
   if (!pgData) return;
   const q = document.getElementById('pg-q').value.trim().toLowerCase(), dv = document.getElementById('pg-d').value, sort = document.getElementById('pg-s').value;
   const kv = document.getElementById('pg-k').value;
-  let gs = pgData.games.filter(g => (!dv || g.drive === dv) && (!kv || (kv === 'ps4') === !!g.ps4) && (!q || (g.name + ' ' + g.title_id + ' ' + g.folder).toLowerCase().includes(q)));
+  let gs = pgData.games.filter(g => (!dv || g.drive === dv) && (!kv || (kv === 'att' ? g.attention : (kv === 'ps4') === !!g.ps4)) && (!q || (g.name + ' ' + g.title_id + ' ' + g.folder).toLowerCase().includes(q)));
   gs.sort(sort === 'size' ? (a, b) => (b.size || 0) - (a.size || 0) : sort === 'drive' ? (a, b) => a.drive.localeCompare(b.drive) || a.name.localeCompare(b.name) : (a, b) => a.name.localeCompare(b.name));
   const total = pgData.games.reduce((n, g) => n + (g.size || 0), 0), measured = pgData.games.filter(g => g.size != null).length;
-  const n4 = pgData.games.filter(g => g.ps4).length;
-  document.getElementById('pg-sub').innerHTML = `${pgData.games.length - n4} PS5 games` + (n4 ? ` · ${n4} PS4 games installed` : '') + (measured ? ` · ${gbd(total)} measured (${measured} of ${pgData.games.length})` : '') +
+  const n4 = pgData.games.filter(g => g.ps4).length, na = pgData.games.filter(g => g.attention).length;
+  document.getElementById('pg-sub').innerHTML = `${pgData.games.length - n4} PS5 games` + (n4 ? ` · ${n4} PS4 games installed` : '') +
+    (na ? ` · <a href="#" onclick="document.getElementById('pg-k').value='att';renderPg();return false" class="bad">⚠ ${na} need attention</a>` : '') + (measured ? ` · ${gbd(total)} measured (${measured} of ${pgData.games.length})` : '') +
     ` · read ${esc((pgData.listed || '').slice(11, 16))}`;
   document.getElementById('pg-list').innerHTML = gs.length ? gs.map((g, i) => `<div class="pg">
       <img class="pg-ico${g.ps4 ? ' ps4' : ''}" alt="" loading="lazy" src="/api/ftp/icon?path=${encodeURIComponent(g.ps4 ? g.meta || g.path : g.path)}" onerror="this.outerHTML='<div class=&quot;pg-ico fi&quot;>🎮</div>'">
@@ -1310,11 +1311,14 @@ function renderPg() {
         <div class="chips">
           <span class="chip">${esc(driveName(g.drive))}</span>
           ${g.ps4 ? `<span class="chip ps4">PS4 · installed</span>${g.patch != null ? `<span class="chip">patch ${gbd(g.patch)}</span>` : ''}`
+            : (g.issues || []).some(x => x.code === 'archive') ? '<span class="chip">archive</span>'
             : g.image ? `<span class="chip">.${esc(g.image)} image</span>` : g.lz4 ? '<span class="chip ok">LZ4</span>' : '<span class="chip">not LZ4</span>'}
           ${g.size != null ? `<span class="chip">${gbd(g.size)}</span>` : ''}
           ${g.on_nas && g.on_nas.length ? '<span class="chip">🗄 also on NAS</span>' : ''}
           ${g.duplicates.length ? `<span class="chip bad" title="${esc(g.duplicates.join('\n'))}">same Title ID ×${g.duplicates.length + 1}</span>` : ''}
         </div>
+        ${(g.issues || []).map(x => `<div class="why bad">⚠ ${esc(x.text)}${x.fix ? ` <button class="sm" data-p="${esc(g.path)}" data-c="${esc(x.code)}" onclick="pgFix(this.dataset.p, this.dataset.c)">Fix</button>` : ''}</div>`).join('')}
+        ${g.duplicates && g.duplicates.length ? '<div class="why bad">⚠ ShadowMountPlus mounts only one copy per Title ID: delete or keep the others (see the chip).</div>' : ''}
         <div class="why" id="pg-m-${i}"></div>
         <div class="pg-acts">
           <button class="sm" data-p="${esc(g.image ? g.path.replace(/\/[^/]*$/, '') : g.path)}" onclick="tab('ftp');ftpGo(this.dataset.p)">Open</button>
@@ -1324,6 +1328,14 @@ function renderPg() {
           ${g.ps4 ? '<span class="mut" style="font-size:12px">uninstall on the PS5</span>' : `<button class="sm danger" data-p="${esc(g.path)}" data-n="${esc(g.name)}" onclick="deletePg(this.dataset.p, this.dataset.n)">🗑 Delete</button>`}
         </div>
       </div></div>`).join('') : '<div class="mut">No games found.</div>';
+}
+async function pgFix(path, code) {
+  const what = {hidden: 'Rename it without the leading dot?', wrapper: 'Move the game folder inside up one level (and remove the empty outer folder)?'}[code] || 'Fix it?';
+  if (!confirm(what + '\n\n' + path)) return;
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'ps5_fix', path, code})});
+  const j = await r.json().catch(() => ({}));
+  alert(r.ok ? 'Done: ' + (j.renamed || j.moved) : 'Failed: ' + (j.error || r.status));
+  loadPg();
 }
 async function measureGame(path, i) {
   const el = document.getElementById('pg-m-' + i);
