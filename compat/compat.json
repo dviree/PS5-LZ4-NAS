@@ -1,7 +1,26 @@
 {
  "version": 1,
- "updated": "2026-10-16T11:07:47Z",
+ "updated": "2026-10-16T11:39:13Z",
  "games": {
+  "PPSA01473": {
+   "name": "Ratchet & Clank - Rift Apart",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Ratchet & Clank - Rift Apart",
+    "gameVersion": "01.005.003",
+    "level": "9",
+    "source": "",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T11:39:01Z",
+    "issue": 39
+   }
+  },
   "PPSA01593": {
    "name": "Hogwarts Legacy",
    "works": 1,
