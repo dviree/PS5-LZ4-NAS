@@ -6,14 +6,17 @@ theme of the PS5-LZ4 NAS page.
 
 Edits main.c in place: glass.css goes in as C string lines right before the
 page's </style>, so pkg-sender's own CSS stays and these rules win; the build
-gets a "-glass" suffix; and a missing ";" in the page script (which stops the
-whole script in newer sources) is added. Nothing else changes.
+gets a "-glass.N" suffix (REV); a missing ";" in the page script (which stops the
+whole script in newer sources) is added; and Install closes the game window so
+its answer shows; and the Images tab shows one card per game with a choice of
+its images (glass.js; LZ4 or the original). Nothing else changes.
 """
 import re
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+REV = "glass.2"  # build suffix; bump it on every change so the NAS restarts the receiver
 
 
 def c_lines(css: str) -> str:
@@ -41,11 +44,26 @@ def main() -> None:
     build = re.search(r'(#define RECEIVER_BUILD ")([^"]+)(")', text)
     if not build:
         sys.exit("can't find RECEIVER_BUILD in main.c")
-    text = text[:build.start()] + build.group(1) + build.group(2) + "-glass" + build.group(3) + text[build.end():]
+    text = text[:build.start()] + build.group(1) + build.group(2) + "-" + REV + build.group(3) + text[build.end():]
 
     text = text.replace("replaceChild(s,t);}},true)\"\n\"function card(", "replaceChild(s,t);}},true);\"\n\"function card(")
+
+    # An Install in the game window answered behind the window: close it and
+    # bring the message into view.
+    start = "\"async function install(id,name,hasIcon){msg.className='';"
+    if text.count(start) != 1:
+        sys.exit("can't find install() in main.c")
+    text = text.replace(start, "\"async function install(id,name,hasIcon){closeModal();window.scrollTo(0,0);msg.className='';", 1)
+    # Images: one card per game with a choice of its images (glass.js).
+    render = "\"function render(){grid.innerHTML='';var list;"
+    each = "list.forEach(function(g){grid.appendChild(card(g,0));});return;}"
+    if text.count(render) != 1 or text.count(each) != 1:
+        sys.exit("can't find render() in main.c")
+    text = text.replace(render, '/* glass.js (PS5-LZ4 NAS) */\n' + c_lines((HERE / "glass.js").read_text()) + render, 1)
+    text = text.replace(each, "groupImgs(list).forEach(function(g){grid.appendChild(g.group?imgCard(g):card(g,0));});return;}", 1)
+
     src.write_text(text)
-    print(f"Glass theme added to {src} (build {build.group(2)}-glass)")
+    print(f"Glass theme added to {src} (build {build.group(2)}-{REV})")
 
 
 if __name__ == "__main__":

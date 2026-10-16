@@ -345,7 +345,9 @@ an address the PS5 can reach.
   `sce_sys/icon0.png` and `param.json` (inside `.exfat` images, inside the
   exFAT image wrapped by a single-file `.ffpfsc` / `.ffpfs`, nothing is
   unpacked; or from the LZ4 copy). The library and Store use the same
-  covers; **Copy to homebrew** pulls one from the NAS into
+  covers. A game with more than one image (the original and its LZ4 copy's
+  `.exfat` image) gets one card with **exFAT | LZ4** to pick which one;
+  **Copy to homebrew** pulls one from the NAS into
   `/data/homebrew`. If pkg-sender also runs on a PC, the page follows
   whichever announced itself last: close it there, or type the NAS address
   in the page.
