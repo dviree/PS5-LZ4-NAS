@@ -26,6 +26,12 @@ CATALOG_PORT="${CATALOG_PORT:-9898}"               # package catalog for pkg-rec
 # container then mounts the library writable; packing itself never writes there).
 DELETE_ORIGINALS="${DELETE_ORIGINALS:-no}"
 LIB_MODE=":ro"; [ "$DELETE_ORIGINALS" = yes ] && LIB_MODE=""
+# yes: also run ps5upload (phantomptr/ps5upload, GPL-3.0; its own engine and web
+# UI on port 19113, image ghcr.io/phantomptr/ps5upload-engine-webui) with the
+# libraries read-only. An existing container named ps5upload is left alone.
+PS5UPLOAD="${PS5UPLOAD:-no}"
+PS5_IP="${PS5_IP:-}"                                # the PS5's address, for ps5upload
+PS5UPLOAD_ALLOW_IP="${PS5UPLOAD_ALLOW_IP:-}"        # who may use it (default: this NAS's /24)
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 CHECK_ONLY=0
@@ -280,6 +286,28 @@ sleep 2
 ok "container running"
 NAS_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 ok "web page: http://${NAS_IP:-<NAS IP>}:$UI_PORT"
+
+if [ "$PS5UPLOAD" = yes ]; then
+  say "ps5upload"
+  if docker ps -a --format '{{.Names}}' | grep -qx ps5upload; then
+    ok "a container named ps5upload already exists: left as it is (the web page's PS5 Upload tab shows it)"
+  elif [ -z "$PS5_IP" ]; then
+    warn "PS5UPLOAD=yes needs PS5_IP=<the PS5's address>; ps5upload was not installed"
+  else
+    allow="${PS5UPLOAD_ALLOW_IP:-$(echo "${NAS_IP:-192.168.0.1}" | awk -F. '{print $1"."$2"."$3".0/24"}')}"
+    install -d -o 65532 -g 65532 "$BASE/ps5upload"
+    up_mounts=(-v "$BASE/ps5upload:/data" -v "$LIBRARY:/games:ro")
+    roots="/games"
+    if [ -d "$PS4_LIBRARY" ]; then up_mounts+=(-v "$PS4_LIBRARY:/pkgs:ro"); roots="/games,/pkgs"; fi
+    [ -d "$OUTPUT" ] && { up_mounts+=(-v "$OUTPUT:/lz4:ro"); roots="$roots,/lz4"; }
+    docker run -d --name ps5upload --restart unless-stopped --network host \
+      --label com.centurylinklabs.watchtower.enable=true \
+      -e PS5_ADDR="$PS5_IP" -e PS5UPLOAD_ALLOW_IP="$allow" -e PS5UPLOAD_BROWSE_ROOTS="$roots" \
+      "${up_mounts[@]}" ghcr.io/phantomptr/ps5upload-engine-webui:latest >/dev/null \
+      && ok "ps5upload: http://${NAS_IP:-<NAS IP>}:19113 (allowed: $allow; no password, keep it on your LAN)" \
+      || warn "ps5upload did not start (is port 19113 in use?)"
+  fi
+fi
 
 say "Self-check"
 "$BASE/lz4-ps5.sh" doctor
