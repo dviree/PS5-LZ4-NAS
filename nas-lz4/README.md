@@ -149,7 +149,11 @@ that container alone.
   byte for byte, then the temp folder is removed. The image shows up in the
   library like any other game. Only `_extracted` is mounted writable; the
   RAR files stay unless you press **🗑 Delete RAR files**, which needs
-  `DELETE_ORIGINALS=yes` and a finished, checked image. A failed extract
+  `DELETE_ORIGINALS=yes` and a finished image, and first checks again, right
+  before deleting, that every file in the archive is in the image with the
+  same size and CRC32 (from the archive's own list; files without a CRC32
+  are compared byte for byte through unrar). One mismatch, or a file of the
+  archive outside the game that isn't in the image, and nothing is deleted. A failed extract
   keeps its temp folder for a look. Needs about twice the game's size free
   for a while. The install script creates and mounts `_extracted`, so run
   it again once.

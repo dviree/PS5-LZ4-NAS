@@ -882,14 +882,17 @@ function render() {
   const arcs = d.archives || [];
   document.getElementById('arccard').hidden = !arcs.length;
   document.getElementById('arcs').innerHTML = arcs.map(a => {
-    const st = a.state || {}, run = st.state === 'running' && Date.now() / 1000 - (st.updated || 0) < 180;
+    const st = a.state || {}, fresh = Date.now() / 1000 - (st.updated || 0) < 180;
+    const run = (st.state === 'running' || (st.state === 'done' && st.phase)) && fresh;
     const pct = st.total ? Math.min(100, 100 * st.done / st.total) : 0;
     return `<div class="dl"><div class="dl-top"><b>${esc(a.name)}</b><span class="mut">${a.parts} part${a.parts > 1 ? 's' : ''} · ${gb(a.size)} · ${esc(a.dir || '.')}</span><span class="sp"></span>
-      ${st.state === 'done' ? `<span class="chip ok">✓ ${esc((st.image || '').split('/').pop())}</span>` + (d.delete_originals ? ` <button class="sm danger" data-a="${esc(a.id)}" data-n="${esc(a.name)}" onclick="act('delete_rars', 'Delete the ' + ${a.parts} + ' RAR files of ' + this.dataset.n + '?\n\nThe game stays as the checked .exfat in _extracted.', {game: this.dataset.a})">🗑 Delete RAR files</button>` : '')
+      ${st.state === 'done' && run ? `<span class="chip">${esc(st.phase)}</span>`
+        : st.state === 'done' ? `<span class="chip ok">✓ ${esc((st.image || '').split('/').pop())}</span>` + (d.delete_originals ? ` <button class="sm danger" data-a="${esc(a.id)}" data-n="${esc(a.name)}" onclick="act('delete_rars', 'Delete the ' + ${a.parts} + ' RAR files of ' + this.dataset.n + '?\n\nFirst every file in the archive is checked against the .exfat (size and CRC32); only if all match are they deleted. The game stays as the .exfat in _extracted.', {game: this.dataset.a})">🗑 Delete RAR files</button>` : '')
         : run ? `<span class="chip">${esc(st.phase || 'working')}</span>`
         : `<button class="sm pri" data-a="${esc(a.id)}" data-n="${esc(a.name)}" onclick="act('extract', 'Extract ' + this.dataset.n + ' and make a checked .exfat of it?\n\nIt needs about twice the game size free in the library for a while. The RAR files are not changed.', {game: this.dataset.a})">${st.state === 'failed' || st.state === 'stopped' ? '↻ Try again' : '📦 Extract to exFAT'}</button>`}</div>
       ${run ? `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div><div class="why">${gb(st.done)} of ${gb(st.total)}</div>` : ''}
-      ${st.state === 'failed' ? `<div class="why bad">${esc(st.error || '')}</div>` : ''}</div>`;
+      ${st.state === 'failed' ? `<div class="why bad">${esc(st.error || '')}</div>` : ''}
+      ${st.check_error ? `<div class="why bad">${esc(st.check_error)}</div>` : ''}</div>`;
   }).join('');
   const log = document.getElementById('log');
   const items = d.requests.recent;
