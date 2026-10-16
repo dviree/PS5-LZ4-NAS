@@ -207,6 +207,16 @@ installs packages from this NAS, its own page on the PS5 lists this NAS's
 packages (see *Picking packages on the PS5*), and it reports the internal
 SSD's free space.
 
+The ELF it installs is pkg-sender's own source with this page's **Glass
+theme** on the *pkg remote installer* page: purple gradient, frosted cards
+and gradient buttons (`pkg-receiver/glass.py` adds `pkg-receiver/glass.css`
+to `payload/main.c`; nothing else changes). The *Build pkg-receiver
+(Glass)* workflow builds it from a pinned pkg-sender commit and publishes
+the `pkg-receiver-glass` release. Without that release, or with
+`PS5LZ4_RECV_GLASS=` (empty), pkg-sender's own build is used. Installing
+again replaces a running receiver of another build; there's no need to
+restart the PS5.
+
 The LZ4 Compression engine is no longer installed or updated from this
 page (`PS5LZ4_ENGINE_CHECK` is `0`), and rest mode after transfers is off,
 because both need that engine. If it runs on the PS5 anyway, transfers

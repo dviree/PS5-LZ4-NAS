@@ -3489,6 +3489,11 @@ def pkg_icon(pid: str) -> bytes | None:
 # it in Payload Manager, starts it and asks it to install.
 RECV_PORT = int(os.environ.get("PS5LZ4_RECV_PORT", "12800"))
 RECV_REPO = os.environ.get("PS5LZ4_RECV_REPO", "Loopayeh/pkg-sender")
+# The same receiver with this page's Glass theme, built from RECV_REPO's source
+# by pkg-receiver.yml (release tag RECV_GLASS_TAG); empty PS5LZ4_RECV_GLASS:
+# pkg-sender's own build.
+RECV_GLASS = os.environ.get("PS5LZ4_RECV_GLASS", ENGINE_REPO)
+RECV_GLASS_TAG = "pkg-receiver-glass"
 RECV_PATH = "/data/pldmgr/payloads/pkg-receiver/pkg-receiver.elf"
 NAS_URL = os.environ.get("PS5LZ4_NAS_URL", "")  # how the PS5 reaches this page, e.g. http://192.168.1.10:5921
 
@@ -3515,21 +3520,25 @@ def receiver_status() -> dict:
 
 
 def receiver_fetch() -> Path:
-    """pkg-receiver.elf from the newest release of RECV_REPO (SHA-256 GitHub lists),
-    else from the repository itself; cached in state/engine."""
+    """pkg-receiver.elf: the Glass build from RECV_GLASS, else the newest release
+    of RECV_REPO, else RECV_REPO's repository itself (SHA-256 GitHub lists
+    checked); cached in state/engine."""
     import hashlib
     import urllib.request
     hdr = {"User-Agent": "ps5-lz4", "Accept": "application/vnd.github+json"}
     url, want = None, ""
-    try:
-        req = urllib.request.Request(f"https://api.github.com/repos/{RECV_REPO}/releases/latest", headers=hdr)
-        with urllib.request.urlopen(req, timeout=20) as r:
-            rel = json.load(r)
-        a = next((a for a in rel.get("assets", []) if a.get("name") == "pkg-receiver.elf"), None)
-        if a:
-            url, want = a["browser_download_url"], str(a.get("digest") or "").removeprefix("sha256:").lower()
-    except Exception:
-        pass
+    rels = ([f"{RECV_GLASS}/releases/tags/{RECV_GLASS_TAG}"] if RECV_GLASS else []) + [f"{RECV_REPO}/releases/latest"]
+    for rel_path in rels:
+        try:
+            req = urllib.request.Request(f"https://api.github.com/repos/{rel_path}", headers=hdr)
+            with urllib.request.urlopen(req, timeout=20) as r:
+                rel = json.load(r)
+            a = next((a for a in rel.get("assets", []) if a.get("name") == "pkg-receiver.elf"), None)
+            if a:
+                url, want = a["browser_download_url"], str(a.get("digest") or "").removeprefix("sha256:").lower()
+                break
+        except Exception:
+            continue
     url = url or f"https://raw.githubusercontent.com/{RECV_REPO}/HEAD/payload/pkg-receiver.elf"
     with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "ps5-lz4"}), timeout=60) as r:
         data = r.read()
@@ -3558,7 +3567,11 @@ def receiver_install() -> dict:
             f.quit()
         except Exception:
             pass
-    if receiver_status()["running"]:
+    # A newly started receiver replaces the running one, so start it unless
+    # that one already is this build.
+    m = re.search(rb'\{"build":"([^"]+)"\}', elf.read_bytes())
+    st = receiver_status()
+    if st["running"] and (not m or st.get("build") == m.group(1).decode()):
         return {"installed": RECV_PATH, "started": "already running"}
     host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
     try:
