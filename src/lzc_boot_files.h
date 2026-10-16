@@ -27,6 +27,15 @@ typedef struct lzc_boot_report {
   char playgo_source[512];
   /* eboot.bin is a plain ELF instead of a (fake-)signed SELF. */
   int eboot_plain_elf;
+  /* ampr_emu.index (APR-EMU's file list) names a file that isn't on disk at
+   * that path and size, e.g. Runtime/ after the folder became runtime/.
+   * APR-EMU trusts the index for every /app0 lookup, so the game reads
+   * nothing and crashes at boot. Moved aside as ampr_emu.index.stale, it is
+   * rebuilt from the real files on the next launch. Unpacked folders only:
+   * a packed game's index lists files that live inside the packs. */
+  int ampr_index_stale;
+  int ampr_index_removed;
+  char ampr_index_missing[128];
 } lzc_boot_report_t;
 
 /* Directories searched for a PlayGo emulator, in order. Each entry is either
@@ -36,10 +45,11 @@ typedef struct lzc_boot_report {
 extern const char *const lzc_boot_playgo_sources[];
 
 /* Checks root (a game folder: eboot.bin, sce_sys/, ...). With repair set it
- * renames the runtime folder and copies a PlayGo emulator into fakelib/;
- * without it only reports. sources may be NULL for the defaults.
+ * renames the runtime folder, copies a PlayGo emulator into fakelib/ and,
+ * when packed is 0, moves a stale ampr_emu.index aside; without repair it
+ * only reports. sources may be NULL for the defaults.
  * Returns 0, or -1 with a reason in err when a repair failed. */
-int lzc_boot_files_check(const char *root, int repair,
+int lzc_boot_files_check(const char *root, int repair, int packed,
                          const char *const *sources, lzc_boot_report_t *r,
                          char *err, size_t err_size);
 

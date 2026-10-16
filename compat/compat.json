@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T00:22:26Z",
+ "updated": "2026-10-16T02:18:46Z",
  "games": {
   "PPSA01593": {
    "name": "Hogwarts Legacy",
@@ -76,6 +76,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-16T00:22:16Z",
     "issue": 33
+   }
+  },
+  "PPSA13428": {
+   "name": "Horizon Zero Dawn Remastered",
+   "works": 0,
+   "issues": 0,
+   "noStart": 1,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "noStart",
+    "game": "Horizon Zero Dawn Remastered",
+    "gameVersion": "01.008.001",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T02:18:36Z",
+    "issue": 35
    }
   },
   "PPSA14632": {
