@@ -1,7 +1,45 @@
 {
  "version": 1,
- "updated": "2026-10-16T11:39:13Z",
+ "updated": "2026-10-16T14:54:36Z",
  "games": {
+  "PPSA01289": {
+   "name": "Sackboy™: A Big Adventure",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Sackboy™: A Big Adventure",
+    "gameVersion": "01.024.000",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.42",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T11:54:59Z",
+    "issue": 40
+   }
+  },
+  "PPSA01411": {
+   "name": "Marvels Spider Man Miles Morales",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Marvels Spider Man Miles Morales",
+    "gameVersion": "01.015.001",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T12:53:00Z",
+    "issue": 42
+   }
+  },
   "PPSA01473": {
    "name": "Ratchet & Clank - Rift Apart",
    "works": 1,
@@ -95,6 +133,44 @@
     "appVersion": "1.5.0",
     "date": "2026-10-16T09:38:20Z",
     "issue": 37
+   }
+  },
+  "PPSA08709": {
+   "name": "SILENT HILL 2",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "SILENT HILL 2",
+    "gameVersion": "",
+    "level": "",
+    "source": "exFAT image",
+    "firmware": "",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T13:51:46Z",
+    "issue": 45
+   }
+  },
+  "PPSA10264": {
+   "name": "Jusant",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Jusant",
+    "gameVersion": "02.000.000",
+    "level": "8",
+    "source": "Folder",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T14:52:54Z",
+    "issue": 47
    }
   },
   "PPSA11386": {
@@ -306,6 +382,25 @@
     "issue": 23
    }
   },
+  "PPSA25344": {
+   "name": "Sword Of The Sea",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Sword Of The Sea",
+    "gameVersion": "01.510.000",
+    "level": "7",
+    "source": "Folder",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T12:46:36Z",
+    "issue": 41
+   }
+  },
   "PPSA26344": {
    "name": "Ghost of Yōtei",
    "works": 1,
@@ -323,6 +418,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-15T04:25:09Z",
     "issue": 19
+   }
+  },
+  "PPSA28180": {
+   "name": "Days Gone: Remastered",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Days Gone: Remastered",
+    "gameVersion": "",
+    "level": "1",
+    "source": "",
+    "firmware": "",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T13:10:12Z",
+    "issue": 43
    }
   },
   "PPSA28997": {
@@ -361,6 +475,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-15T19:31:44Z",
     "issue": 29
+   }
+  },
+  "PPSA33286": {
+   "name": "Silent Hill Townfall",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Silent Hill Townfall",
+    "gameVersion": "02.003.000",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T14:50:14Z",
+    "issue": 46
    }
   },
   "PPSA35399": {
