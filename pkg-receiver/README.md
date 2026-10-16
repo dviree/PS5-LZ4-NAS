@@ -8,7 +8,10 @@ packages. This folder only restyles its *pkg remote installer* page:
 - `glass.js`: on the Images tab, one card per game with a choice of its
   images (**exFAT** / **FFPFSC** original or **LZ4**), from the catalog's
   `game` and `variant` fields.
-- `glass.py path/to/payload/main.c`: adds both to the page in `main.c`,
+- `awake.c`: keeps the PS5 out of rest mode (auto power-down timer reset
+  every 20 s): always unless switched off with the header's **Stay awake**,
+  and while it installs, copies or the NAS asks (`/api/keep-awake`).
+- `glass.py path/to/payload/main.c`: adds these to `main.c` (and `-lSceSystemService` to the Makefile),
   appends `-glass.N` to the build (bump `REV` on every change, so the NAS
   restarts a running receiver), closes the game window on Install so the
   answer shows, and adds a `;` the newer page script is missing.

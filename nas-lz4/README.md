@@ -217,6 +217,13 @@ the `pkg-receiver-glass` release. Without that release, or with
 again replaces a running receiver of another build; there's no need to
 restart the PS5.
 
+The Glass build also **keeps the PS5 awake**: while it runs it resets the
+PS5's auto power-down timer every 20 seconds (the same calls the LZ4
+engine's power guard makes), so the PS5 does not go to rest mode. The
+**Stay awake** switch in its page header turns that off (remembered in
+`/data/pkg-receiver-awake-off`); it then stays awake only while it installs
+or copies, or while this page transfers to it (`/api/keep-awake?seconds=N`).
+
 The LZ4 Compression engine is no longer installed or updated from this
 page (`PS5LZ4_ENGINE_CHECK` is `0`), and rest mode after transfers is off,
 because both need that engine. If it runs on the PS5 anyway, transfers

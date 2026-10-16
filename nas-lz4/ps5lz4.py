@@ -4035,24 +4035,29 @@ def push_one(game: str, force: bool = False) -> int:
         rest_set(woke_at=time.time())  # this page woke it: rest again when done
         save(True)
 
-    # Ask the LZ4 Compression engine on the PS5 (port 5920, when it runs) to
-    # hold off rest mode while this transfer runs; renewed every minute.
+    # Ask pkg-receiver's Glass build (port 12800) and the LZ4 Compression
+    # engine (port 5920), whichever runs, to hold off rest mode while this
+    # transfer runs; renewed every minute.
     awake_stop = __import__("threading").Event()
+    awake_urls = (f"http://{host}:{RECV_PORT}/api/keep-awake?seconds=",
+                  f"http://{host}:{LZC_PORT}/api/lzc/keep-awake?seconds=")
 
     def keep_awake():
         import urllib.request
         while not awake_stop.is_set():
+            for u in awake_urls:
+                try:
+                    with urllib.request.urlopen(u + "180", timeout=4) as r:
+                        if r.status == 200 and not st.get("kept_awake"):
+                            st["kept_awake"] = True
+                except Exception:
+                    pass
+            awake_stop.wait(60)
+        for u in awake_urls:
             try:
-                with urllib.request.urlopen(f"http://{host}:{LZC_PORT}/api/lzc/keep-awake?seconds=180", timeout=4) as r:
-                    if r.status == 200 and not st.get("kept_awake"):
-                        st["kept_awake"] = True
+                urllib.request.urlopen(u + "0", timeout=4).close()
             except Exception:
                 pass
-            awake_stop.wait(60)
-        try:
-            urllib.request.urlopen(f"http://{host}:{LZC_PORT}/api/lzc/keep-awake?seconds=0", timeout=4).close()
-        except Exception:
-            pass
     __import__("threading").Thread(target=keep_awake, daemon=True).start()
 
     try:

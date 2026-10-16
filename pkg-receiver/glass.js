@@ -20,3 +20,11 @@ pick(0);
 var cb=document.createElement('button');cb.textContent='Copy to homebrew';
 cb.onclick=function(ev){ev.stopPropagation();var v=x.vars[sel];copyImg(v.id,v.file||v.title,v.size||0);};
 d.appendChild(cb);return d;}
+/* Stay awake: a switch in the header for awake.c (on unless switched off). */
+;(function(){var hd=document.querySelector('.hd');if(!hd)return;
+var b=document.createElement('button');b.id='awake';b.textContent='Stay awake';
+hd.insertBefore(b,document.getElementById('pcstat'));
+function show(j){b.className=j.always?'on':'';b.textContent=j.always?'☀ Stay awake: on':'☾ Stay awake: off';
+b.title=j.always?'The PS5 never goes to rest mode while this runs':'The PS5 stays awake only while it installs or copies';}
+fetch('/api/keep-awake').then(function(r){return r.json();}).then(show).catch(function(){b.style.display='none';});
+b.onclick=function(){fetch('/api/keep-awake?always='+(b.className==='on'?0:1)).then(function(r){return r.json();}).then(show);};})();
