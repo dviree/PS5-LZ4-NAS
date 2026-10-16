@@ -94,6 +94,7 @@ PLAY_STATES = {  # ours -> (report form answer, label)
 }
 
 IMAGE_EXTS = {".exfat": "exfat", ".ffpfs": "ffpfs", ".ffpfsc": "ffpfsc"}
+BARE_TID_RE = re.compile(r"(PPSA|CUSA)\d{5}([-_ ]?app\d*)?([-_ ]?v?[\d.]+)?", re.I)  # a name that is only a Title ID
 TITLE_RE = re.compile(r"(PPSA|CUSA|PPSM)\d{5}", re.I)
 VHASH_MAGIC = b"PFSCVHS1"
 EXFAT_SIG = b"EXFAT   "
@@ -4216,6 +4217,13 @@ def cmd_extract(args) -> int:
             moved = {}
             for p in keep:
                 dest = EXTRACTED / p.name
+                if p.suffix.lower() in IMAGE_EXTS and BARE_TID_RE.fullmatch(p.stem):
+                    # "PPSA12345.exfat" says nothing: name it after the game inside.
+                    meta = _safe(lambda: image_meta(p), {}) or {}
+                    title = re.sub(r'[\\/:*?"<>|]+', " ", meta.get("title") or "").strip()
+                    if title and not BARE_TID_RE.fullmatch(title):
+                        tid = meta.get("title_id") or TITLE_RE.search(p.stem).group(0).upper()
+                        dest = EXTRACTED / f"{title} [{tid}]{p.suffix}"
                 if dest.exists():
                     raise SystemExit(f"{dest.name} already exists in {EXTRACTED}")
                 os.replace(p, dest)
@@ -5796,7 +5804,8 @@ def dashboard_data() -> dict:
         g = games.get((e.title_id or "").upper()) or {}
         row = {"id": e.id, "rel": e.rel, "source_path": str(Path(HOST_LIBRARY) / e.rel), "kind": e.kind,
                "source_size": src_size, "title_id": e.title_id,
-               "name": rep.get("title_name") or e.name or (e.path.stem if e.kind != "folder" else e.path.name),
+               "name": rep.get("title_name") or e.name or (e.path.name if e.kind == "folder"
+                        else _safe(lambda: image_meta(e.path).get("title"), None) or e.path.stem),
                "verdict": verdict, "why": why,
                "can_queue": can, "running": e.id == current,
                "queued": e.id in (queue.get("remaining") or []) and running,
@@ -6635,6 +6644,21 @@ def cmd_ui(args) -> int:
                         res = smp("/api/v1/games/move", {"title_id": tid, "destination_dir": dest})
                     elif a == "smp_unmount":
                         res = smp("/api/v1/games/unmount", {"title_id": tid})
+                    elif a == "smp_delete":
+                        # Off the home screen, unmounted, then its files deleted on the PS5.
+                        path = str(req.get("path") or "")
+                        if not path:
+                            raise ValueError("no path for this game")
+                        res = {}
+                        for step, route in (("unmount", "/api/v1/games/unmount"), ("uninstall", "/api/v1/games/uninstall")):
+                            try:
+                                res[step] = smp(route, {"title_id": tid})
+                            except ValueError as err:
+                                res[step] = {"error": str(err)}
+                        try:
+                            res["deleted"] = ps5_ftp_delete(path)
+                        except Exception as err:
+                            raise ValueError(f"taken off the home screen, but its files were not deleted: {err}")
                     elif a in ("smp_uninstall", "smp_hide"):
                         res = smp("/api/v1/games/uninstall", {"title_id": tid})
                         if a == "smp_hide":

@@ -161,6 +161,12 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
 @media (max-width:760px){
   #fab{width:52px;height:52px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom))}#fab .fab-info{display:none!important}#fab .ring{width:42px;height:42px}#fab .ring span{width:34px;height:34px;font-size:11px}#fabpop{bottom:calc(74px + env(safe-area-inset-bottom))}
   header{position:static;padding:10px 14px;gap:8px}
+  header .sub{display:none}.brand .logo{width:34px;height:34px;font-size:11px}.brand h1{font-size:20px}
+  .themes button{padding:5px 9px;font-size:13px}.storelink{padding:6px 12px}
+  .hacts button.two{padding:8px 12px}.hacts button.two small{display:none}
+  .kpis{grid-template-columns:repeat(4,1fr);gap:6px}.kpis .k{padding:8px 6px;border-radius:14px;text-align:center}
+  .kpis .k b{font-size:16px!important}.kpis .k span,.kpis .k div{font-size:11px;line-height:1.25!important;margin-top:2px}
+  .pg{padding:10px;gap:10px}.pg-ico{width:52px;height:52px;border-radius:12px}
   .hacts{width:100%;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -2px;padding:2px}
   .hacts::-webkit-scrollbar{display:none}.hacts button{white-space:nowrap;flex:none}
   .tabs{position:static;margin:12px 12px 0;max-width:none}
@@ -169,7 +175,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
   main{padding:12px}
   .card{padding:14px}
   .steps{grid-template-columns:repeat(3,1fr)}
-  .k b{font-size:22px}
+  .k b{font-size:16px}
   table#games{min-width:0;width:100%}#games,#games tbody{display:block}
   #games td.c-act button{white-space:nowrap}
   #games tr:first-child{display:none}
@@ -448,10 +454,12 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
       <button class="sm" onclick="smpLog('smp_klog')">Kernel log</button>
       <button class="sm" onclick="smpAct('smp_scan', '', '', 'Ask ShadowMountPlus to scan for games now?')">Rescan</button>
       <button class="sm" onclick="loadSmp()">Refresh</button></div>
-    <div class="mut" id="smp-sub"><b id="smp-count"></b> The games ShadowMountPlus has put on the PS5's home screen, read from its own API through pkg-receiver
-    (Glass build 7 or newer; ShadowMountPlus 1.7 or newer). <b>Remove from home screen</b> takes the tile off and leaves the game's files
-    alone, but the next scan finds it again; <b>Hide</b> also renames its folder or image with a leading dot, so it stays off until you
-    rename it back (PS5 games tab, ⚠ Needs attention, Fix).</div>
+    <div class="mut" id="smp-sub"><b id="smp-count"></b> What ShadowMountPlus has on the PS5's home screen.
+    <details style="margin-top:4px"><summary>What the buttons do</summary>
+    Read from ShadowMountPlus's own API through pkg-receiver (Glass build 7 or newer; ShadowMountPlus 1.7 or newer).
+    <b>Remove from home screen</b> takes the tile off and leaves the files; the next scan puts it back.
+    <b>Hide</b> also renames the folder or image with a leading dot, so scans skip it (undo: PS5 games tab, ⚠ Needs attention, Fix).
+    <b>🗑 Delete</b> unmounts it, takes it off the home screen and deletes its files on the PS5; a copy on the NAS stays.</details></div>
     <div class="filters"><input id="smp-q" placeholder="Search name or Title ID" oninput="renderSmp()"></div>
     <div id="smp-job"></div>
     <div id="smp-log" hidden></div>
@@ -1428,7 +1436,7 @@ function renderPg() {
   document.getElementById('pg-list').innerHTML = gs.length ? gs.map((g, i) => `<div class="pg">
       <img class="pg-ico${g.ps4 ? ' ps4' : ''}" alt="" loading="lazy" src="/api/ftp/icon?path=${encodeURIComponent(g.ps4 ? g.meta || g.path : g.path)}" onerror="this.outerHTML='<div class=&quot;pg-ico fi&quot;>🎮</div>'">
       <div class="pg-body">
-        <div class="gname">${esc(g.name)}</div>
+        <div class="gname">${esc(niceName(g.name, g.title_id, g.path))}</div>
         <div class="why">${esc(g.title_id || '–')}${g.version ? ' · version ' + esc(g.version) : ''}</div>
         <div class="chips">
           <span class="chip">${esc(driveName(g.drive))}</span>
@@ -1488,6 +1496,24 @@ function copyText(t, btn) {
   document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, t.length);
   try { document.execCommand('copy'); done(); } catch (e) {}
   ta.remove();
+}
+// A real game name for a Title ID: the given one unless it is only the ID, else the
+// NAS library's, the PS5 list's, or the folder/image name without tags.
+const BARE_TID = /^\.?(PPSA|CUSA)\d{5}([-_ ]?app\d*)?([-_ ]?v?[\d.]+)?$/i;
+function niceName(name, tid, path) {
+  const ok = n => n && !BARE_TID.test(String(n).trim()) && String(n).trim().toUpperCase() !== String(tid || '').toUpperCase();
+  if (ok(name)) return name;
+  const T = String(tid || '').toUpperCase();
+  if (T) {
+    const nas = ((data && data.games) || []).find(x => (x.title_id || '').toUpperCase() === T && ok(x.name));
+    if (nas) return nas.name.replace(/\s*\[[^\]]*\]/g, '').trim() || nas.name;
+    const p5 = ((pgData && pgData.games) || []).find(x => (x.title_id || '').toUpperCase() === T && ok(x.name));
+    if (p5) return p5.name;
+  }
+  const last = String(path || '').split('/').filter(Boolean).pop() || '';
+  const clean = last.replace(/^\./, '').replace(/\.(exfat|ffpfsc?|pkg)$/i, '').replace(/[-_ ]?lz4$/i, '')
+    .replace(/\s*\[[^\]]*\]/g, '').replace(/_?(PPSA|CUSA)\d{5}_?/gi, ' ').replace(/[_]+/g, ' ').trim();
+  return ok(clean) ? clean : (name || tid || last);
 }
 function upUrl() {
   let u = '';
@@ -1557,13 +1583,14 @@ async function loadSmp() {
 function renderSmp() {
   if (!smpData) return;
   const q = document.getElementById('smp-q').value.trim().toLowerCase();
-  const gs = (smpData.games || []).filter(g => !q || (g.title_name + ' ' + g.title_id).toLowerCase().includes(q))
-    .sort((a, b) => (a.title_name || '').localeCompare(b.title_name || ''));
+  (smpData.games || []).forEach(g => { g.nice = niceName(g.title_name, g.title_id, g.path); });
+  const gs = (smpData.games || []).filter(g => !q || (g.nice + ' ' + g.title_id).toLowerCase().includes(q))
+    .sort((a, b) => (a.nice || '').localeCompare(b.nice || ''));
   document.getElementById('smp-count').textContent = `${(smpData.games || []).length} games in ShadowMountPlus ${smpData.version || ''}.`;
   document.getElementById('smp-list').innerHTML = gs.length ? gs.map(g => `<div class="pg">
       <img class="pg-ico${g.platform === 'ps4' ? ' ps4' : ''}" alt="" loading="lazy" src="/api/smp/icon?tid=${encodeURIComponent(g.title_id)}" onerror="this.outerHTML='<div class=&quot;pg-ico fi&quot;>🎮</div>'">
       <div class="pg-body">
-        <div class="gname">${esc(g.title_name || g.title_id)}</div>
+        <div class="gname">${esc(g.nice)}</div>
         <div class="why">${esc(g.title_id)}${g.version ? ' · version ' + esc(g.version) : ''}</div>
         <div class="chips">
           <span class="chip ${g.platform === 'ps4' ? 'ps4' : ''}">${esc((g.platform || '').toUpperCase())}</span>
@@ -1575,10 +1602,11 @@ function renderSmp() {
         <div class="why" title="${esc(g.path || '')}">${esc(g.path || '')}</div>
         <div class="pg-acts">
           ${g.mounted ? `<button class="sm" data-t="${esc(g.title_id)}" onclick="smpAct('smp_unmount', this.dataset.t, '', 'Unmount it now?')">Unmount</button>` : ''}
-          ${g.source_available !== false && g.path && !g.installed_pkg ? `<button class="sm" data-t="${esc(g.title_id)}" data-p="${esc(g.path)}" data-n="${esc(g.title_name || g.title_id)}" onclick="smpMovePick(this, this.dataset.t, this.dataset.p, this.dataset.n)">Move…</button>` : ''}
+          ${g.source_available !== false && g.path && !g.installed_pkg ? `<button class="sm" data-t="${esc(g.title_id)}" data-p="${esc(g.path)}" data-n="${esc(g.nice)}" onclick="smpMovePick(this, this.dataset.t, this.dataset.p, this.dataset.n)">Move…</button>` : ''}
           <span class="sp"></span>
-          ${g.installed && g.can_uninstall !== false ? `<button class="sm" data-t="${esc(g.title_id)}" data-n="${esc(g.title_name || g.title_id)}" onclick="smpAct('smp_uninstall', this.dataset.t, '', 'Take ' + this.dataset.n + ' off the home screen?\n\nIts files stay; the next ShadowMountPlus scan puts it back (use Hide to keep it off).')">Remove from home screen</button>` : ''}
-          ${g.installed && g.can_uninstall !== false && g.path && !g.path.split('/').pop().startsWith('.') ? `<button class="sm danger" data-t="${esc(g.title_id)}" data-p="${esc(g.path)}" data-n="${esc(g.title_name || g.title_id)}" onclick="smpAct('smp_hide', this.dataset.t, this.dataset.p, 'Hide ' + this.dataset.n + '?\n\nThe tile goes off the home screen and its source is renamed with a leading dot, so scans skip it. Nothing is deleted.')">Hide</button>` : ''}
+          ${g.installed && g.can_uninstall !== false ? `<button class="sm" data-t="${esc(g.title_id)}" data-n="${esc(g.nice)}" onclick="smpAct('smp_uninstall', this.dataset.t, '', 'Take ' + this.dataset.n + ' off the home screen?\n\nIts files stay; the next ShadowMountPlus scan puts it back (use Hide to keep it off).')">Remove from home screen</button>` : ''}
+          ${g.installed && g.can_uninstall !== false && g.path && !g.path.split('/').pop().startsWith('.') ? `<button class="sm" data-t="${esc(g.title_id)}" data-p="${esc(g.path)}" data-n="${esc(g.nice)}" onclick="smpAct('smp_hide', this.dataset.t, this.dataset.p, 'Hide ' + this.dataset.n + '?\n\nThe tile goes off the home screen and its source is renamed with a leading dot, so scans skip it. Nothing is deleted.')">Hide</button>` : ''}
+          ${g.path && !g.installed_pkg && g.source_available !== false ? `<button class="sm danger" data-t="${esc(g.title_id)}" data-p="${esc(g.path)}" data-n="${esc(g.nice)}" onclick="smpAct('smp_delete', this.dataset.t, this.dataset.p, 'Delete ' + this.dataset.n + ' from the PS5?\n\n' + this.dataset.p + '\n\nIt is unmounted, taken off the home screen and its files are deleted. A copy on the NAS stays. This can\'t be undone.')">🗑 Delete</button>` : ''}
         </div>
       </div></div>`).join('') : '<div class="mut">No games.</div>';
 }
@@ -1632,7 +1660,7 @@ async function smpJob() {
   try { const r = await fetch('/api/smp/job', {cache: 'no-store'}); j = await r.json(); if (!r.ok) { el.innerHTML = ''; return; } } catch (e) { return; }
   if (!j.operation || (!j.active && !['completed', 'failed', 'cancelled'].includes(j.state))) { el.innerHTML = ''; return; }
   const gbs = b => (b / 2 ** 30).toFixed(1) + ' GB';
-  el.innerHTML = `<div class="dl"><div class="dl-top"><b>${esc(j.operation)} ${esc(j.title_id)}</b><span class="mut">${esc(j.source)} → ${esc(j.destination)}</span><span class="sp"></span>
+  el.innerHTML = `<div class="dl"><div class="dl-top"><b>${esc(j.operation)} ${esc(niceName('', j.title_id, j.source))}</b><span class="mut">${esc(j.source)} → ${esc(j.destination)}</span><span class="sp"></span>
       <span class="chip ${j.state === 'completed' ? 'ok' : j.state === 'failed' ? 'bad' : ''}">${esc(j.state)}</span>
       ${j.active && j.cancellable ? `<button class="sm danger" onclick="smpAct('smp_cancel', '', '', 'Cancel the move?', {job_id: ${j.job_id}})">Cancel</button>` : ''}</div>
     ${j.active ? `<div class="bar"><i style="width:${(j.progress_percent || 0).toFixed(1)}%"></i></div>
