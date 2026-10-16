@@ -2004,7 +2004,8 @@ def get_settings() -> dict:
     s = {"ps5_ftp": os.environ.get("PS5LZ4_PS5_FTP", ""),
          "ps5_dest": os.environ.get("PS5LZ4_PS5_DEST", "/mnt/usb0/homebrew"),
          "ps5_wake_key": os.environ.get("PS5LZ4_PS5_WAKE_KEY", ""),
-         "ps4_dest": os.environ.get("PS5LZ4_PS4_DEST", "/data/pkg")}
+         "ps4_dest": os.environ.get("PS5LZ4_PS4_DEST", "/data/pkg"),
+         "notify_url": os.environ.get("PS5LZ4_NOTIFY_URL", "")}
     s.update({k: v for k, v in (read_json(SETTINGS_PATH, {}) or {}).items() if k in s and isinstance(v, str)})
     return s
 
@@ -2023,7 +2024,10 @@ def save_settings(new: dict) -> dict:
     pdest = str(new.get("ps4_dest", s["ps4_dest"])).strip().rstrip("/") or "/data/pkg"
     if not pdest.startswith("/") or ".." in pdest.split("/"):
         raise ValueError("the PS4 package folder must be an absolute path on the PS5")
-    s.update(ps5_ftp=ftp, ps5_dest=dest, ps5_wake_key=key, ps4_dest=pdest)
+    nurl = str(new.get("notify_url", s["notify_url"])).strip()
+    if nurl and not re.fullmatch(r"https?://[^\s]+", nurl):
+        raise ValueError("the notification address must start with http:// or https://")
+    s.update(ps5_ftp=ftp, ps5_dest=dest, ps5_wake_key=key, ps4_dest=pdest, notify_url=nurl)
     stored = read_json(SETTINGS_PATH, {}) or {}
     stored.update(s)  # keeps the pairing details (RP key, MAC, name)
     write_settings(stored)
@@ -3801,6 +3805,78 @@ def dl_snapshot() -> list[dict]:
     return sorted(out, key=lambda d: d["status"] != "downloading")
 
 
+def notify(title: str, text: str, ok: bool = True, url: str | None = None) -> None:
+    """A push notification: to an ntfy topic (https://ntfy.sh/<topic> or a
+    self-hosted one; title and tags as headers) or any other webhook (JSON
+    with title, message, ok), e.g. Home Assistant. Idea from
+    game-library-manager-ps5; best effort, never raises."""
+    import urllib.request
+    url = url or get_settings().get("notify_url") or ""
+    if not url:
+        return
+    try:
+        if "ntfy" in url.lower():
+            req = urllib.request.Request(url, data=text.encode(), method="POST", headers={
+                "Title": title.encode("ascii", "replace").decode(), "Tags": "white_check_mark" if ok else "warning",
+                "Priority": "default" if ok else "high"})
+        else:
+            req = urllib.request.Request(url, data=json.dumps({"title": title, "message": text, "ok": ok}).encode(),
+                                         method="POST", headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=10).close()
+    except Exception as err:
+        print(f"[{now()}] notification failed: {err}", flush=True)
+
+
+def notifier() -> None:
+    """Watch what finishes (packing reports, actions, transfers to the PS5,
+    downloads from this NAS) and send a notification for each; the first
+    look only remembers what is already there."""
+    seen: dict = {}
+    first = True
+    while True:
+        try:
+            events = []
+            for f in (REPORTS.glob("*.json") if REPORTS.is_dir() else []):
+                r = read_json(f, {}) or {}
+                key = ("report", f.name, r.get("finished"))
+                if r.get("finished") and key not in seen:
+                    seen[key] = 1
+                    saved = r.get("saved_bytes") or 0
+                    events.append(("Packed: " + (r.get("title_name") or r.get("id") or f.stem),
+                                   f"LZ4 done and verified on the NAS, {human(saved)} saved ({r.get('saved_percent', 0)} %).", True))
+            for f in (REQUESTS.glob("*.done.json") if REQUESTS.is_dir() else []):
+                key = ("req", f.name)
+                if key in seen:
+                    continue
+                seen[key] = 1
+                r = read_json(f, {}) or {}
+                if r.get("action") in ("start", "fix", "check", "check_full", "apr", "make_exfat") or not r.get("ok", True):
+                    events.append((f"{'Done' if r.get('ok') else 'Failed'}: {r.get('action', '')} {r.get('game') or ''}".strip(),
+                                   "\n".join((r.get("output") or "").splitlines()[-3:]) or "-", bool(r.get("ok"))))
+            for f in transfer_files():
+                t = read_json(f, {}) or {}
+                key = ("xfer", f.name, t.get("state"), t.get("finished"))
+                if t.get("state") in ("done", "failed") and key not in seen:
+                    seen[key] = 1
+                    ok = t["state"] == "done"
+                    events.append((("Sent to the PS5: " if ok else "Transfer failed: ") + str(t.get("game") or f.stem),
+                                   f"{human(t.get('total') or 0)} to {t.get('dest', '')}" if ok else str(t.get("error") or ""), ok))
+            for h in (read_json(PKG_HISTORY, []) or [])[:20]:
+                key = ("dl", h.get("at"), h.get("id"), h.get("kind"))
+                if h.get("kind") == "download" and key not in seen:
+                    seen[key] = 1
+                    events.append((("Downloaded by the PS5: " if h.get("ok") else "Download stopped: ") + str(h.get("name")),
+                                   f"{human(h.get('size') or 0)} from this NAS" + ("; the PS5 now installs it" if h.get("ok") else ""),
+                                   bool(h.get("ok"))))
+            if not first:
+                for title, text, ok in events[:10]:
+                    notify(title, text, ok)
+            first = False
+        except Exception as err:
+            print(f"[{now()}] notifier: {err}", flush=True)
+        time.sleep(20)
+
+
 def serve_pkg(h, pid: str, head: bool = False) -> None:
     """Send a library .pkg on HTTP handler h, with Range support (the PS5's
     installer downloads in pieces)."""
@@ -5256,6 +5332,12 @@ def cmd_ui(args) -> int:
                 ENGINE_DIR.mkdir(parents=True, exist_ok=True)
                 write_json(ENGINE_AUTO, {"on": bool(req.get("on"))})
                 return self.send(200, json.dumps({"auto": engine_auto_on()}).encode())
+            if req.get("action") == "notify_test":
+                url = str(req.get("url") or get_settings().get("notify_url") or "")
+                if not url:
+                    return self.send(400, json.dumps({"error": "enter a notification address first"}).encode())
+                notify("ps5-lz4 test", "Notifications from ps5-lz4 arrive here.", True, url)
+                return self.send(200, b'{"sent":true}')
             if req.get("action") in ("receiver_start", "receiver_auto"):
                 try:
                     if req["action"] == "receiver_auto":
@@ -5438,6 +5520,7 @@ def cmd_ui(args) -> int:
     __import__("threading").Thread(target=transfer_queue_watcher, daemon=True).start()
     __import__("threading").Thread(target=rest_watcher, daemon=True).start()
     __import__("threading").Thread(target=receiver_autostarter, daemon=True).start()
+    __import__("threading").Thread(target=notifier, daemon=True).start()
     if CATALOG_PORT > 0:
         __import__("threading").Thread(target=catalog_server, daemon=True).start()
         __import__("threading").Thread(target=catalog_announcer, daemon=True).start()

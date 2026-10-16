@@ -318,6 +318,18 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
       <a class="sm" id="rcv-open" target="_blank" rel="noopener" style="align-self:center">Open its page</a></div>
     <div class="why" id="rcv-msg"></div>
   </div>
+  <div class="card"><h2>Notifications</h2>
+    <div class="mut">A push notification when packing, a check, a transfer to the PS5 or a download by the PS5 finishes or fails.
+    Use an <a href="https://ntfy.sh" target="_blank" rel="noopener">ntfy</a> topic (<code>https://ntfy.sh/your-secret-topic</code>, then
+    subscribe to it in the ntfy app) or any webhook, e.g. Home Assistant's (JSON with <code>title</code>, <code>message</code>, <code>ok</code>).
+    Empty: off.</div>
+    <div class="filters">
+      <input id="s-notify" placeholder="https://ntfy.sh/your-secret-topic" autocomplete="off">
+      <button onclick="saveNotify()">Save</button>
+      <button class="sm" onclick="testNotify()">Send a test</button>
+    </div>
+    <div class="why" id="notify-msg"></div>
+  </div>
   <div class="card"><h2>PS5 storage</h2>
     <div class="mut">The internal SSD's size and free space come live from pkg-receiver. For other drives, <b>Set size</b>
     once (as PS5 Settings › Storage or the drive's label shows it) and <b>Measure</b> adds up the files on the drive.</div>
@@ -560,6 +572,18 @@ async function act(action, confirmText, extra = {}) {
   setTimeout(load, 800);
 }
 
+async function saveNotify() {
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'settings', notify_url: document.getElementById('s-notify').value.trim()})});
+  const j = await r.json().catch(() => ({})), m = document.getElementById('notify-msg');
+  m.className = 'why ' + (r.ok ? 'good' : 'bad'); m.textContent = r.ok ? (j.notify_url ? 'Saved: notifications are on.' : 'Saved: notifications are off.') : 'Failed: ' + (j.error || r.status);
+}
+async function testNotify() {
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'notify_test', url: document.getElementById('s-notify').value.trim()})});
+  const j = await r.json().catch(() => ({})), m = document.getElementById('notify-msg');
+  m.className = 'why ' + (r.ok ? 'good' : 'bad'); m.textContent = r.ok ? 'Test sent: check your phone.' : 'Failed: ' + (j.error || r.status);
+}
 async function saveSettings() {
   const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action: 'settings', ps5_ftp: document.getElementById('s-ftp').value,
@@ -693,6 +717,7 @@ function render() {
     document.getElementById('s-ftp').value = d.settings.ps5_ftp || '';
     document.getElementById('s-dest').value = d.settings.ps5_dest || '';
     document.getElementById('s-pkg').value = d.settings.ps4_dest || '/data/pkg';
+    document.getElementById('s-notify').value = d.settings.notify_url || '';
     const kf = document.getElementById('s-key');
     kf.value = '';
     kf.placeholder = d.settings.ps5_wake_key ? 'Remote Play key saved (leave empty to keep it)' : 'Remote Play key (rp_regist_key)';
