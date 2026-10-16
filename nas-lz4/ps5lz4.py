@@ -3424,22 +3424,45 @@ def pkg_roots() -> dict:
     return {k: p for k, p in (("ps4", PS4_LIBRARY), ("ps5", LIBRARY)) if p.is_dir()}
 
 
-def pkg_entries(fh) -> dict:
-    """The PKG's file table: entry id -> (offset, size)."""
+def pkg_container(fh) -> tuple[int, dict]:
+    """Where the CNT header is (0 for a PS4 package; a PS5 package with the
+    \x7fFIH header names its embedded CNT at 0x58) and its readable file
+    table: entry id -> (absolute offset, size); encrypted entries left out.
+    The PS5 layout follows pkg-sender-synology's metadata reader (MIT)."""
     import struct
-    head = fh.read(0x30)
+    fh.seek(0)
+    head = fh.read(0x60)
+    base = 0
+    if head[:4] == b"\x7fFIH" and len(head) >= 0x60:
+        base = struct.unpack("<Q", head[0x58:0x60])[0]
+        fh.seek(base)
+        head = fh.read(0x30)
     if head[:4] != b"\x7fCNT":
-        raise ValueError("not a PS4 package")
+        raise ValueError("not a PS4 or PS5 package")
     count, table = struct.unpack(">I", head[0x10:0x14])[0], struct.unpack(">I", head[0x18:0x1C])[0]
-    fh.seek(table)
+    fh.seek(base + table)
     out = {}
     for _ in range(min(count, 4096)):
         e = fh.read(32)
         if len(e) < 32:
             break
-        eid, _name, _f1, _f2, off, size = struct.unpack(">IIIIII", e[:24])
-        out[eid] = (off, size)
-    return out
+        eid, _name, flags, _f2, off, size = struct.unpack(">IIIIII", e[:24])
+        if flags & 0x80000000 or not size:
+            continue
+        out.setdefault(eid, (base + off, size))
+    return base, out
+
+
+def pkg_entries(fh) -> dict:
+    return pkg_container(fh)[1]
+
+
+def pkg_icon_entry(ents: dict):
+    """icon0.png (0x1200), else the first readable icon variant (0x1201-0x1220)."""
+    for eid in [0x1200] + list(range(0x1201, 0x1221)):
+        if eid in ents:
+            return ents[eid]
+    return None
 
 
 def parse_sfo(data: bytes) -> dict:
@@ -3465,8 +3488,8 @@ def pkg_info(path: Path) -> dict:
     info = {"size": st.st_size}
     try:
         with open(path, "rb") as fh:
-            ents = pkg_entries(fh)
-            fh.seek(0x40)
+            base, ents = pkg_container(fh)
+            fh.seek(base + 0x40)
             info["content_id"] = fh.read(36).rstrip(b"\0").decode(errors="replace")
             if 0x1000 in ents:
                 off, size = ents[0x1000]
@@ -3475,11 +3498,31 @@ def pkg_info(path: Path) -> dict:
                 info.update(name=sfo.get("TITLE", ""), title_id=sfo.get("TITLE_ID", ""),
                             category=PKG_CATEGORY.get(str(sfo.get("CATEGORY", "")), str(sfo.get("CATEGORY", ""))),
                             version=sfo.get("APP_VER") or sfo.get("VERSION") or "")
-            info["icon"] = 0x1200 in ents
+            elif 0x2000 in ents and ents[0x2000][1] <= 2 << 20:
+                # PS5: param.json
+                off, size = ents[0x2000]
+                fh.seek(off)
+                raw = fh.read(size)
+                tid, name = parse_param_json(raw)
+                try:
+                    j = json.loads(raw.decode("utf-8", "replace"))
+                except ValueError:
+                    j = {}
+                info.update(name=name, title_id=tid, version=str(j.get("contentVersion") or ""), platform="PS5")
+                low = "\n".join((name, info["content_id"], path.name)).lower()
+                if any(e in ents for e in (0x0407, 0x0408, 0x1008)) or j.get("targetContentVersion"):
+                    info["category"] = "Update"
+                elif any(m in low for m in ("dlc", "add-on", "addon", "expansion", "season pass")):
+                    info["category"] = "DLC"
+                elif j.get("applicationCategoryType") == 0:
+                    info["category"] = "Game"
+                elif "applicationCategoryType" in j:
+                    info["category"] = "App"
+            info["icon"] = pkg_icon_entry(ents) is not None
     except (OSError, ValueError) as err:
         info["error"] = str(err)
     if not info.get("title_id"):
-        m = re.search(r"CUSA\d{5}", info.get("content_id", "") + " " + path.name, re.I)
+        m = re.search(r"(CUSA|PPSA)\d{5}", info.get("content_id", "") + " " + path.name, re.I)
         info["title_id"] = m.group(0).upper() if m else ""
     info.setdefault("name", "")
     info["name"] = info["name"] or re.sub(r"\.pkg$", "", path.name, flags=re.I)
@@ -3525,10 +3568,10 @@ def pkg_icon(pid: str) -> bytes | None:
     try:
         p = pkg_path(pid)
         with open(p, "rb") as fh:
-            ents = pkg_entries(fh)
-            if 0x1200 not in ents:
+            ent = pkg_icon_entry(pkg_entries(fh))
+            if not ent:
                 return None
-            off, size = ents[0x1200]
+            off, size = ent
             fh.seek(off)
             data = fh.read(min(size, 4 << 20))
         return data if data[:8] == b"\x89PNG\r\n\x1a\n" else None
@@ -3687,6 +3730,77 @@ def receiver_autostarter() -> None:
 
 
 
+# What the PS5 downloads from this page (packages and images), counted by the
+# byte ranges sent, as pkg-sender-synology's transfer tracker does (MIT): live
+# progress and speed, and a history of downloads and install requests.
+PKG_HISTORY = STATE / "pkg_history.json"
+_dl: dict = {}
+_dl_lock = __import__("threading").Lock()
+
+
+def pkg_history_add(rec: dict) -> None:
+    with _dl_lock:
+        hist = read_json(PKG_HISTORY, []) or []
+        hist.insert(0, {"at": now(), **rec})
+        write_json(PKG_HISTORY, hist[:100])
+
+
+def dl_note(pid: str, name: str, total: int, start: int, n: int) -> None:
+    t = time.time()
+    done = None
+    with _dl_lock:
+        s = _dl.get(pid)
+        if not s or s["done"] or t - s["updated"] > 600:
+            s = _dl[pid] = {"id": pid, "name": name, "total": total, "iv": [], "got": 0, "started": t,
+                            "updated": t, "rate": 0.0, "mark": (t, 0), "done": False, "logged": False}
+        a, b = start, start + n
+        iv = []
+        for x, y in s["iv"]:
+            if y < a or x > b:
+                iv.append((x, y))
+            else:
+                a, b = min(a, x), max(b, y)
+        iv.append((a, b))
+        s["iv"] = sorted(iv)
+        s["got"] = sum(y - x for x, y in s["iv"])
+        s["updated"] = t
+        mt, mg = s["mark"]
+        if t - mt >= 2:
+            r = (s["got"] - mg) / (t - mt)
+            s["rate"] = r if not s["rate"] else 0.6 * s["rate"] + 0.4 * r
+            s["mark"] = (t, s["got"])
+        if s["got"] >= total and not s["done"]:
+            s["done"] = s["logged"] = True
+            done = {"kind": "download", "id": pid, "name": name, "size": total, "ok": True,
+                    "seconds": round(t - s["started"])}
+    if done:
+        pkg_history_add(done)
+
+
+def dl_snapshot() -> list[dict]:
+    t = time.time()
+    out, stale = [], []
+    with _dl_lock:
+        for pid, s in list(_dl.items()):
+            age = t - s["updated"]
+            if s["done"] and age > 600:
+                del _dl[pid]
+                continue
+            if not s["done"] and age > 600:
+                del _dl[pid]
+                if not s["logged"]:
+                    stale.append({"kind": "download", "id": pid, "name": s["name"], "size": s["total"],
+                                  "got": s["got"], "ok": False, "error": "stopped"})
+                continue
+            out.append({"id": pid, "name": s["name"], "total": s["total"], "got": s["got"],
+                        "percent": round(100 * s["got"] / s["total"], 1) if s["total"] else 0,
+                        "rate": round(s["rate"]) if age < 15 else 0,
+                        "status": "done" if s["done"] else "downloading" if age < 30 else "paused"})
+    for rec in stale:
+        pkg_history_add(rec)
+    return sorted(out, key=lambda d: d["status"] != "downloading")
+
+
 def serve_pkg(h, pid: str, head: bool = False) -> None:
     """Send a library .pkg on HTTP handler h, with Range support (the PS5's
     installer downloads in pieces)."""
@@ -3725,6 +3839,11 @@ def serve_pkg(h, pid: str, head: bool = False) -> None:
     if head:
         return
     left = end - start + 1
+    pos = start
+    try:
+        name = (image_meta(p).get("title") if pid.startswith("img/") else pkg_info(p).get("name")) or p.name
+    except Exception:
+        name = p.name
     try:
         with open(p, "rb") as f:
             f.seek(start)
@@ -3733,6 +3852,8 @@ def serve_pkg(h, pid: str, head: bool = False) -> None:
                 if not chunk:
                     break
                 h.wfile.write(chunk)
+                dl_note(pid, name, size, pos, len(chunk))
+                pos += len(chunk)
                 left -= len(chunk)
     except (BrokenPipeError, ConnectionResetError):
         pass
@@ -3856,7 +3977,7 @@ def pkg_catalog() -> list[dict]:
                     "version": p.get("version") or "", "size": p.get("size") or 0, "sizeText": human(p.get("size") or 0),
                     "role": role.get(p.get("category") or "", p.get("category") or "Game"),
                     "familyKey": tid or "FILE:" + p["file"],
-                    "platform": "PS5" if tid.upper().startswith("PPSA") else "PS4",
+                    "platform": p.get("platform") or ("PS5" if tid.upper().startswith("PPSA") else "PS4"),
                     "format": "pkg", "file": p["file"], "hasIcon": bool(p.get("icon"))})
     return out
 
@@ -3929,6 +4050,21 @@ def catalog_announcer() -> None:
 
 
 def pkg_install(pid: str, via: str, page_host: str) -> dict:
+    """pkg_install_now, noted in the package history (with Retry on the page)."""
+    try:
+        name = pkg_info(pkg_path(pid)).get("name") or pid
+    except (SystemExit, OSError):
+        name = pid
+    try:
+        res = pkg_install_now(pid, via, page_host)
+    except (ValueError, SystemExit) as err:
+        pkg_history_add({"kind": "install", "id": pid, "name": name, "via": via, "ok": False, "error": str(err)})
+        raise
+    pkg_history_add({"kind": "install", "id": pid, "name": name, "via": via, "ok": True})
+    return res
+
+
+def pkg_install_now(pid: str, via: str, page_host: str) -> dict:
     """Ask pkg-receiver to install a package: from this page over HTTP ("url"),
     or from the copy sent to the PS5's package folder ("local")."""
     import urllib.error
@@ -4951,6 +5087,9 @@ def cmd_ui(args) -> int:
                     return self.send(200, json.dumps({"found": ps5_find(self.headers.get("Host") or "")}).encode())
                 except ValueError as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
+            if self.path == "/api/pkg/activity":
+                return self.send(200, json.dumps({"downloads": dl_snapshot(),
+                                                  "history": read_json(PKG_HISTORY, []) or []}).encode())
             if self.path == "/api/receiver":
                 return self.send(200, json.dumps(receiver_status()).encode())
             if self.path.startswith("/api/pkg/icon?"):
