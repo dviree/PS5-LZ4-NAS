@@ -19,6 +19,13 @@ RUN CFLAGS="-O2 -Wno-error=format-truncation" make -f tests/host/Makefile PYTHON
 
 FROM python:3.12-slim-bookworm
 ARG MKPFS_VERSION=1.1.0
+# unrar (RARLAB's freeware, from Debian non-free): extracts multi-part RAR5
+# archives in the library, checking every file's CRC.
+RUN sed -i 's/^Components: main$/Components: main non-free/' /etc/apt/sources.list.d/debian.sources \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends unrar \
+ && rm -rf /var/lib/apt/lists/* \
+ && unrar | head -1
 RUN pip install --no-cache-dir "mkpfs==${MKPFS_VERSION}" \
  && mkpfs -V | grep -q "${MKPFS_VERSION}" \
  && python3 -c "from mkpfs.exfat import ExfatReader; import cryptography"

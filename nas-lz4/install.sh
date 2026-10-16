@@ -137,6 +137,9 @@ say "Installing into $BASE"
 mkdir -p "$BASE/state" "$BASE/logs" "$BASE/reports" "$OUTPUT"
 chown "$PUID:$PGID" "$BASE/state" "$BASE/logs" "$BASE/reports" "$OUTPUT"
 install -d -o "$PUID" -g "$PGID" "$OUTPUT/.ps5lz4-work"
+# RAR archives in the library are extracted here (the rest of the library
+# stays read-only for the containers).
+install -d -o "$PUID" -g "$PGID" "$LIBRARY/_extracted"
 
 backup="$BASE/backup-$(date +%Y%m%d-%H%M%S)"
 for f in docker-compose.yml .env lz4-ps5.sh Dockerfile; do
@@ -190,6 +193,7 @@ services:
       TZ: "$TZ_NAME"
     volumes:
       - "$LIBRARY:/library$LIB_MODE"
+      - "$LIBRARY/_extracted:/library/_extracted"
       - "$OUTPUT:/output"
       - "$BASE/state:/state"
       - "$BASE/logs:/state/logs"
@@ -261,7 +265,7 @@ else
     -e PUID="$PUID" -e PGID="$PGID" \
     -e PS5LZ4_HOST_LIBRARY="$LIBRARY" -e PS5LZ4_HOST_OUTPUT="$OUTPUT" \
     -e PS5LZ4_LEVEL="$LEVEL" -e PS5LZ4_FREE_MARGIN_GB="$FREE_MARGIN_GB" -e TZ="$TZ_NAME" \
-    -v "$LIBRARY:/library:ro" -v "$OUTPUT:/output" -v "$BASE/state:/state" \
+    -v "$LIBRARY:/library:ro" -v "$LIBRARY/_extracted:/library/_extracted" -v "$OUTPUT:/output" -v "$BASE/state:/state" \
     -v "$BASE/logs:/state/logs" -v "$BASE/reports:/state/reports" \
     "$IMAGE" >/dev/null
   docker run -d --name "$CONTAINER-ui" --restart unless-stopped --init --user "$PUID:$PGID" \

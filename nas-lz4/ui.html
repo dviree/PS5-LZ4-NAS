@@ -271,6 +271,11 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     <div class="scroll"><table id="pkgs"></table></div></div>
 </main>
 <main id="p-act" hidden>
+  <div class="card" id="arccard" hidden><h2>RAR archives in the library</h2>
+    <div class="mut">A game packed as RAR parts (name.part1.rar, …) is extracted with unrar (every file's CRC checked) and made into a
+    checked <code>.exfat</code> in <code>_extracted</code> in the library, which then shows up as a game. The RAR files stay until you delete
+    them (after a finished extract, with DELETE_ORIGINALS=yes).</div>
+    <div id="arcs"></div></div>
   <div class="card"><h2>Packing</h2><div id="job"></div><div id="pq"></div></div>
   <div class="card" id="imgcard" hidden><h2>exFAT images</h2><div id="imgs"></div></div>
   <div class="card"><h2>Transfers to the PS5</h2><div id="xfer"></div><div id="xq"></div><div id="xstop"></div>
@@ -474,7 +479,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
 const STEP_EN = {source: 'Source', check: 'Check', pack: 'Pack', verify: 'Verify', restore: 'Restore test', publish: 'Publish'};
 const PS5_EN = {works: 'works', issues: 'with issues', nostart: "won't start", crash: 'crashes'};
 const KIND_EN = {folder: 'game folder', exfat: 'exFAT image', ffpfsc: '.ffpfsc image (PFSC compressed)', ffpfs: '.ffpfs image', lz4: 'LZ4 folder'};
-const ACT_EN = {check: 'Check all', check_full: 'Full re-check', fix: 'Compress all', apr: 'Repair', stop: 'Stop', resume: 'Continue queue', start: 'Compress', community: 'PS5 result', remove: 'Delete LZ4 copy', delete_original: 'Delete original'};
+const ACT_EN = {extract: 'Extract to exFAT', delete_rars: 'Delete RAR files', check: 'Check all', check_full: 'Full re-check', fix: 'Compress all', apr: 'Repair', stop: 'Stop', resume: 'Continue queue', start: 'Compress', community: 'PS5 result', remove: 'Delete LZ4 copy', delete_original: 'Delete original'};
 let data = null;
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -874,6 +879,18 @@ function render() {
         <td class="c-ps5">${lz4 && !g.output_only ? ps5 : ''}</td><td class="c-act">${action}</td></tr>`;
     }).join('');
 
+  const arcs = d.archives || [];
+  document.getElementById('arccard').hidden = !arcs.length;
+  document.getElementById('arcs').innerHTML = arcs.map(a => {
+    const st = a.state || {}, run = st.state === 'running' && Date.now() / 1000 - (st.updated || 0) < 180;
+    const pct = st.total ? Math.min(100, 100 * st.done / st.total) : 0;
+    return `<div class="dl"><div class="dl-top"><b>${esc(a.name)}</b><span class="mut">${a.parts} part${a.parts > 1 ? 's' : ''} · ${gb(a.size)} · ${esc(a.dir || '.')}</span><span class="sp"></span>
+      ${st.state === 'done' ? `<span class="chip ok">✓ ${esc((st.image || '').split('/').pop())}</span>` + (d.delete_originals ? ` <button class="sm danger" data-a="${esc(a.id)}" data-n="${esc(a.name)}" onclick="act('delete_rars', 'Delete the ' + ${a.parts} + ' RAR files of ' + this.dataset.n + '?\n\nThe game stays as the checked .exfat in _extracted.', {game: this.dataset.a})">🗑 Delete RAR files</button>` : '')
+        : run ? `<span class="chip">${esc(st.phase || 'working')}</span>`
+        : `<button class="sm pri" data-a="${esc(a.id)}" data-n="${esc(a.name)}" onclick="act('extract', 'Extract ' + this.dataset.n + ' and make a checked .exfat of it?\n\nIt needs about twice the game size free in the library for a while. The RAR files are not changed.', {game: this.dataset.a})">${st.state === 'failed' || st.state === 'stopped' ? '↻ Try again' : '📦 Extract to exFAT'}</button>`}</div>
+      ${run ? `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div><div class="why">${gb(st.done)} of ${gb(st.total)}</div>` : ''}
+      ${st.state === 'failed' ? `<div class="why bad">${esc(st.error || '')}</div>` : ''}</div>`;
+  }).join('');
   const log = document.getElementById('log');
   const items = d.requests.recent;
   const pend = d.requests.pending_list || [];
