@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T18:18:01Z",
+ "updated": "2026-10-16T20:33:40Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -304,6 +304,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-14T21:29:31Z",
     "issue": 15
+   }
+  },
+  "PPSA16833": {
+   "name": "LEGO® Batman™: Legacy of the Dark Knight",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "LEGO® Batman™: Legacy of the Dark Knight",
+    "gameVersion": "01.010.000",
+    "level": "9",
+    "source": "Folder",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T20:33:30Z",
+    "issue": 49
    }
   },
   "PPSA17221": {
