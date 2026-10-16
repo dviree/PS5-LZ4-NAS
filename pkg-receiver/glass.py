@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-REV = "glass.2"  # build suffix; bump it on every change so the NAS restarts the receiver
+REV = "glass.3"  # build suffix; bump it on every change so the NAS restarts the receiver
 
 
 def c_lines(css: str) -> str:
@@ -61,6 +61,26 @@ def main() -> None:
         sys.exit("can't find render() in main.c")
     text = text.replace(render, '/* glass.js (PS5-LZ4 NAS) */\n' + c_lines((HERE / "glass.js").read_text()) + render, 1)
     text = text.replace(each, "groupImgs(list).forEach(function(g){grid.appendChild(g.group?imgCard(g):card(g,0));});return;}", 1)
+
+    # Keep the PS5 awake (awake.c): the code after the pull state it reads,
+    # the endpoint next to /api/version, the thread at start-up, and the
+    # library with the power calls in the Makefile.
+    anchor = "static volatile int g_pull_paused = 0;\n"
+    version = '\t} else if (!strcmp(method, "GET") &&\n\t           !strncmp(path, "/api/version", 12)) {\n'
+    started = "\tpc_listen_start();\n"
+    for part in (anchor, version, started):
+        if text.count(part) != 1:
+            sys.exit(f"can't find {part.strip()!r} in main.c")
+    text = text.replace(anchor, anchor + "\n" + (HERE / "awake.c").read_text(), 1)
+    text = text.replace(version, '\t} else if (!strcmp(method, "GET") &&\n\t           !strncmp(path, "/api/keep-awake", 15)) {\n'
+                        "\t\tawake_api(fd, path);\n" + version, 1)
+    text = text.replace(started, started + "\tawake_start();\n", 1)
+    mk = src.parent / "Makefile"
+    mtext = mk.read_text()
+    if "-lSceSystemService" not in mtext:
+        if mtext.count("-lSceNet") != 1:
+            sys.exit("can't find the libraries in the Makefile")
+        mk.write_text(mtext.replace("-lSceNet", "-lSceNet -lSceSystemService", 1))
 
     src.write_text(text)
     print(f"Glass theme added to {src} (build {build.group(2)}-{REV})")

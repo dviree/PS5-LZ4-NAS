@@ -43,3 +43,5 @@ input::placeholder{color:rgba(236,232,255,.6)}
 .vsel button{flex:1;margin:0;padding:10px 6px;font-size:16px;font-weight:600;background:linear-gradient(135deg,rgba(255,255,255,.16),rgba(255,255,255,.06));border:1px solid rgba(255,255,255,.24);border-radius:12px;color:#fff;box-shadow:none}
 .vsel button.on{background:linear-gradient(135deg,#b794ff,#7c5cff 50%,#4f7bff);border-color:rgba(255,255,255,.35);box-shadow:0 4px 14px rgba(79,60,200,.45)}
 .vfmt{display:inline-block;color:#fff;font-size:15px;font-weight:bold;border-radius:999px;padding:3px 10px}
+.hd #awake{font-size:12px;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.24);color:rgba(236,232,255,.8);cursor:pointer;white-space:nowrap}
+.hd #awake.on{color:#fcd77a;border-color:rgba(252,215,122,.55);background:rgba(245,158,11,.18)}
