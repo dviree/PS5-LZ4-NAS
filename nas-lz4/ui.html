@@ -479,7 +479,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
 const STEP_EN = {source: 'Source', check: 'Check', pack: 'Pack', verify: 'Verify', restore: 'Restore test', publish: 'Publish'};
 const PS5_EN = {works: 'works', issues: 'with issues', nostart: "won't start", crash: 'crashes'};
 const KIND_EN = {folder: 'game folder', exfat: 'exFAT image', ffpfsc: '.ffpfsc image (PFSC compressed)', ffpfs: '.ffpfs image', lz4: 'LZ4 folder'};
-const ACT_EN = {extract: 'Extract to exFAT', delete_rars: 'Delete RAR files', check: 'Check all', check_full: 'Full re-check', fix: 'Compress all', apr: 'Repair', stop: 'Stop', resume: 'Continue queue', start: 'Compress', community: 'PS5 result', remove: 'Delete LZ4 copy', delete_original: 'Delete original'};
+const ACT_EN = {verify_lz4: 'Verify LZ4', extract: 'Extract to exFAT', delete_rars: 'Delete RAR files', check: 'Check all', check_full: 'Full re-check', fix: 'Compress all', apr: 'Repair', stop: 'Stop', resume: 'Continue queue', start: 'Compress', community: 'PS5 result', remove: 'Delete LZ4 copy', delete_original: 'Delete original'};
 let data = null;
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -1033,6 +1033,9 @@ function gameHtml(g, det) {
   ];
   const a = det && det.apr;
   if (a) rows.push(['APR-EMU', `${a.ok ? '<span class="good">' + esc(a.build) + ' ✓</span>' : '<span class="bad">' + esc(a.build) + '</span> · Check all, then Repair'}${a.path ? `<div class="why">${esc(a.path)}</div>` : ''}`]);
+  const vv = g.output ? (data.verifies || {})[g.output.split('/').pop()] : null;
+  if (vv) rows.push(['Verify LZ4', vv.state === 'running' ? 'running…' : `${vv.state === 'passed' ? '<span class="good">✓ passed</span>' : '<span class="bad">✗ ' + esc(vv.state) + '</span>'} <span class="mut">${esc(vv.finished || '')}</span>` +
+    (vv.state !== 'passed' && vv.output ? `<pre class="log" style="max-height:160px;overflow:auto">${esc(vv.output.split('\n').slice(-8).join('\n'))}</pre>` : '')]);
   const pp = ps5Place(g);
   if (pp || g.title_id) rows.push(['On the PS5', `${pp ? esc(pp.path) : ''}<div class="why" id="ps5-here">${pp && pp.sent ? '<span class="good">sent by this page</span>' : 'checking the PS5…'}</div>`]);
   if (f) rows.push(['LZ4 folder', `${esc(f.path)}<div class="why">${f.files} files · ${f.paks} LZ4 volumes · ${gb(f.bytes)}${f.problem ? ' · <span class="bad">' + esc(f.problem) + '</span>' : ' · format ok'}</div>`]);
@@ -1080,6 +1083,13 @@ function gameHtml(g, det) {
   if (g.verdict !== 'LZ4' && !g.output_only && g.rel) {
     const key = g.rel.split('/').pop(), tro = (data.transfers || {})[key];
     acts.push(`<button class="${g.verdict === 'not LZ4' ? 'pri' : ''}" data-g="${esc(g.id)}" onclick="pushSrc(this.dataset.g)">${tro && tro.state === 'failed' ? '▶ Resume sending original' : tro && tro.state === 'done' ? 'Send original again' : 'Send original to PS5'}</button>`);
+  }
+  if (g.verdict === 'LZ4' && g.output && !g.running) {
+    const on = g.output.split('/').pop(), v = (data.verifies || {})[on] || {};
+    acts.push(v.state === 'running' ? '<button class="ghost" disabled>🔍 Verifying LZ4…</button>'
+      : `<button class="${v.state === 'passed' ? 'send-on' : v.state === 'failed' ? 'send-off' : ''}" data-g="${esc(on)}" data-n="${esc(g.name)}"
+          onclick="act('verify_lz4', 'Verify the LZ4 copy of ' + this.dataset.n + '?\\n\\nEvery LZ4 block is decoded and its CRC checked, the file list and APR-EMU too. It reads the whole copy on the NAS (a few minutes per 100 GB) and changes nothing.', {game: this.dataset.g})"
+          title="${v.state ? esc((v.state === 'passed' ? 'Passed ' : 'Failed ') + (v.finished || '')) : 'Check the LZ4 copy before sending it'}">🔍 ${v.state === 'passed' ? 'LZ4 verified ✓' : v.state === 'failed' ? 'LZ4 verify failed ✗' : 'Verify LZ4'}</button>`);
   }
   if (g.verdict === 'LZ4' && g.output) {
     const busy = data.transfer && data.transfer.state === 'running';

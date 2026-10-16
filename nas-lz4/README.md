@@ -141,6 +141,10 @@ that container alone.
   next scan finds the game again); **Hide** also renames the source with a
   leading dot, so scans skip it until it is renamed back; **Unmount**;
   **Rescan**. Delete on the PS5 games tab also uses it to take a tile off.
+- **🔍 Verify LZ4 (game sheet):** checks a finished LZ4 copy before you send
+  it: every LZ4 block decoded and its CRC checked, the file list, and the
+  APR-EMU runtime; read-only, in the background. The button turns green
+  (verified ✓) or red (failed ✗); the result is under Checks.
 - **RAR archives (Activity tab):** a game in the library packed as RAR
   parts (`name.part1.rar`, … or `name.rar` + `name.r00`, …) gets
   **📦 Extract to exFAT**: unrar extracts it (checking every file's CRC)
@@ -155,8 +159,11 @@ that container alone.
   are compared byte for byte through unrar). One mismatch, or a file of the
   archive outside the game that isn't in the image, and nothing is deleted. A failed extract
   keeps its temp folder for a look. Needs about twice the game's size free
-  for a while. The install script creates and mounts `_extracted`, so run
-  it again once.
+  for a while. An archive holding an image (`.exfat`, `.ffpfs`, `.ffpfsc`)
+  or a `.pkg` instead of a game folder gets that file moved into
+  `_extracted` as it is (deleting the RAR files then checks its CRC32
+  against the archive). The install script creates and mounts
+  `_extracted`, so run it again once.
 - **Saves tab** (idea from P5 Manager): **Back up all saves now** copies
   every save folder on the PS5 (`/user/home/<user>/savedata_prospero` for
   PS5 games and `savedata` for PS4 games) to `state/saves/<date>/` over FTP,

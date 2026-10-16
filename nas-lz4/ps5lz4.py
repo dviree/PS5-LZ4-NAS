@@ -1663,6 +1663,39 @@ def cmd_verify(args) -> int:
     return rc
 
 
+VERIFIES = STATE / "verify"
+
+
+def cmd_verify_lz4(args) -> int:
+    """The page's Verify LZ4: cmd_verify on one LZ4 copy, its result kept in
+    state/verify/<name>.json for the page (in the background)."""
+    out = output_for(args.game)
+    VERIFIES.mkdir(parents=True, exist_ok=True)
+    p = VERIFIES / f"{out.name}.json"
+    write_json(p, {"state": "running", "started": now(), "pid": os.getpid()})
+    me = [sys.executable, os.path.abspath(__file__)]
+    res = subprocess.run(me + ["verify", out.name], capture_output=True, text=True)
+    text = (res.stdout + res.stderr).strip()
+    write_json(p, {"state": "passed" if res.returncode == 0 else "failed", "started": (read_json(p, {}) or {}).get("started"),
+                   "finished": now(), "output": text[-1500:]})
+    print(text[-1500:])
+    return res.returncode
+
+
+def verify_states() -> dict:
+    out = {}
+    if VERIFIES.is_dir():
+        for f in VERIFIES.glob("*.json"):
+            st = read_json(f, {}) or {}
+            if st.get("state") == "running":
+                try:
+                    os.kill(int(st.get("pid", 0)), 0)
+                except (OSError, ValueError):
+                    st["state"] = "interrupted"
+            out[f.stem] = st
+    return out
+
+
 def find_runtime(game: Path) -> Path | None:
     for d in game.iterdir():
         if d.is_dir() and d.name.lower() == "fakelib":
@@ -4006,17 +4039,18 @@ def cmd_extract(args) -> int:
         cur = read_json(state_p, {}) or {}
         cur.update(kw, updated=time.time())
         write_json(state_p, cur)
-    if not shutil.which("unrar"):
-        raise SystemExit("unrar is missing in this image: update the container")
-    if not EXTRACTED.is_dir() or not os.access(EXTRACTED, os.W_OK):
-        raise SystemExit(f"{EXTRACTED} is not writable: run the install script again (it mounts it)")
     lock = open(EXTRACTS / ".lock", "a+")
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        raise SystemExit("another archive is being extracted; wait for it")
     tmp = EXTRACTED / f".{key}.partial"
     try:
+        if not shutil.which("unrar"):
+            raise SystemExit("unrar is missing in this container: update it (./lz4-ps5.sh update)")
+        if not EXTRACTED.is_dir() or not os.access(EXTRACTED, os.W_OK):
+            raise SystemExit("the _extracted folder in the library is not writable here: run the install "
+                             "script again once (it creates and mounts it)")
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise SystemExit("another archive is being extracted; wait for it")
         # Size inside the archive: the last line of `unrar l` is the total.
         lst = subprocess.run(["unrar", "l", "-p-", str(first)], capture_output=True, text=True)
         tail = [l for l in lst.stdout.splitlines() if l.strip()]
@@ -4044,8 +4078,26 @@ def cmd_extract(args) -> int:
         cands = [p.parent.parent for p in tmp.rglob("sce_sys/param.json")] or [p.parent for p in tmp.rglob("eboot.bin")]
         cands = sorted(set(cands), key=lambda p: len(p.parts))
         if not cands:
-            raise SystemExit("no PS5 game (sce_sys/param.json) inside the archive; it was extracted to "
-                             f"{tmp.name} in {EXTRACTED} and left there")
+            # Already an image (.exfat/.ffpfs/.ffpfsc) or a package (.pkg): move it
+            # into _extracted as it is (the library lists it from there).
+            keep = [p for p in tmp.rglob("*") if p.is_file() and p.suffix.lower() in (*IMAGE_EXTS, ".pkg")]
+            if not keep:
+                raise SystemExit("no PS5 game (a folder with sce_sys/param.json, an image or a .pkg) inside the "
+                                 f"archive; it was extracted to {tmp.name} in {EXTRACTED} and left there")
+            moved = {}
+            for p in keep:
+                dest = EXTRACTED / p.name
+                if dest.exists():
+                    raise SystemExit(f"{dest.name} already exists in {EXTRACTED}")
+                os.replace(p, dest)
+                moved[p.relative_to(tmp).as_posix()] = dest.name
+            shutil.rmtree(tmp)
+            size = sum((EXTRACTED / n).stat().st_size for n in moved.values())
+            state(state="done", phase="", done=size, total=size, finished=now(), moved=moved,
+                  image=str(Path(HOST_LIBRARY) / "_extracted" / next(iter(moved.values()))))
+            print(f"moved {', '.join(moved.values())} from the archive into {EXTRACTED.name} "
+                  "(unrar checked every file's CRC); the RAR files are unchanged")
+            return 0
         game = cands[0]
         tid, title = ("", "")
         if (game / "sce_sys" / "param.json").is_file():
@@ -4111,6 +4163,8 @@ def cmd_delete_rars(args) -> int:
     state_p = EXTRACTS / f"{key}.json"
     done = read_json(state_p, {}) or {}
     img = EXTRACTED / Path(done.get("image") or "-").name
+    if done.get("moved"):
+        img = EXTRACTED / next(iter(done["moved"].values()))
     if done.get("state") != "done" or not img.is_file():
         raise SystemExit("extract it first: the RAR files go only after a checked .exfat exists")
 
@@ -4120,6 +4174,34 @@ def cmd_delete_rars(args) -> int:
         write_json(state_p, cur)
     try:
         files = rar_listing(st["first"])
+        if done.get("moved"):
+            # Images or packages moved out as they were: compare them with the archive.
+            for f in files:
+                dest = done["moved"].get(f["name"])
+                if dest is None:
+                    if (f["size"] or 0) > 1 << 20:
+                        raise SystemExit(f"{f['name']} from the archive is not in {EXTRACTED.name}; nothing was deleted")
+                    continue
+                q = EXTRACTED / dest
+                if not q.is_file() or (f["size"] is not None and q.stat().st_size != f["size"]):
+                    raise SystemExit(f"{dest} is missing or has another size than in the archive; nothing was deleted")
+                if f["crc"] is not None:
+                    state(phase=f"checking {dest} against the archive before deleting", done=0, total=q.stat().st_size)
+                    crc, n, last = 0, 0, time.time()
+                    with open(q, "rb") as fh:
+                        for chunk in iter(lambda: fh.read(8 << 20), b""):
+                            crc = zlib.crc32(chunk, crc)
+                            n += len(chunk)
+                            if time.time() - last > 3:
+                                last = time.time()
+                                state(done=n)
+                    if crc != f["crc"]:
+                        raise SystemExit(f"{dest} differs from the archive (CRC32); nothing was deleted")
+            for p in st["vols"]:
+                p.unlink()
+            state(phase="", rars_deleted=now())
+            print(f"checked {len(done['moved'])} file(s) against the archive, then deleted {len(st['vols'])} RAR files")
+            return 0
         # The game folder inside the archive: where sce_sys/param.json is.
         pj = sorted((f["name"] for f in files if f["name"].endswith("sce_sys/param.json")), key=len)
         prefix = pj[0][: -len("sce_sys/param.json")] if pj else ""
@@ -5430,6 +5512,7 @@ UI_ACTIONS = {  # action -> ps5lz4 arguments (game and result are checked separa
     "make_exfat": ["make-exfat"],
     "remove_exfat": ["remove-exfat"],
     "extract": ["extract"],
+    "verify_lz4": ["verify-lz4"],
     "delete_rars": ["delete-rars"],
 }
 
@@ -5645,6 +5728,7 @@ def dashboard_data() -> dict:
             "lz4c_version": lz4c_version(),
             "delete_originals": DELETE_ORIGINALS,
             "archives": scan_archives(),
+            "verifies": verify_states(),
             "send_after": list(read_json(SEND_AFTER, {}) or {}),
             "images": images_data(),
             "pkgs": scan_pkgs(),
@@ -5780,7 +5864,8 @@ def run_request(req: dict) -> dict:
     if action not in UI_ACTIONS:
         return {"ok": False, "output": f"unknown action {action!r}"}
     argv = list(UI_ACTIONS[action])
-    if action in ("start", "community", "remove", "delete_original", "make_exfat", "remove_exfat", "extract", "delete_rars"):
+    if action in ("start", "community", "remove", "delete_original", "make_exfat", "remove_exfat", "extract", "delete_rars",
+                  "verify_lz4"):
         game = str(req.get("game") or "")
         if not game or game.startswith("-") or len(game) > 300:
             return {"ok": False, "output": "no game given"}
@@ -5791,7 +5876,7 @@ def run_request(req: dict) -> dict:
             return {"ok": False, "output": f"unknown result {result!r}"}
         argv.append(result)
     me = [sys.executable, os.path.abspath(__file__)]
-    if action in ("make_exfat", "extract", "delete_rars"):
+    if action in ("make_exfat", "extract", "delete_rars", "verify_lz4"):
         # Long jobs: they run on their own; the page follows state/images (state/extract).
         log = LOGS / f"{'exfat' if action == 'make_exfat' else 'extract-run'}-{_dt.datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
         with open(log, "a") as fh:
@@ -6627,6 +6712,9 @@ def main() -> int:
     sp = sub.add_parser("make-exfat", help="make a checked .exfat image of a finished LZ4 copy")
     sp.add_argument("game")
     sp.set_defaults(func=cmd_make_exfat)
+    sp = sub.add_parser("verify-lz4", help="verify an LZ4 copy (every block decoded and CRC-checked) for the page")
+    sp.add_argument("game")
+    sp.set_defaults(func=cmd_verify_lz4)
     sp = sub.add_parser("extract", help="extract a RAR archive in the library into a checked .exfat image")
     sp.add_argument("archive", help="the first part, relative to the library")
     sp.set_defaults(func=cmd_extract)
