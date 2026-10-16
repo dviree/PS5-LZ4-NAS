@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T14:50:26Z",
+ "updated": "2026-10-16T14:53:07Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -152,6 +152,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-16T13:51:46Z",
     "issue": 45
+   }
+  },
+  "PPSA10264": {
+   "name": "Jusant",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Jusant",
+    "gameVersion": "02.000.000",
+    "level": "8",
+    "source": "Folder",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T14:52:54Z",
+    "issue": 47
    }
   },
   "PPSA11386": {
