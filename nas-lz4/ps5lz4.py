@@ -3428,6 +3428,184 @@ def ps5_uninstall(tid: str) -> str:
     return "uninstalled"
 
 
+# Save data backups (idea from P5 Manager): the PS5's save folders, read over
+# FTP into state/saves/<date>/<user>/<kind>/<TITLE>/, with a manifest. Only
+# reading on the PS5; a restore writes one title's folder back.
+SAVES = STATE / "saves"
+SAVE_KINDS = ("savedata_prospero", "savedata")  # PS5, PS4
+_saves_job: dict = {}
+
+
+def title_names() -> dict:
+    names = {}
+    try:
+        for e in scan_library():
+            if e.title_id and e.name:
+                names.setdefault(e.title_id.upper(), e.name)
+    except Exception:
+        pass
+    try:
+        for p in scan_pkgs():
+            if p.get("title_id") and p.get("name") and p.get("category") == "Game":
+                names.setdefault(p["title_id"].upper(), p["name"])
+    except Exception:
+        pass
+    return names
+
+
+def saves_backup_start(only: str = "") -> dict:
+    """Copy every save folder on the PS5 (or only one Title ID's) to the NAS, in the background."""
+    if _saves_job.get("state") == "running":
+        return _saves_job
+    stamp = time.strftime("%Y-%m-%d_%H%M%S")
+    _saves_job.clear()
+    _saves_job.update(state="running", backup=stamp, files=0, bytes=0, titles=0, current="", error=None, started=now())
+
+    def run():
+        import ftplib
+        dest = SAVES / stamp
+        manifest = {"created": now(), "ps5": get_settings().get("ps5_ftp"), "titles": {}}
+        names = title_names()
+        try:
+            f = ps5_ftp_connect()
+            try:
+                users = [u for u in (ps5_ftp_names(f, "/user/home") or []) if re.fullmatch(r"[0-9a-fA-F]{8}", u)]
+                if not users:
+                    raise ValueError("no users in /user/home on the PS5 (is ftpsrv running with full access?)")
+                for uid in users:
+                    for kind in SAVE_KINDS:
+                        base = f"/user/home/{uid}/{kind}"
+                        try:
+                            tids = [i["name"] for i in ps5_ftp_list_conn(f, base) if i["dir"]]
+                        except ftplib.all_errors:
+                            continue
+                        for tid in sorted(tids):
+                            if only and tid.upper() != only.upper():
+                                continue
+                            _saves_job["current"] = f"{tid} ({uid})"
+                            files = ps5_remote_sizes(f, f"{base}/{tid}")
+                            n = b = 0
+                            for rel in sorted(files):
+                                local = dest / uid / kind / tid / rel
+                                local.parent.mkdir(parents=True, exist_ok=True)
+                                with open(local, "wb") as fh:
+                                    f.voidcmd("TYPE I")
+                                    f.retrbinary(f"RETR {base}/{tid}/{rel}", fh.write, blocksize=1 << 20)
+                                size = local.stat().st_size
+                                if files[rel] is not None and size != files[rel]:
+                                    raise ValueError(f"{tid}/{rel}: got {size} bytes, the PS5 lists {files[rel]}")
+                                n += 1
+                                b += size
+                                _saves_job["files"] += 1
+                                _saves_job["bytes"] += size
+                            if not names.get(tid.upper()):
+                                for meta in (f"/user/appmeta/{tid}/param.sfo", f"/system_data/priv/appmeta/{tid}/param.sfo",
+                                             f"/system_data/priv/appmeta/{tid}/param.json", f"/user/app/{tid}/sce_sys/param.json"):
+                                    buf = bytearray()
+                                    try:
+                                        f.voidcmd("TYPE I")
+                                        f.retrbinary(f"RETR {meta}", buf.extend)
+                                    except ftplib.all_errors:
+                                        continue
+                                    nm = parse_sfo(bytes(buf)).get("TITLE") if meta.endswith(".sfo") else parse_param_json(bytes(buf))[1]
+                                    if nm:
+                                        names[tid.upper()] = str(nm)
+                                        break
+                            manifest["titles"][f"{uid}/{kind}/{tid}"] = {
+                                "title_id": tid, "user": uid, "kind": kind, "platform": "PS5" if kind == "savedata_prospero" else "PS4",
+                                "name": names.get(tid.upper(), ""), "files": n, "bytes": b}
+                            _saves_job["titles"] += 1
+            finally:
+                try:
+                    f.quit()
+                except Exception:
+                    pass
+            if not manifest["titles"]:
+                raise ValueError("no save folders found on the PS5")
+            write_json(dest / "manifest.json", manifest)
+            _saves_job.update(state="done", finished=now(), current="")
+            notify("Saves backed up", f"{_saves_job['titles']} titles, {human(_saves_job['bytes'])} on the NAS ({stamp})")
+        except Exception as err:
+            if dest.is_dir():
+                write_json(dest / "manifest.json", {**manifest, "incomplete": str(err)})
+            _saves_job.update(state="failed", error=str(err), current="")
+    __import__("threading").Thread(target=run, daemon=True).start()
+    return _saves_job
+
+
+def saves_list() -> list[dict]:
+    out = []
+    if SAVES.is_dir():
+        for d in sorted(SAVES.iterdir(), reverse=True):
+            m = read_json(d / "manifest.json", None)
+            if not isinstance(m, dict):
+                continue
+            titles = list((m.get("titles") or {}).values())
+            out.append({"backup": d.name, "created": m.get("created"), "incomplete": m.get("incomplete"),
+                        "titles": sorted(titles, key=lambda t: (t.get("name") or t["title_id"]).lower()),
+                        "bytes": sum(t.get("bytes", 0) for t in titles)})
+    return out
+
+
+def saves_backup_dir(backup: str) -> Path:
+    if not re.fullmatch(r"[0-9_-]{10,20}", backup) or not (SAVES / backup / "manifest.json").is_file():
+        raise ValueError("no such backup")
+    return SAVES / backup
+
+
+def saves_restore(backup: str, key: str) -> dict:
+    """Write one title's saves from a backup back to the same place on the PS5
+    (same user, same folder). Close the game first."""
+    import ftplib
+    d = saves_backup_dir(backup)
+    t = (read_json(d / "manifest.json", {}) or {}).get("titles", {}).get(key)
+    if not t:
+        raise ValueError("that title is not in the backup")
+    src = d / key
+    remote = f"/user/home/{key}"
+    files = sorted(p for p in src.rglob("*") if p.is_file())
+    f = ps5_ftp_connect()
+    try:
+        made = set()
+        for p in files:
+            rel = p.relative_to(src).as_posix()
+            parent = f"{remote}/{rel}".rsplit("/", 1)[0]
+            if parent not in made:
+                ps5_ftp_mkdirs(f, parent)
+                made.add(parent)
+            with open(p, "rb") as fh:
+                f.voidcmd("TYPE I")
+                f.storbinary(f"STOR {remote}/{rel}", fh, blocksize=1 << 20)
+        got = ps5_remote_sizes(f, remote)
+        bad = [p.relative_to(src).as_posix() for p in files if got.get(p.relative_to(src).as_posix()) != p.stat().st_size]
+        if bad:
+            raise ValueError(f"{len(bad)} file(s) did not arrive whole (e.g. {bad[0]}); try again")
+    except ftplib.all_errors as err:
+        raise ValueError(f"FTP: {err}")
+    finally:
+        try:
+            f.quit()
+        except Exception:
+            pass
+    ps5_notify(f"NAS: saves of {t.get('name') or t['title_id']} restored")
+    return {"restored": key, "files": len(files)}
+
+
+def saves_zip(h, backup: str) -> None:
+    """Send a backup as a .zip download (written straight to the connection)."""
+    import zipfile
+    d = saves_backup_dir(backup)
+    h.send_response(200)
+    h.send_header("Content-Type", "application/zip")
+    h.send_header("Content-Disposition", f'attachment; filename="ps5-saves-{backup}.zip"')
+    h.end_headers()
+    h.close_connection = True
+    with zipfile.ZipFile(h.wfile, "w", zipfile.ZIP_DEFLATED) as z:
+        for p in sorted(d.rglob("*")):
+            if p.is_file():
+                z.write(p, p.relative_to(d).as_posix())
+
+
 def ps5_notify(text: str, wait: bool = False) -> None:
     """A notification on the PS5 (pkg-receiver Glass build 7+, /api/notify);
     best effort, in the background (wait: up to 5 s, for a process about to end)."""
@@ -5580,6 +5758,14 @@ def cmd_ui(args) -> int:
                 except ValueError:
                     key = ""
                 return self.send(200, json.dumps(_verify.get(key) or {"state": "none"}).encode())
+            if self.path == "/api/saves":
+                return self.send(200, json.dumps({"job": _saves_job, "backups": saves_list()}).encode())
+            if self.path.startswith("/api/saves/zip?"):
+                from urllib.parse import parse_qs, urlparse
+                try:
+                    return saves_zip(self, (parse_qs(urlparse(self.path).query).get("b") or [""])[0])
+                except ValueError as err:
+                    return self.send(404, json.dumps({"error": str(err)}).encode())
             if self.path == "/api/smp/games":
                 try:
                     return self.send(200, json.dumps({**smp("/api/v1/games", {"include_size": False}),
@@ -5854,6 +6040,17 @@ def cmd_ui(args) -> int:
                         f.quit()
                     return self.send(200, json.dumps({"made": path}).encode())
                 except Exception as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+            if req.get("action") in ("saves_backup", "saves_restore", "saves_delete"):
+                try:
+                    if req["action"] == "saves_backup":
+                        return self.send(200, json.dumps(saves_backup_start(str(req.get("tid") or ""))).encode())
+                    if req["action"] == "saves_restore":
+                        return self.send(200, json.dumps(saves_restore(str(req.get("backup") or ""), str(req.get("key") or ""))).encode())
+                    d = saves_backup_dir(str(req.get("backup") or ""))
+                    shutil.rmtree(d)
+                    return self.send(200, json.dumps({"deleted": d.name}).encode())
+                except ValueError as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
             if str(req.get("action") or "").startswith("smp_"):
                 a, tid = req["action"], str(req.get("tid") or "").upper()
