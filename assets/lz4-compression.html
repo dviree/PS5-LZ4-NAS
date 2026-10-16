@@ -76,6 +76,25 @@
       document.documentElement.classList.add('theme-dark');
     })();
   </script>
+  <script>
+    /* Glass theme (PS5-LZ4-NAS): on unless switched off with the ✨ button. */
+    try { if (localStorage.getItem('lzc-glass') !== '0') document.documentElement.classList.add('glass'); }
+    catch (e) { document.documentElement.classList.add('glass'); }
+    document.addEventListener('DOMContentLoaded', function () {
+      var bar = document.querySelector('.topbar-actions');
+      if (!bar) return;
+      var b = document.createElement('button');
+      b.className = 'icon-btn glass-toggle';
+      b.type = 'button';
+      b.title = 'Glass theme on/off';
+      b.textContent = '\u2728';
+      b.onclick = function () {
+        var on = document.documentElement.classList.toggle('glass');
+        try { localStorage.setItem('lzc-glass', on ? '1' : '0'); } catch (e) {}
+      };
+      bar.insertBefore(b, bar.firstChild);
+    });
+  </script>
   <style>
     :root {
       --bg: #f6f8fc;
@@ -4578,6 +4597,180 @@
       html.lz4 body[data-view="game"] .free-space-label {
         display: none;
       }
+    }
+
+    /* ------------------------------------------------------------------
+     * Glass theme (PS5-LZ4-NAS): violet-blue gradient behind frosted,
+     * see-through panels with thin light edges; purple buttons, white text.
+     * On by default; the ✨ button in the top bar switches back to black.
+     * ------------------------------------------------------------------ */
+    html.lz4.glass,
+    html.lz4.glass body {
+      --bg: #24145c;
+      --surface: rgba(255, 255, 255, .10);
+      --surface-solid: rgba(46, 30, 110, .96);
+      --surface-2: rgba(255, 255, 255, .07);
+      --line: rgba(255, 255, 255, .20);
+      --line-strong: rgba(255, 255, 255, .34);
+      --text: #ffffff;
+      --muted: rgba(236, 232, 255, .74);
+      --accent: #b794ff;
+      --accent-2: #7c5cff;
+      --control-bg: rgba(255, 255, 255, .12);
+      --path-bg: rgba(255, 255, 255, .08);
+      --panel-bg: rgba(255, 255, 255, .10);
+      --modal-bg: rgba(40, 24, 100, .94);
+      --menu-bg: rgba(46, 30, 110, .97);
+      --row-hover-bg: rgba(255, 255, 255, .14);
+      --row-output-bg: rgba(255, 255, 255, .07);
+      --menu-hover-bg: rgba(255, 255, 255, .16);
+      --selected-bg: rgba(255, 255, 255, .18);
+      --bar-bg: rgba(255, 255, 255, .16);
+      --progress-bg: rgba(255, 255, 255, .08);
+      --thumb-bg: linear-gradient(150deg, rgba(255, 255, 255, .18), rgba(255, 255, 255, .04));
+      --glass-pri: linear-gradient(135deg, #b794ff, #7c5cff 50%, #4f7bff);
+      --glass-blur: blur(18px) saturate(140%);
+    }
+
+    html.lz4.glass body {
+      background:
+        radial-gradient(620px 620px at 12% 18%, rgba(168, 85, 247, .75), transparent 70%),
+        radial-gradient(680px 680px at 88% 12%, rgba(59, 130, 246, .65), transparent 70%),
+        radial-gradient(760px 760px at 75% 92%, rgba(99, 102, 241, .7), transparent 70%),
+        radial-gradient(560px 560px at 20% 95%, rgba(139, 92, 246, .55), transparent 70%),
+        linear-gradient(135deg, #2e1a78, #1d1660 50%, #331a7a);
+      background-attachment: fixed;
+    }
+
+    html.lz4.glass body .app,
+    html.lz4.glass body .view,
+    html.lz4.glass body .home-view {
+      background: transparent;
+    }
+
+    html.lz4.glass body .home-backdrop>img {
+      opacity: .22;
+      mix-blend-mode: soft-light;
+    }
+
+    html.lz4.glass body .tile-art,
+    html.lz4.glass body .recent-card,
+    html.lz4.glass body .option-card,
+    html.lz4.glass body .progress-box,
+    html.lz4.glass body .done-card,
+    html.lz4.glass body .history-row,
+    html.lz4.glass body .usb-row,
+    html.lz4.glass body .format-row,
+    html.lz4.glass body .free-space-label,
+    html.lz4.glass body .icon-btn,
+    html.lz4.glass body .more-btn,
+    html.lz4.glass body .pill-btn,
+    html.lz4.glass body .small-action {
+      background: rgba(255, 255, 255, .11);
+      border: 1px solid rgba(255, 255, 255, .24);
+      -webkit-backdrop-filter: var(--glass-blur);
+      backdrop-filter: var(--glass-blur);
+      box-shadow: 0 10px 36px rgba(15, 8, 50, .30);
+      color: #fff;
+    }
+
+    html.lz4.glass body .primary-btn,
+    html.lz4.glass body .pill-btn.is-primary,
+    html.lz4.glass body .small-action.is-primary,
+    html.lz4.glass body .format-row.is-selected,
+    html.lz4.glass body .usb-picker-option.is-selected {
+      background: var(--glass-pri);
+      border: 1px solid rgba(255, 255, 255, .30);
+      color: #fff;
+      box-shadow: 0 6px 22px rgba(60, 30, 160, .45), inset 0 1px 0 rgba(255, 255, 255, .3);
+    }
+
+    html.lz4.glass body .option-card.is-danger,
+    html.lz4.glass body .small-action.is-danger,
+    html.lz4.glass body .icon-btn.is-danger {
+      background: linear-gradient(135deg, rgba(244, 63, 94, .55), rgba(190, 18, 60, .55));
+      border-color: rgba(255, 180, 190, .4);
+    }
+
+    html.lz4.glass body .game-tile:focus-visible .tile-art,
+    html.lz4.glass body .game-tile.is-selected .tile-art,
+    html.lz4.glass body .game-tile:hover .tile-art {
+      border-color: rgba(255, 255, 255, .85);
+      box-shadow: 0 0 0 3px rgba(183, 148, 255, .55), 0 16px 44px rgba(20, 10, 70, .45);
+    }
+
+    html.lz4.glass body [id$="-modal"]>* {
+      -webkit-backdrop-filter: var(--glass-blur);
+      backdrop-filter: var(--glass-blur);
+    }
+
+    html.lz4.glass body .home-backdrop::after {
+      background:
+        linear-gradient(90deg, rgba(30, 16, 80, .55) 0%, rgba(30, 16, 80, .25) 45%, rgba(30, 16, 80, 0) 100%),
+        linear-gradient(0deg, rgba(20, 10, 60, .45) 0%, rgba(20, 10, 60, 0) 45%);
+    }
+
+    html.lz4.glass body .topbar {
+      background: linear-gradient(180deg, rgba(36, 20, 92, .55), rgba(36, 20, 92, 0));
+    }
+
+    html.lz4.glass body .shelf-nav.is-prev {
+      background: linear-gradient(90deg, rgba(36, 20, 92, .85), rgba(36, 20, 92, 0));
+    }
+
+    html.lz4.glass body .shelf-nav.is-next {
+      background: linear-gradient(270deg, rgba(36, 20, 92, .85), rgba(36, 20, 92, 0));
+    }
+
+    html.lz4.glass body .modal-backdrop {
+      background: rgba(18, 8, 54, .55);
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
+    }
+
+    html.lz4.glass body #format-modal .modal,
+    html.lz4.glass body #format-modal .modal-head,
+    html.lz4.glass body .modal {
+      background: var(--modal-bg);
+      border: 1px solid rgba(255, 255, 255, .22);
+    }
+
+    html.lz4.glass body .option-icon,
+    html.lz4.glass body .option-card:focus-visible .option-icon,
+    html.lz4.glass body .format-row.is-selected .chip {
+      background: rgba(255, 255, 255, .16);
+    }
+
+    html.lz4.glass body .format-row.is-selected,
+    html.lz4.glass body #format-modal .format-row.is-selected,
+    html.lz4.glass body .format-grid.is-three-up .format-row.is-selected,
+    html.lz4.glass body .usb-picker-option.is-selected,
+    html.lz4.glass body .lz4-level-step.is-selected {
+      border-color: rgba(255, 255, 255, .6);
+      background: var(--glass-pri);
+      color: #fff;
+      box-shadow: 0 6px 22px rgba(60, 30, 160, .45), inset 0 1px 0 rgba(255, 255, 255, .3);
+    }
+
+    html.lz4.glass body .format-row.is-selected .history-meta,
+    html.lz4.glass body .usb-picker-option.is-selected .history-meta {
+      color: rgba(255, 255, 255, .82);
+    }
+
+    html.lz4.glass body .format-row.is-selected .chip {
+      border-color: rgba(255, 255, 255, .7);
+      background: rgba(255, 255, 255, .22);
+      color: #fff;
+    }
+
+    html.lz4.glass body .modal-actions,
+    html.lz4.glass body #format-modal .modal-actions,
+    html.lz4.glass body #ampr-version-modal .modal-actions {
+      background: linear-gradient(180deg, rgba(40, 24, 100, 0), rgba(40, 24, 100, .85) 34%);
+    }
+
+    .glass-toggle {
+      font-size: 18px;
     }
   </style>
 </head>
