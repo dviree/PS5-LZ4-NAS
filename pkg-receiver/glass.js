@@ -28,3 +28,32 @@ function show(j){b.className=j.always?'on':'';b.textContent=j.always?'☀ Stay a
 b.title=j.always?'The PS5 never goes to rest mode while this runs':'The PS5 stays awake only while it installs or copies';}
 fetch('/api/keep-awake').then(function(r){return r.json();}).then(show).catch(function(){b.style.display='none';});
 b.onclick=function(){fetch('/api/keep-awake?always='+(b.className==='on'?0:1)).then(function(r){return r.json();}).then(show);};})();
+/* Installed / On PS5 marks from /api/installed (installed.c): games and
+   patches by title ID and version, images by file name in the homebrew
+   folders (a sent LZ4 copy is the folder <game>-lz4). */
+var inst={apps:{},files:{}},reg=[];
+function verNum(v){return parseFloat(String(v||'').replace(/^0+(?=\d)/,''))||0;}
+function fileOn(name){var f=inst.files[name];return f?(f.dir?2:1):0;}
+function imgOn(v){if(v.variant==='LZ4'&&v.game&&fileOn(v.game+'-lz4'))return 1;var f=inst.files[v.file||''];
+if(!f)return 0;return f.dir||!v.size||f.size>=v.size?1:-1;}
+function markOf(g){var a=g.titleId?inst.apps[g.titleId]:null;
+if(g.format==='pkg'){if(!a)return '';
+if(g.role==='Patch'){return verNum(a.ver)>=verNum(g.version)?'✓ Installed':(a.ver?'Not installed · game is v'+esc(a.ver):(a.patch?'✓ A patch is installed':''));}
+if(g.role==='DLC')return '';return '✓ Installed'+(a.ver?' · v'+esc(a.ver):'');}
+var on=imgOn(g);if(on>0)return '✓ On PS5'+(a?' · installed':'');if(on<0)return 'Partly copied';return a?'✓ Installed':'';}
+function markGroup(x){var a=x.vars[0].titleId?inst.apps[x.vars[0].titleId]:null,on=x.vars.filter(function(v){return imgOn(v)>0;});
+return on.length?'✓ On PS5: '+on.map(function(v){return v.variant;}).join(', ')+(a?' · installed':''):(a?'✓ Installed':'');}
+function mark1(r){var t=r.x?markGroup(r.x):markOf(r.g);var el=r.d.querySelector('.inst');
+if(!el){el=document.createElement('div');el.className='inst';
+if(r.sub){var f=r.d.firstChild;if(f)f.appendChild(el);}else{var bs0=[].filter.call(r.d.children,function(c){return c.tagName==='BUTTON';}),b=bs0[bs0.length-1];if(b)r.d.insertBefore(el,b);else r.d.appendChild(el);}}
+el.innerHTML=t;el.className='inst'+(t.charAt(0)==='✓'?'':' dim');el.style.display=t?'':'none';
+if(r.x){var bs=r.d.querySelectorAll('.vsel button');for(var i=0;i<bs.length&&i<r.x.vars.length;i++){var v=r.x.vars[i];bs[i].textContent=(v.variant||v.format)+(imgOn(v)>0?' ✓':'');}}}
+function marks(){reg.forEach(mark1);}
+function loadInst(){fetch('/api/installed').then(function(r){return r.json();}).then(function(j){var a={},f={};
+(j.apps||[]).forEach(function(x){a[x.id]=x;});(j.files||[]).forEach(function(x){f[x.path.split('/').pop()]=x;});
+inst={apps:a,files:f};marks();}).catch(function(){});}
+;(function(){var c0=card,i0=imgCard,r0=render;
+card=function(g,sub){var d=c0(g,sub);var r={d:d,g:g,sub:sub};reg.push(r);mark1(r);return d;};
+imgCard=function(x){var d=i0(x);var r={d:d,x:x};reg.push(r);mark1(r);return d;};
+render=function(){reg=[];return r0.apply(this,arguments);};
+loadInst();setInterval(loadInst,30000);})();
