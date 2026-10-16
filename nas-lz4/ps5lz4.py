@@ -3575,9 +3575,8 @@ def serve_pkg(h, pid: str, head: bool = False) -> None:
     """Send a library .pkg on HTTP handler h, with Range support (the PS5's
     installer downloads in pieces)."""
     try:
-        p = pkg_path(pid)
+        p = catalog_file(pid)
     except SystemExit:
-        b = b'{"error":"no such package"}'
         h.send_response(404)
         h.send_header("Content-Length", str(len(b)))
         h.end_headers()
@@ -3631,9 +3630,92 @@ CATALOG_PORT = int(os.environ.get("PS5LZ4_CATALOG_PORT", "9898"))
 PC_ANNOUNCE_PORT = 12802
 
 
+_img_meta: dict = {}
+
+
+def image_meta(path: Path) -> dict:
+    """Title, title ID and cover of a library image (an .exfat is read inside;
+    other images go by name), cached by size and time."""
+    st = path.stat()
+    key = (str(path), st.st_size, int(st.st_mtime))
+    if key in _img_meta:
+        return _img_meta[key]
+    m = TITLE_RE.search(path.name)
+    stem = re.sub(r"-lz4$", "", path.stem)
+    stem = re.sub(r"\s*\[[^\]]*\]|\s*\([^)]*\)|\s*_[A-Z]{4}\d{5}_\s*", " ", stem).strip()
+    info = {"title": stem or path.stem,
+            "title_id": m.group(0).upper() if m else "", "icon": None}
+    if path.suffix.lower() == ".exfat":
+        try:
+            from mkpfs.exfat import ExfatReader  # pinned MkPFS 1.1.0
+            with open(path, "rb") as fh:
+                reader = ExfatReader(fh)
+                files = {e.rel_path.lower(): e for e in reader.iter_files()}
+                pj = next((e for k, e in files.items() if k.endswith("sce_sys/param.json")), None)
+                if pj:
+                    tid, name = parse_param_json(b"".join(reader.read_file(pj)))
+                    info["title"] = name or info["title"]
+                    info["title_id"] = (tid or info["title_id"]).upper()
+                ic = next((e for k, e in files.items() if k.endswith("sce_sys/icon0.png")), None)
+                if ic and ic.length < 8 << 20:
+                    info["icon"] = b"".join(reader.read_file(ic))
+        except Exception:
+            pass
+    _img_meta[key] = info
+    return info
+
+
+_cat_cache = {"at": 0.0, "list": []}
+
+
+def catalog_images() -> list[tuple[str, Path, str | None]]:
+    """(catalog id, file, game id for the cover) of every PS5 image to offer:
+    library images and the LZ4 copies' .exfat images (cached for a minute:
+    a download asks for every piece)."""
+    if time.time() - _cat_cache["at"] < 60:
+        return _cat_cache["list"]
+    out = []
+    for e in scan_library():
+        if e.kind in ("exfat", "ffpfs", "ffpfsc"):
+            out.append((f"img/lib/{e.id}", e.path, e.id))
+    if OUTPUT.is_dir():
+        for f in sorted(OUTPUT.glob("*-lz4.exfat")):
+            out.append((f"img/out/{f.name}", f, f.name[: -len("-lz4.exfat")]))
+    _cat_cache.update(at=time.time(), list=out)
+    return out
+
+
+def catalog_file(cid: str) -> Path:
+    """The file behind a catalog id: a package, or a PS5 image."""
+    if cid.startswith("img/"):
+        for i, p, _g in catalog_images():
+            if i == cid:
+                return p
+        raise SystemExit(f"{cid} is not an image in the library")
+    return pkg_path(cid)
+
+
+def catalog_icon(cid: str) -> bytes | None:
+    if not cid.startswith("img/"):
+        return pkg_icon(cid)
+    for i, p, gid in catalog_images():
+        if i == cid:
+            return image_meta(p).get("icon") or (nas_icon(gid) if gid else None)
+    return None
+
+
 def pkg_catalog() -> list[dict]:
     role = {"Game": "Game", "Update": "Patch", "DLC": "DLC"}
     out = []
+    for cid, p, gid in catalog_images():
+        meta = image_meta(p)
+        fmt = p.suffix.lower().lstrip(".")
+        lz4 = cid.startswith("img/out/")
+        size = p.stat().st_size
+        out.append({"id": cid, "title": meta["title"] + (" (LZ4)" if lz4 else ""), "titleId": meta["title_id"],
+                    "version": "", "size": size, "sizeText": human(size), "role": "Game",
+                    "familyKey": "FILE:" + p.name, "platform": "PS5", "format": fmt, "file": p.name,
+                    "hasIcon": bool(meta.get("icon") or (gid and nas_icon(gid)))})
     for p in scan_pkgs():
         tid = p.get("title_id") or ""
         out.append({"id": p["id"], "title": p.get("name") or p["file"], "titleId": tid,
@@ -3677,7 +3759,7 @@ def catalog_server() -> None:
             if path.startswith("/pkg/"):
                 return serve_pkg(self, unquote(path[5:]))
             if path.startswith("/icon/"):
-                data = pkg_icon(unquote(path[6:]))
+                data = catalog_icon(unquote(path[6:]))
                 if not data:
                     return self._json({"error": "no icon"}, 404)
                 self.send_response(200)
