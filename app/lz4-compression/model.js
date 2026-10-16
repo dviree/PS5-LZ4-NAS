@@ -34,7 +34,7 @@ export const ACTION_DESC = {
   'validate-only': 'Read every block and report problems without changing anything.',
   'validate-repair': 'Read every block and repair what it can.',
   'lz4-verify': 'Check every LZ4 pack block and put back files the game needs to boot.',
-  'verify-game': 'Add the files the game needs to boot: PlayGo emulator, runtime folder name, permissions.',
+  'verify-game': 'Fix what stops a folder from booting: PlayGo, runtime name, file index, permissions.',
   'read-speed-test': 'Read the game for a minute and measure the speed.',
   'uncompress': 'Turn the compressed image back into an image or a folder.',
   'lz4-unpack': 'Put the normal loose files back from the LZ4 packs.',
