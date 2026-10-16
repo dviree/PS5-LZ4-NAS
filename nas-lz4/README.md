@@ -207,6 +207,14 @@ installs packages from this NAS, its own page on the PS5 lists this NAS's
 packages (see *Picking packages on the PS5*), and it reports the internal
 SSD's free space.
 
+Installing is needed once (and for a new version). After a PS5 restart the
+header's **Start ELF on PS5** (or **Start** on the card) starts the copy
+already in Payload Manager, without downloading it again; with **Start by
+itself when the PS5 is on** (on by default, `state/engine/receiver-auto.json`)
+this page does that on its own: every 30 seconds it checks whether the PS5
+is on and pkg-receiver answers, and starts it if not (at most every 5
+minutes). That needs Payload Manager (or an ELF loader) running on the PS5.
+
 The ELF it installs is pkg-sender's own source with this page's **Glass
 theme** on the *pkg remote installer* page: purple gradient, frosted cards
 and gradient buttons (`pkg-receiver/glass.py` adds `pkg-receiver/glass.css`
