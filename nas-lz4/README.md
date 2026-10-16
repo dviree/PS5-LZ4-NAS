@@ -97,7 +97,7 @@ that container alone.
   steps and the packing queue, the transfer to the PS5 with speed and time
   left, the transfer queue (move up, remove, start), failed jobs and recent
   actions. My games shows a one-line summary while something runs.
-- **Community tab:** every game reported by other players, fetched live from
+- **Community tab** (latest report first; or most reports, or name): every game reported by other players, fetched live from
   the GitHub reports every 5 minutes (or **Refresh now**), with search,
   filters and sorting.
 - **PS5 games tab:** every game folder on the PS5 (`homebrew` and
@@ -109,8 +109,18 @@ that container alone.
   and on extended storage) with icon, name and version from their appmeta
   `param.sfo`, the size of `app.pkg` and of an installed patch; a filter
   picks PS5, PS4 or both. Those are uninstalled on the PS5 itself, not here.
-- **Community tab:** sorted by the latest report first (or most reports, or
-  name).
+- **PS5 packages (`.pkg` with the `\x7fFIH` header)** in the package
+  folders are read too (embedded CNT, `param.json`: name, Title ID,
+  version, game / patch / DLC / app), next to PS4 packages; a package
+  without `icon0.png` uses its first icon variant (0x1201–0x1220). Layout
+  and rules follow
+  [pkg-sender-synology](https://github.com/mrggbond/pkg-sender-synology)
+  (MIT).
+- **Downloads to the PS5 (Activity tab):** every package or image the PS5
+  downloads from this NAS (installs from this page or from *pkg remote
+  installer*), counted by the byte ranges sent: progress, speed, time left,
+  and the recent downloads and install requests (`state/pkg_history.json`)
+  with **Retry** for a failed install.
 - **Game sheet (tap a game):** where the original is on the NAS, every copy
   of the game on the PS5 (found by Title ID, however it got there), and the
   buttons **⚡ Compress & send to PS5** (packs it and sends it, or queues it,
