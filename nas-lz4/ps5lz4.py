@@ -2321,7 +2321,7 @@ def ps5_ftp_icon(path: str) -> bytes | None:
             return None
         buf = bytearray()
         try:
-            for name in ("sce_sys/icon0.png", "sce_sys/ICON0.PNG"):
+            for name in ("sce_sys/icon0.png", "sce_sys/ICON0.PNG", "icon0.png"):
                 try:
                     f.retrbinary(f"RETR {path}/{name}", buf.extend)
                     break
@@ -3012,6 +3012,7 @@ def ps5_games() -> dict:
                     g["size"] = (sizes.get(path) or {}).get("bytes")
                     g["on_nas"] = [x for x in nas.get(g["title_id"].upper(), []) if x] if g["title_id"] else []
                     games.append(g)
+        games += ps4_apps(f, drives)
     finally:
         try:
             f.quit()
@@ -3023,9 +3024,61 @@ def ps5_games() -> dict:
         if g["title_id"]:
             seen.setdefault(g["title_id"].upper(), []).append(g["path"])
     for g in games:
-        others = [p for p in seen.get(g["title_id"].upper(), []) if p != g["path"]] if g["title_id"] else []
+        others = ([p for p in seen.get(g["title_id"].upper(), []) if p != g["path"]]
+                  if g["title_id"] and not g.get("ps4") else [])
         g["duplicates"] = others
     return {"games": games, "listed": now()}
+
+
+def ps4_apps(f, drives: list[str]) -> list[dict]:
+    """PS4 games installed on the PS5 (/user/app/CUSAxxxxx, and on extended
+    storage): name and version from their appmeta param.sfo, size of app.pkg
+    and of an installed patch."""
+    import ftplib
+    nas = {}
+    try:
+        for p in scan_pkgs():
+            if p.get("title_id"):
+                nas.setdefault(p["title_id"].upper(), []).append(p["file"])
+    except Exception:
+        pass
+    out = []
+    roots = ["/user"] + [f"{d}/user" for d in drives if d.startswith("/mnt/ext")]
+    for root in roots:
+        try:
+            apps = [i["name"] for i in ps5_ftp_list_conn(f, f"{root}/app") if i["dir"] and re.fullmatch(r"CUSA\d{5}", i["name"])]
+        except ftplib.all_errors:
+            continue
+        for tid in sorted(apps):
+            g = {"path": f"{root}/app/{tid}", "folder": tid, "drive": "/data" if root == "/user" else root[:-5],
+                 "title_id": tid, "name": tid, "version": "", "lz4": False, "fakelib": False, "image": "",
+                 "size": None, "ps4": True, "meta": "", "patch": None, "modified": "",
+                 "on_nas": nas.get(tid, [])}
+            for meta in (f"{root}/appmeta/{tid}", f"/system_data/priv/appmeta/{tid}"):
+                buf = bytearray()
+                try:
+                    f.voidcmd("TYPE I")
+                    f.retrbinary(f"RETR {meta}/param.sfo", buf.extend)
+                except ftplib.all_errors:
+                    continue
+                sfo = parse_sfo(bytes(buf))
+                g["name"] = str(sfo.get("TITLE") or tid)
+                g["version"] = str(sfo.get("APP_VER") or sfo.get("VERSION") or "")
+                g["meta"] = meta
+                break
+            try:
+                items = {i["name"]: i for i in ps5_ftp_list_conn(f, g["path"])}
+                g["size"] = (items.get("app.pkg") or {}).get("size")
+                g["modified"] = (items.get("app.pkg") or {}).get("modified", "")
+            except ftplib.all_errors:
+                pass
+            try:
+                items = {i["name"]: i for i in ps5_ftp_list_conn(f, f"{root}/patch/{tid}")}
+                g["patch"] = (items.get("patch.pkg") or {}).get("size")
+            except ftplib.all_errors:
+                pass
+            out.append(g)
+    return out
 
 
 # Deleting is allowed only inside these, and never the drive or its top folders.
