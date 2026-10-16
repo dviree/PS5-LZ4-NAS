@@ -3821,20 +3821,11 @@ def catalog_announcer() -> None:
     while True:
         try:
             host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
-            if host and scan_pkgs_cached():
+            if host:  # also with no packages: the catalog lists images too
                 sk.sendto(f"PKGSENDER-PC 0.0.0.0:{CATALOG_PORT}".encode(), (host, PC_ANNOUNCE_PORT))
         except Exception:
             pass
         time.sleep(3)
-
-
-_pkgs_seen = {"at": 0.0, "n": 0}
-
-
-def scan_pkgs_cached() -> int:
-    if time.time() - _pkgs_seen["at"] > 300:
-        _pkgs_seen.update(at=time.time(), n=len(scan_pkgs()))
-    return _pkgs_seen["n"]
 
 
 def pkg_install(pid: str, via: str, page_host: str) -> dict:
