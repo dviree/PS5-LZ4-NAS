@@ -1,7 +1,26 @@
 {
  "version": 1,
- "updated": "2026-10-16T02:18:46Z",
+ "updated": "2026-10-16T11:39:13Z",
  "games": {
+  "PPSA01473": {
+   "name": "Ratchet & Clank - Rift Apart",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Ratchet & Clank - Rift Apart",
+    "gameVersion": "01.005.003",
+    "level": "9",
+    "source": "",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T11:39:01Z",
+    "issue": 39
+   }
+  },
   "PPSA01593": {
    "name": "Hogwarts Legacy",
    "works": 1,
@@ -57,6 +76,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-15T13:57:06Z",
     "issue": 25
+   }
+  },
+  "PPSA07631": {
+   "name": "SAROS",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "SAROS",
+    "gameVersion": "01.000.000",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.42",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T09:38:20Z",
+    "issue": 37
    }
   },
   "PPSA11386": {
@@ -190,6 +228,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-14T21:29:31Z",
     "issue": 15
+   }
+  },
+  "PPSA17221": {
+   "name": "Minecraft",
+   "works": 0,
+   "issues": 0,
+   "noStart": 1,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "noStart",
+    "game": "Minecraft",
+    "gameVersion": "01.044.000",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T11:07:36Z",
+    "issue": 38
    }
   },
   "PPSA17942": {
