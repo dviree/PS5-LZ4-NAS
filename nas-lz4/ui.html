@@ -457,19 +457,17 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
 </main>
 <main id="p-up" hidden>
   <div class="card">
-    <div class="dhead"><h2 style="margin:0">PS5 Upload</h2><span class="sp"></span>
-      <a class="btn" id="up-open" target="_blank" rel="noopener">Open in a new tab ↗</a></div>
-    <div class="mut"><a href="https://github.com/phantomptr/ps5upload" target="_blank" rel="noopener">ps5upload</a> (GPL-3.0) by phantomptr,
-    its own engine and web UI, running in its own container on this NAS: uploads with resume, installs, collection, file browser,
-    cheats, fan curve and more. Address of its web UI:
+    <h2>PS5 Upload</h2>
+    <div class="mut"><a href="https://github.com/phantomptr/ps5upload" target="_blank" rel="noopener">ps5upload</a> (GPL-3.0) by phantomptr
+    runs in its own container on this NAS: uploads with resume, installs, collection, file browser, cheats, fan curve and more.
+    It opens in its own browser tab, where it remembers the PS5 (shown inside this page, Safari gives it storage it throws away).</div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:12px">
+      <a class="btn" id="up-open" target="_blank" rel="noopener">Open PS5 Upload ↗</a>
+      <span id="up-msg" class="mut"></span>
+    </div>
+    <div class="mut" style="margin-top:12px">Address:
       <input id="up-url" placeholder="http://NAS:19113" style="font:inherit;padding:4px 8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--txt);min-width:240px" onchange="saveUp(this.value)">
     </div>
-    <div class="mut" style="margin-top:6px">Forgets the PS5? It keeps the PS5's address in the browser, and Safari gives a page
-    shown inside another page its own storage that it may throw away: open it in a new tab (and add that to the home screen).
-    Its pairing key lives in the container's <code>/data</code>: map <code>/data</code> to a folder on the NAS, or every container
-    update makes a new key the PS5 refuses.</div>
-    <div id="up-msg" class="why"></div>
-    <iframe id="up-frame" title="PS5 Upload" style="width:100%;height:78vh;border:0;border-radius:14px;margin-top:10px;background:#111" hidden></iframe>
   </div>
 </main>
 <main id="p-sav" hidden>
@@ -1494,19 +1492,15 @@ function upUrl() {
 }
 function saveUp(v) { try { localStorage.setItem('ps5upload', v.trim()); } catch (e) {} loadUp(); }
 async function loadUp() {
-  const u = upUrl(), fr = document.getElementById('up-frame'), msg = document.getElementById('up-msg');
+  const u = upUrl(), msg = document.getElementById('up-msg');
   document.getElementById('up-url').value = u;
   document.getElementById('up-open').href = u;
-  msg.textContent = 'Looking for ps5upload at ' + u + ' …';
+  msg.textContent = 'checking…';
   try {
     await fetch(u, {mode: 'no-cors', cache: 'no-store'});
-    msg.innerHTML = '';
-    if (fr.src !== u) fr.src = u;
-    fr.hidden = false;
+    msg.innerHTML = '<span class="good">● running</span>';
   } catch (e) {
-    fr.hidden = true;
-    msg.innerHTML = `<span class="bad">No ps5upload answers at ${esc(u)}.</span> Start its container, or install it with this project's install
-      script (<code>PS5UPLOAD=yes</code>), or enter its address above.`;
+    msg.innerHTML = `<span class="bad">No ps5upload answers at ${esc(u)}.</span> Start its container, or enter its address below.`;
   }
 }
 let savTimer = null;

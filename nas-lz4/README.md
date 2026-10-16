@@ -173,13 +173,14 @@ that container alone.
   against the archive). The install script creates and mounts
   `_extracted`, so run it again once.
 - **PS5 Upload tab:** [ps5upload](https://github.com/phantomptr/ps5upload)
-  (GPL-3.0, phantomptr) inside this page: its own engine and web UI (port
-  19113) in its own container, shown here. Install it together with this
+  (GPL-3.0, phantomptr): its own engine and web UI (port 19113) in its own
+  container. The tab shows whether it runs and opens it in its own browser
+  tab (embedded in this page, Safari drops its storage and it forgets the PS5). Install it together with this
   tool with `PS5UPLOAD=yes PS5_IP=<PS5 address>` (image
   `ghcr.io/phantomptr/ps5upload-engine-webui`, host network, the libraries
   read-only as `/games`, `/pkgs`, `/lz4`; `PS5UPLOAD_ALLOW_IP` defaults to
   the NAS's /24, it has no password). An existing `ps5upload` container is
-  left alone and shown as it is; another address can be set in the tab.
+  left alone and opened as it is; another address can be set in the tab.
 - **Saves tab** (idea from P5 Manager): **Back up all saves now** copies
   every save folder on the PS5 (`/user/home/<user>/savedata_prospero` for
   PS5 games and `savedata` for PS4 games) to `state/saves/<date>/` over FTP,
