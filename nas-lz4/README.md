@@ -331,8 +331,11 @@ an address the PS5 can reach.
   pkg-sender's UDP message to port 12802 every 3 seconds. Pick a game with
   the controller and install it. Its **Images** tab lists the library's
   `.exfat` / `.ffpfsc` / `.ffpfs` images and the LZ4 copies' `.exfat`
-  images, with covers (read from inside `.exfat` images, or from the LZ4
-  copy); **Copy to homebrew** pulls one from the NAS into
+  images, with covers and titles read from the game's own
+  `sce_sys/icon0.png` and `param.json` (inside `.exfat` images, inside the
+  exFAT image wrapped by a single-file `.ffpfsc` / `.ffpfs`, nothing is
+  unpacked; or from the LZ4 copy). The library and Store use the same
+  covers; **Copy to homebrew** pulls one from the NAS into
   `/data/homebrew`. If pkg-sender also runs on a PC, the page follows
   whichever announced itself last: close it there, or type the NAS address
   in the page.
