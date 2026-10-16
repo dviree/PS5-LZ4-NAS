@@ -1129,11 +1129,11 @@ function gameHtml(g, det) {
     }
   }
   return `<img class="ico big" alt="" src="/api/icon?id=${encodeURIComponent(g.id)}" onerror="this.remove()"><h3>${esc(g.name)}</h3><div class="mut">${esc(g.title_id || '')}</div>
-    <div class="pair">${ffpfscHtml(g, det) || ''}${communityHtml(g, det)}</div>
     <div class="kv">${rows.map(([k, x]) => `<div>${k}</div><div>${x}</div>`).join('')}</div>
     <div class="acts" id="m-acts">${acts.join('') || '<span class="mut">Nothing to do for this game.</span>'}</div>
     <div class="aprres" id="apr-ps5">${aprShown(g)}</div>
-    ${dels.length ? `<div class="acts dels" id="dels">${dels.join('')}</div>` : '<div class="acts dels" id="dels"></div>'}`;
+    ${dels.length ? `<div class="acts dels" id="dels">${dels.join('')}</div>` : '<div class="acts dels" id="dels"></div>'}
+    <div class="pair">${ffpfscHtml(g, det) || ''}${communityHtml(g, det)}</div>`;
 }
 let ftpPath = '/', ftpLoaded = false;
 async function ftpGo(path) {
