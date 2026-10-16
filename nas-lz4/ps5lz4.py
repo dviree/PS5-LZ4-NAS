@@ -3990,6 +3990,40 @@ def extract_key(first: Path) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", str(first.relative_to(LIBRARY)))[:150]
 
 
+def _ver_key(v: str) -> tuple:
+    return tuple(int(x) for x in re.findall(r"\d+", v or "")) or (-1,)
+
+
+def library_duplicates() -> list[dict]:
+    """Games in the library more than once with the same Title ID (another
+    version, or a folder and an image of it): each copy with its version and
+    size, the newest marked; the page suggests deleting the others."""
+    groups: dict = {}
+    for e in scan_library():
+        if e.title_id:
+            groups.setdefault(e.title_id.upper(), []).append(e)
+    out = []
+    for tid, es in sorted(groups.items()):
+        if len(es) < 2:
+            continue
+        items = []
+        for e in es:
+            if e.kind == "folder":
+                ver = game_version(e.path).get("version", "")
+                size = None  # the page takes it from the library list
+            else:
+                ver = game_version(name=e.path.name).get("version", "") or (image_meta(e.path).get("version") or "")
+                size = e.path.stat().st_size
+            items.append({"id": e.id, "rel": e.rel, "kind": e.kind, "version": ver, "size": size,
+                          "path": str(Path(HOST_LIBRARY) / e.rel),
+                          "lz4": e.output.is_dir() and (e.output / "ampr_assets.index").is_file()})
+        newest = max(items, key=lambda i: (_ver_key(i["version"]), i["kind"] == "folder"))
+        for i in items:
+            i["newest"] = i is newest
+        out.append({"title_id": tid, "name": next((e.name for e in es if e.name), es[0].rel), "items": items})
+    return out
+
+
 def scan_archives() -> list[dict]:
     out = []
     if not LIBRARY.is_dir():
@@ -4897,7 +4931,12 @@ def image_meta(path: Path) -> dict:
             files = {e.rel_path.lower(): e for e in reader.iter_files()}
             pj = next((e for k, e in files.items() if k.endswith("sce_sys/param.json")), None)
             if pj:
-                tid, name = parse_param_json(b"".join(reader.read_file(pj)))
+                raw = b"".join(reader.read_file(pj))
+                tid, name = parse_param_json(raw)
+                try:
+                    info["version"] = str(json.loads(raw.decode("utf-8-sig", "replace")).get("contentVersion") or "")
+                except ValueError:
+                    pass
                 info["title"] = name or info["title"]
                 info["title_id"] = (tid or info["title_id"]).upper()
             ic = next((e for k, e in files.items() if k.endswith("sce_sys/icon0.png")), None)
@@ -5728,6 +5767,7 @@ def dashboard_data() -> dict:
             "lz4c_version": lz4c_version(),
             "delete_originals": DELETE_ORIGINALS,
             "archives": scan_archives(),
+            "duplicates": library_duplicates(),
             "verifies": verify_states(),
             "send_after": list(read_json(SEND_AFTER, {}) or {}),
             "images": images_data(),
@@ -6176,6 +6216,12 @@ def cmd_ui(args) -> int:
                                                       "version": smp("/api/v1/version").get("shadowmount_version")}).encode())
                 except ValueError as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
+            if self.path in ("/api/smp/storage", "/api/smp/job"):
+                try:
+                    res = smp("/api/v1/storage") if self.path.endswith("storage") else smp("/api/v1/games/storage/status", {})
+                    return self.send(200, json.dumps(res).encode())
+                except ValueError as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if self.path.startswith("/api/smp/icon?"):
                 import urllib.request
                 from urllib.parse import parse_qs, urlparse
@@ -6461,10 +6507,17 @@ def cmd_ui(args) -> int:
                 try:
                     if a == "smp_scan":
                         res = smp("/api/v1/scan", {"reset_attempts": False})
+                    elif a == "smp_cancel":
+                        res = smp("/api/v1/games/storage/cancel", {"job_id": int(req.get("job_id") or 0)})
                     elif a in ("smp_log", "smp_klog"):
                         res = smp("/api/v1/debug-log" if a == "smp_log" else "/api/v1/kernel-log", {})
                     elif not re.fullmatch(r"(CUSA|PPSA|LAPY|FAKE)\d{5}", tid):
                         raise ValueError("bad Title ID")
+                    elif a == "smp_move":
+                        dest = str(req.get("dest") or "")
+                        if not dest.startswith("/") or ".." in dest.split("/"):
+                            raise ValueError("pick a destination folder")
+                        res = smp("/api/v1/games/move", {"title_id": tid, "destination_dir": dest})
                     elif a == "smp_unmount":
                         res = smp("/api/v1/games/unmount", {"title_id": tid})
                     elif a in ("smp_uninstall", "smp_hide"):

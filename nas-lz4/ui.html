@@ -267,6 +267,10 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
         <p>The same as Compress all for a single game; tap a game to see it.</p></div>
     </div>
   </details>
+  <div class="card" id="dupcard" hidden><h2>Duplicates on the NAS</h2>
+    <div class="mut">The same game (Title ID) is in the library more than once, as other versions or as a folder and an image.
+    The newest is marked; deleting an older one frees its space (needs DELETE_ORIGINALS=yes). Its LZ4 copy, if any, stays.</div>
+    <div id="dups"></div></div>
   <div class="card"><h2>Library</h2><div class="scroll"><table id="games"></table></div></div>
   <div class="card" id="pkgcard" hidden><h2>Packages <span class="mut" style="font-weight:500">· .pkg, installed on the PS5 by pkg-receiver (Remote tab)</span></h2>
     <div class="scroll"><table id="pkgs"></table></div></div>
@@ -443,6 +447,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     alone, but the next scan finds it again; <b>Hide</b> also renames its folder or image with a leading dot, so it stays off until you
     rename it back (PS5 games tab, ⚠ Needs attention, Fix).</div>
     <div class="filters"><input id="smp-q" placeholder="Search name or Title ID" oninput="renderSmp()"></div>
+    <div id="smp-job"></div>
     <div id="smp-log" hidden></div>
     <div id="smp-list" class="pg-grid"></div>
   </div>
@@ -897,6 +902,15 @@ function render() {
         <td class="c-ps5"></td><td class="c-act">${act}</td></tr>`;
     }).join('');
 
+  const dups = d.duplicates || [];
+  document.getElementById('dupcard').hidden = !dups.length;
+  document.getElementById('dups').innerHTML = dups.map(grp => `<div class="dl"><div class="dl-top"><b>${esc(grp.name)}</b><span class="mut">${esc(grp.title_id)} · ${grp.items.length} copies</span></div>` +
+    grp.items.map(i => {
+      const gg = (d.games || []).find(x => x.id === i.id) || {}, size = i.size || gg.source_size || gg.source_bytes;
+      return `<div class="dl-row"><span class="chip ${i.newest ? 'ok' : ''}">${i.newest ? '✓ newest' : i.version ? 'older' : 'version?'}</span>
+        <span class="dl-name">v${esc(i.version || '?')}</span><span class="mut">${esc(i.kind)}${size ? ' · ' + gb(size) : ''}${i.lz4 ? ' · has an LZ4 copy' : ''} · ${esc(i.rel)}</span><span class="sp"></span>
+        ${i.newest ? '' : d.delete_originals ? `<button class="sm danger" data-g="${esc(i.id)}" onclick="deleteOriginal(this.dataset.g)">🗑 Delete this one</button>` : '<span class="mut" style="font-size:12px">delete needs DELETE_ORIGINALS=yes</span>'}</div>`;
+    }).join('') + '</div>').join('');
   const arcs = d.archives || [];
   document.getElementById('arccard').hidden = !arcs.length;
   document.getElementById('arcs').innerHTML = arcs.map(a => {
@@ -1481,7 +1495,7 @@ async function loadSmp() {
   try {
     const r = await fetch('/api/smp/games', {cache: 'no-store'}), j = await r.json();
     if (!r.ok) { el.innerHTML = `<div class="bad">${esc(j.error || r.status)}</div>`; return; }
-    smpData = j; renderSmp();
+    smpData = j; renderSmp(); smpJob();
   } catch (e) { el.innerHTML = `<div class="bad">${esc(String(e))}</div>`; }
 }
 function renderSmp() {
@@ -1505,6 +1519,7 @@ function renderSmp() {
         <div class="why" title="${esc(g.path || '')}">${esc(g.path || '')}</div>
         <div class="pg-acts">
           ${g.mounted ? `<button class="sm" data-t="${esc(g.title_id)}" onclick="smpAct('smp_unmount', this.dataset.t, '', 'Unmount it now?')">Unmount</button>` : ''}
+          ${g.source_available !== false && g.path && !g.installed_pkg ? `<button class="sm" data-t="${esc(g.title_id)}" data-p="${esc(g.path)}" data-n="${esc(g.title_name || g.title_id)}" onclick="smpMovePick(this, this.dataset.t, this.dataset.p, this.dataset.n)">Move…</button>` : ''}
           <span class="sp"></span>
           ${g.installed && g.can_uninstall !== false ? `<button class="sm" data-t="${esc(g.title_id)}" data-n="${esc(g.title_name || g.title_id)}" onclick="smpAct('smp_uninstall', this.dataset.t, '', 'Take ' + this.dataset.n + ' off the home screen?\n\nIts files stay; the next ShadowMountPlus scan puts it back (use Hide to keep it off).')">Remove from home screen</button>` : ''}
           ${g.installed && g.can_uninstall !== false && g.path && !g.path.split('/').pop().startsWith('.') ? `<button class="sm danger" data-t="${esc(g.title_id)}" data-p="${esc(g.path)}" data-n="${esc(g.title_name || g.title_id)}" onclick="smpAct('smp_hide', this.dataset.t, this.dataset.p, 'Hide ' + this.dataset.n + '?\n\nThe tile goes off the home screen and its source is renamed with a leading dot, so scans skip it. Nothing is deleted.')">Hide</button>` : ''}
@@ -1531,11 +1546,51 @@ async function smpLog(action) {
       <button class="sm" onclick="document.getElementById('smp-log').hidden=true">Close</button></div>
     <pre class="log" style="max-height:340px;overflow:auto;white-space:pre-wrap">${lines.slice(-400).map(l => bad.test(l) ? `<span class="bad">${esc(l)}</span>` : esc(l)).join('\n')}</pre>`;
 }
-async function smpAct(action, tid, path, question) {
+async function smpMovePick(btn, tid, path, name) {
+  const r = await fetch('/api/smp/storage', {cache: 'no-store'}), j = await r.json().catch(() => ({}));
+  if (!r.ok) { alert('Could not read the drives: ' + (j.error || r.status)); return; }
+  const here = path.split('/').slice(0, 3).join('/');
+  const dests = (j.destinations || []).filter(x => !x.read_only && !path.startsWith(x.path + '/') && !(x.path + '/').startsWith(here + '/'));
+  if (!dests.length) { alert('No other drive ShadowMountPlus can move it to (it moves only into its scan folders).'); return; }
+  const box = document.createElement('div');
+  box.className = 'why';
+  box.innerHTML = '<b>Move to:</b> ' + dests.map((x, i) => `<button class="sm" data-i="${i}">${esc(x.path)} · ${(x.available_bytes / 2 ** 30).toFixed(0)} GB free</button>`).join(' ') +
+    ' <button class="sm ghost" data-x="1">Cancel</button>';
+  btn.closest('.pg-body').appendChild(box);
+  box.onclick = async ev => {
+    const b = ev.target.closest('button'); if (!b) return;
+    box.remove(); if (b.dataset.x) return;
+    const d = dests[+b.dataset.i];
+    if (!confirm(`Move ${name} to ${d.path}?\n\nShadowMountPlus copies it, checks it and removes the old copy (${path}). Close the game first. It can be cancelled until the copy is done.`)) return;
+    const r2 = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'smp_move', tid, dest: d.path})});
+    const j2 = await r2.json().catch(() => ({}));
+    if (!r2.ok) { alert('Not moved: ' + (j2.error || r2.status)); return; }
+    smpJob();
+  };
+}
+let smpJobTimer = null;
+async function smpJob() {
+  clearTimeout(smpJobTimer);
+  const el = document.getElementById('smp-job');
+  let j;
+  try { const r = await fetch('/api/smp/job', {cache: 'no-store'}); j = await r.json(); if (!r.ok) { el.innerHTML = ''; return; } } catch (e) { return; }
+  if (!j.operation || (!j.active && !['completed', 'failed', 'cancelled'].includes(j.state))) { el.innerHTML = ''; return; }
+  const gbs = b => (b / 2 ** 30).toFixed(1) + ' GB';
+  el.innerHTML = `<div class="dl"><div class="dl-top"><b>${esc(j.operation)} ${esc(j.title_id)}</b><span class="mut">${esc(j.source)} → ${esc(j.destination)}</span><span class="sp"></span>
+      <span class="chip ${j.state === 'completed' ? 'ok' : j.state === 'failed' ? 'bad' : ''}">${esc(j.state)}</span>
+      ${j.active && j.cancellable ? `<button class="sm danger" onclick="smpAct('smp_cancel', '', '', 'Cancel the move?', {job_id: ${j.job_id}})">Cancel</button>` : ''}</div>
+    ${j.active ? `<div class="bar"><i style="width:${(j.progress_percent || 0).toFixed(1)}%"></i></div>
+      <div class="why">${gbs(j.processed_bytes)} of ${gbs(j.total_bytes)} · ${(j.progress_percent || 0).toFixed(0)} %${j.speed_bytes_per_second ? ' · ' + (j.speed_bytes_per_second / 2 ** 20).toFixed(0) + ' MB/s' : ''}</div>` : ''}
+    ${j.result_error ? `<div class="why bad">${esc(j.result_error)}</div>` : ''}</div>`;
+  if (j.active) smpJobTimer = setTimeout(smpJob, 2000);
+  else if (j.state === 'completed') setTimeout(loadSmp, 1000);
+}
+async function smpAct(action, tid, path, question, extra) {
   if (question && !confirm(question)) return;
-  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action, tid, path})});
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action, tid, path, ...(extra || {})})});
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { alert('Failed: ' + (j.error || r.status)); return; }
+  if (action === 'smp_cancel') { smpJob(); return; }
   if (j.scan_deferred) alert('Done. ShadowMountPlus will scan when it can (' + (j.scan_deferred_reason || 'later') + ').');
   setTimeout(loadSmp, 1500);
 }
