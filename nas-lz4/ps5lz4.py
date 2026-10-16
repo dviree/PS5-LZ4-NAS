@@ -3138,6 +3138,21 @@ def ps4_apps(f, drives: list[str]) -> list[dict]:
 
 
 _verify: dict = {}
+
+
+def ps5_remote_sizes(f, path: str) -> dict:
+    """Every file under path on the PS5: relative path -> size (listings only)."""
+    out: dict = {}
+
+    def walk(d, rel):
+        for i in ps5_ftp_list_conn(f, d):
+            r = f"{rel}{i['name']}"
+            if i["dir"]:
+                walk(f"{d}/{i['name']}", r + "/")
+            else:
+                out[r] = i.get("size")
+    walk(path, "")
+    return out
 SAMPLE_MIN = 256 << 20   # files from this size get spot checks
 SAMPLE_COUNT = 4         # 1 MiB pieces read back per file (start, end, two random)
 
@@ -3211,16 +3226,7 @@ def ps5_verify_start(path: str) -> dict:
             st["total"] = len(files)
             f = ps5_ftp_connect()
             try:
-                remote: dict = {}
-
-                def walk(d, rel):
-                    for i in ps5_ftp_list_conn(f, d):
-                        r = f"{rel}{i['name']}"
-                        if i["dir"]:
-                            walk(f"{d}/{i['name']}", r + "/")
-                        else:
-                            remote[r] = i.get("size")
-                walk(path, "")
+                remote = ps5_remote_sizes(f, path)
                 for q in files:
                     rel = q.relative_to(local).as_posix()
                     st["done"] += 1
@@ -3422,6 +3428,77 @@ def ps5_uninstall(tid: str) -> str:
     return "uninstalled"
 
 
+def ps5_notify(text: str, wait: bool = False) -> None:
+    """A notification on the PS5 (pkg-receiver Glass build 7+, /api/notify);
+    best effort, in the background (wait: up to 5 s, for a process about to end)."""
+    import urllib.request
+    host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
+    if not host:
+        return
+
+    def send():
+        try:
+            req = urllib.request.Request(f"http://{host}:{RECV_PORT}/api/notify", data=text[:200].encode(),
+                                         method="POST", headers={"Content-Type": "text/plain"})
+            urllib.request.urlopen(req, timeout=5).close()
+        except Exception:
+            pass
+    t = __import__("threading").Thread(target=send, daemon=True)
+    t.start()
+    if wait:
+        t.join(5)
+
+
+def smp(route: str, body: dict | None = None, timeout: float = 30) -> dict:
+    """ShadowMountPlus's API (on the PS5 at 127.0.0.1:10101), through
+    pkg-receiver's Glass build (7 or newer). Raises ValueError with SMP's error."""
+    import urllib.error
+    import urllib.request
+    host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
+    if not host:
+        raise ValueError("set the PS5 address first")
+    req = urllib.request.Request(f"http://{host}:{RECV_PORT}/api/smp?route={route}",
+                                 data=json.dumps(body or {}).encode(), method="POST",
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read()
+    except (urllib.error.URLError, OSError) as err:
+        raise ValueError(f"pkg-receiver (Glass build 7 or newer) does not answer on the PS5: {err}")
+    try:
+        j = json.loads(raw.decode("utf-8", "replace"))
+    except ValueError:
+        raise ValueError("pkg-receiver is too old for ShadowMount (install the newest ELF)")
+    if j.get("status"):
+        raise ValueError(f"ShadowMountPlus: {j.get('error') or j.get('status')}"
+                         + (f" ({j['error_reason']})" if j.get("error_reason") else ""))
+    return j
+
+
+def smp_hide(path: str) -> str:
+    """Rename a game source with a leading dot, so ShadowMountPlus's scans skip it."""
+    import ftplib
+    path = ps5_ftp_path(path)
+    if not FTP_DELETE_ROOTS.match(path):
+        raise ValueError("only games inside /data, /mnt/usbN or /mnt/extN")
+    base, _, name = path.rpartition("/")
+    if name.startswith("."):
+        return path
+    f = ps5_ftp_connect()
+    try:
+        if "." + name in {i["name"] for i in ps5_ftp_list_conn(f, base)}:
+            raise ValueError(f"{base}/.{name} already exists")
+        f.rename(path, f"{base}/.{name}")
+    except ftplib.all_errors as err:
+        raise ValueError(f"FTP: {err}")
+    finally:
+        try:
+            f.quit()
+        except Exception:
+            pass
+    return f"{base}/.{name}"
+
+
 def untile(tid: str) -> str:
     """Take a deleted game's tile off the PS5 home screen (pkg-receiver's
     Glass build: sceAppInstUtilAppUnInstall), unless another copy with that
@@ -3449,6 +3526,12 @@ def untile(tid: str) -> str:
                 pass
     except ValueError:
         pass
+    try:
+        smp("/api/v1/games/uninstall", {"title_id": tid})
+        print(f"[{now()}] {tid} taken off the PS5 home screen (ShadowMountPlus)", flush=True)
+        return "removed"
+    except ValueError:
+        pass  # older SMP or receiver: AppInstUtil directly
     host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
     try:
         req = urllib.request.Request(f"http://{host}:{RECV_PORT}/api/uninstall?tid={tid}", data=b"", method="POST")
@@ -4428,6 +4511,7 @@ def pkg_install(pid: str, via: str, page_host: str) -> dict:
         pkg_history_add({"kind": "install", "id": pid, "name": name, "via": via, "ok": False, "error": str(err)})
         raise
     pkg_history_add({"kind": "install", "id": pid, "name": name, "via": via, "ok": True})
+    ps5_notify(f"NAS: installing {name}" + (" (downloading from the NAS)" if via != "local" else ""))
     return res
 
 
@@ -4658,6 +4742,7 @@ def push_one(game: str, force: bool = False) -> int:
                 pass
     __import__("threading").Thread(target=keep_awake, daemon=True).start()
 
+    ps5_notify(f"NAS: sending {out.name} ({human(total)})")
     try:
         ensure_ftp()
         ftp = connect()
@@ -4805,10 +4890,23 @@ def push_one(game: str, force: bool = False) -> int:
                 with open(p, "rb") as fh:  # same size, other bytes: upload it again
                     ftp.storbinary(f"STOR {remote}", fh, blocksize=1 << 20)
             st["verified"] += 1
+        # Last look: every file of the game is on the PS5 with its size, from
+        # a fresh listing (no file reads), so nothing can have been dropped.
+        if not single:
+            st["current"] = "checking that every file is there"
+            save(True)
+            there = ps5_remote_sizes(ftp, dest)
+            lost = [p.relative_to(root).as_posix() for p in files
+                    if there.get(p.relative_to(root).as_posix(), -1) != p.stat().st_size]
+            if lost:
+                raise RuntimeError(f"{len(lost)} file(s) missing or the wrong size on the PS5 "
+                                   f"(e.g. {lost[0]}); press Send again to fill them in")
+            st["complete"] = len(files)
         ftp.quit()
         awake_stop.set()
         st.update(state="done", current="", finished=now())
         save(True)
+        ps5_notify(f"NAS: {out.name} is on the PS5 and checked", wait=True)
         print(f"done: {out.name} -> {st['dest']} ({human(total)}, {st['verified']} program files "
               f"checked byte for byte, {st['skipped']} already there)")
         for k in ("playgo", "note"):
@@ -4818,6 +4916,7 @@ def push_one(game: str, force: bool = False) -> int:
     except Exception as err:
         awake_stop.set()
         st.update(state="failed", error=str(err)[:500], finished=now())
+        ps5_notify(f"NAS: sending {out.name} stopped: {str(err)[:120]}", wait=True)
         save(True)
         print(f"FAILED: {err}", file=sys.stderr)
         return 1
@@ -5481,6 +5580,41 @@ def cmd_ui(args) -> int:
                 except ValueError:
                     key = ""
                 return self.send(200, json.dumps(_verify.get(key) or {"state": "none"}).encode())
+            if self.path == "/api/smp/games":
+                try:
+                    return self.send(200, json.dumps({**smp("/api/v1/games", {"include_size": False}),
+                                                      "version": smp("/api/v1/version").get("shadowmount_version")}).encode())
+                except ValueError as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+            if self.path.startswith("/api/smp/icon?"):
+                import urllib.request
+                from urllib.parse import parse_qs, urlparse
+                tid = (parse_qs(urlparse(self.path).query).get("tid") or [""])[0].upper()
+                png = None
+                if re.fullmatch(r"(CUSA|PPSA|LAPY|FAKE)\d{5}", tid):
+                    cached = ICON_CACHE / f"smp-{tid}.png"
+                    if cached.is_file() and time.time() - cached.stat().st_mtime < 86400:
+                        png = cached.read_bytes()
+                    else:
+                        try:
+                            host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
+                            with urllib.request.urlopen(f"http://{host}:{RECV_PORT}/api/smp-icon?title_id={tid}", timeout=10) as r:
+                                data = r.read()
+                            if data[:4] == b"\x89PNG":
+                                png = data
+                                ICON_CACHE.mkdir(parents=True, exist_ok=True)
+                                cached.write_bytes(png)
+                        except Exception:
+                            pass
+                if not png:
+                    return self.send(404, b'{"error":"no icon"}')
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Cache-Control", "max-age=3600")
+                self.send_header("Content-Length", str(len(png)))
+                self.end_headers()
+                self.wfile.write(png)
+                return
             if self.path == "/api/pkg/activity":
                 return self.send(200, json.dumps({"downloads": dl_snapshot(),
                                                   "history": read_json(PKG_HISTORY, []) or []}).encode())
@@ -5720,6 +5854,24 @@ def cmd_ui(args) -> int:
                         f.quit()
                     return self.send(200, json.dumps({"made": path}).encode())
                 except Exception as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+            if str(req.get("action") or "").startswith("smp_"):
+                a, tid = req["action"], str(req.get("tid") or "").upper()
+                try:
+                    if a == "smp_scan":
+                        res = smp("/api/v1/scan", {"reset_attempts": False})
+                    elif not re.fullmatch(r"(CUSA|PPSA|LAPY|FAKE)\d{5}", tid):
+                        raise ValueError("bad Title ID")
+                    elif a == "smp_unmount":
+                        res = smp("/api/v1/games/unmount", {"title_id": tid})
+                    elif a in ("smp_uninstall", "smp_hide"):
+                        res = smp("/api/v1/games/uninstall", {"title_id": tid})
+                        if a == "smp_hide":
+                            res["hidden"] = smp_hide(str(req.get("path") or ""))
+                    else:
+                        raise ValueError("unknown action")
+                    return self.send(200, json.dumps(res).encode())
+                except ValueError as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
             if req.get("action") == "ps5_uninstall":
                 try:
