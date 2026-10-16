@@ -141,6 +141,13 @@ that container alone.
   next scan finds the game again); **Hide** also renames the source with a
   leading dot, so scans skip it until it is renamed back; **Unmount**;
   **Rescan**. Delete on the PS5 games tab also uses it to take a tile off.
+- **Saves tab** (idea from P5 Manager): **Back up all saves now** copies
+  every save folder on the PS5 (`/user/home/<user>/savedata_prospero` for
+  PS5 games and `savedata` for PS4 games) to `state/saves/<date>/` over FTP,
+  only reading on the PS5, with each file's size checked. Backups are kept
+  by date, can be downloaded as a .zip, and **Restore** writes one game's
+  saves back to the same user (close the game first; saves are tied to the
+  user and console).
 - **Notifications on the PS5:** "NAS: installing …", "NAS: sending …",
   "… is on the PS5 and checked" or "… stopped" pop up on the console
   (pkg-receiver Glass build 7, `/api/notify`).

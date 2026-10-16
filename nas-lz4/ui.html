@@ -76,6 +76,7 @@ tr.row{cursor:pointer}tr.row td{transition:background .12s}tr.row:hover td{backg
 .chip{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;padding:2px 8px;border-radius:99px;background:var(--chip);color:var(--mut);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .chip.ok{background:var(--okbg);color:var(--ok)}.chip.bad{background:var(--badbg);color:var(--bad)}
 .chip.ps4{background:#0070D1;color:#fff}
+details.sav{margin-top:12px;border-top:1px solid var(--line);padding-top:8px}details.sav summary{display:flex;gap:8px;align-items:center;cursor:pointer;flex-wrap:wrap}
 button.send-on{background:linear-gradient(135deg,#34d399,#059669);color:#fff;border-color:rgba(255,255,255,.3)}
 button.send-off{background:linear-gradient(135deg,#fb7185,#e11d48);color:#fff;border-color:rgba(255,255,255,.3)}.pg-ico.ps4{border-radius:6px}
 .why{font-size:12px;color:var(--mut);max-width:420px}
@@ -207,6 +208,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
   <button id="t-act" onclick="tab('act')">Activity<span class="badge" id="act-n" hidden></span></button>
   <button id="t-pg" onclick="tab('pg')">PS5 games</button>
   <button id="t-smp" onclick="tab('smp')">ShadowMount</button>
+  <button id="t-sav" onclick="tab('sav')">Saves</button>
   <button id="t-comm" onclick="tab('comm')">Community</button>
   <button id="t-ps5" onclick="tab('ps5')">Remote</button>
   <button id="t-ftp" onclick="tab('ftp')">FTP</button>
@@ -434,6 +436,18 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     rename it back (PS5 games tab, ⚠ Needs attention, Fix).</div>
     <div class="filters"><input id="smp-q" placeholder="Search name or Title ID" oninput="renderSmp()"></div>
     <div id="smp-list" class="pg-grid"></div>
+  </div>
+</main>
+<main id="p-sav" hidden>
+  <div class="card">
+    <div class="dhead"><h2 style="margin:0">Save data backups</h2><span class="sp"></span>
+      <button class="pri" onclick="savBackup()">Back up all saves now</button></div>
+    <div class="mut">Copies every save folder on the PS5 (PS5 <code>savedata_prospero</code> and PS4 <code>savedata</code>, every user)
+    to the NAS over FTP, only reading on the PS5. Each backup is kept by date in <code>state/saves</code>; download one as a .zip, or
+    <b>Restore</b> one game's saves to the same user on the same PS5 (close the game first). Saves are tied to the PS5 user, so
+    restoring to another console or user may not work.</div>
+    <div class="why" id="sav-job"></div>
+    <div id="sav-list"></div>
   </div>
 </main>
 <main id="p-comm" hidden>
@@ -1372,6 +1386,43 @@ async function pgUninstall(tid, name) {
   alert(r.ok ? `${name} uninstalled.` : 'Not uninstalled: ' + (j.error || r.status));
   if (r.ok) loadPg();
 }
+let savTimer = null;
+async function loadSav() {
+  let j;
+  try { j = await (await fetch('/api/saves', {cache: 'no-store'})).json(); } catch (e) { return; }
+  const job = j.job || {}, mb = b => b >= 1 << 30 ? (b / (1 << 30)).toFixed(2) + ' GB' : (b / (1 << 20)).toFixed(1) + ' MB';
+  document.getElementById('sav-job').innerHTML = job.state === 'running' ? `Backing up… ${job.titles} titles, ${job.files} files, ${mb(job.bytes)}${job.current ? ' · ' + esc(job.current) : ''}`
+    : job.state === 'failed' ? `<span class="bad">Backup failed: ${esc(job.error)}</span>` : job.state === 'done' ? `<span class="good">✓ Backed up ${job.titles} titles (${mb(job.bytes)})</span>` : '';
+  clearTimeout(savTimer);
+  if (job.state === 'running') savTimer = setTimeout(loadSav, 1500);
+  const bs = j.backups || [];
+  document.getElementById('sav-list').innerHTML = bs.length ? bs.map(b => `<details class="sav" ${b === bs[0] ? 'open' : ''}>
+      <summary><b>${esc(b.created || b.backup)}</b> · ${b.titles.length} titles · ${mb(b.bytes)}${b.incomplete ? ` <span class="bad">· incomplete: ${esc(b.incomplete)}</span>` : ''}
+        <span class="sp"></span><a class="sm" href="/api/saves/zip?b=${encodeURIComponent(b.backup)}">⬇ .zip</a>
+        <button class="sm danger" data-b="${esc(b.backup)}" onclick="savDelete(this.dataset.b)">🗑</button></summary>
+      ${b.titles.map(t => `<div class="dl-row"><span class="chip ${t.platform === 'PS4' ? 'ps4' : ''}">${esc(t.platform)}</span>
+        <span class="dl-name">${esc(t.name || t.title_id)}</span><span class="mut">${esc(t.title_id)} · user ${esc(t.user)} · ${t.files} files · ${mb(t.bytes)}</span>
+        <span class="sp"></span><button class="sm" data-b="${esc(b.backup)}" data-k="${esc(t.user + '/' + t.kind + '/' + t.title_id)}" data-n="${esc(t.name || t.title_id)}"
+          onclick="savRestore(this.dataset.b, this.dataset.k, this.dataset.n)">Restore</button></div>`).join('')}
+    </details>`).join('') : '<div class="mut" style="margin-top:10px">No backups yet.</div>';
+}
+async function savBackup() {
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'saves_backup'})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) alert('Not started: ' + (j.error || r.status));
+  loadSav();
+}
+async function savRestore(backup, key, name) {
+  if (!confirm(`Restore the saves of ${name} from this backup?\n\nThey replace the saves of that game for user ${key.split('/')[0]} on the PS5. Close the game first.`)) return;
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'saves_restore', backup, key})});
+  const j = await r.json().catch(() => ({}));
+  alert(r.ok ? `Restored ${j.files} files.` : 'Not restored: ' + (j.error || r.status));
+}
+async function savDelete(backup) {
+  if (!confirm('Delete this backup from the NAS?')) return;
+  await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'saves_delete', backup})});
+  loadSav();
+}
 let smpData = null;
 async function loadSmp() {
   const el = document.getElementById('smp-list');
@@ -1494,13 +1545,14 @@ async function ps5Copies(tid) {
 }
 let comm = null;
 function tab(t) {
-  for (const k of ['mine', 'act', 'pg', 'smp', 'ps5', 'comm', 'ftp']) {
+  for (const k of ['mine', 'act', 'pg', 'smp', 'sav', 'ps5', 'comm', 'ftp']) {
     document.getElementById('p-' + k).hidden = t !== k;
     document.getElementById('t-' + k).classList.toggle('on', t === k);
   }
   try { localStorage.setItem('tab', t); } catch (e) {}
   if (t === 'comm') loadComm();
   if (t === 'smp') loadSmp();
+  if (t === 'sav') loadSav();
   if (t === 'act') setTimeout(loadPkgAct, 0);
   if (t === 'pg' && !pgData) loadPg();
   if (t === 'ps5') rcvCheck();
