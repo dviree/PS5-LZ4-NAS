@@ -376,9 +376,9 @@ ID, version, type (Game, Update, DLC) and icon, read from the package itself.
   `/data/pldmgr/payloads/pkg-receiver/pkg-receiver.elf` and starts it through
   Payload Manager (or an ELF loader). The same card shows the internal SSD's
   free space, which pkg-receiver reports.
-- **⬆️ Copy to /data/pkg** copies the file to the PS5's package folder (set
+- **⬆️ Copy to /mnt/usb0** copies the file to the PS5's package folder (set
   on the Remote tab), resumable like every transfer; **Install from
-  /data/pkg** then installs that copy, or use ItemzFlow / etaHEN.
+  /mnt/usb0** then installs that copy, or use ItemzFlow / etaHEN.
 
 The PS5 reaches the page at the address the browser used (the request's
 host); set `PS5LZ4_NAS_URL` (e.g. `http://192.168.1.10:5921`) if that isn't
