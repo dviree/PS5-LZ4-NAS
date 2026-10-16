@@ -276,7 +276,9 @@ async function stopIt() { try { await post({action: 'push_stop'}); toast('Paused
 async function unqueue(req) { try { await post({action: 'push_queue_remove', game: req}); } catch (e) {} setTimeout(load, 500); }
 async function load(withPs5) {
   try {
-    dash = await (await fetch('/api/dashboard', {cache: 'no-store'})).json();
+    const dr = await fetch('/api/dashboard', {cache: 'no-store'}), dj = await dr.json().catch(() => ({}));
+    if (!dr.ok || !Array.isArray(dj.games)) throw new Error(dj.error || 'the NAS page answered ' + dr.status);
+    dash = dj;
     if (withPs5 || !ps5 || Date.now() - (ps5._at || 0) > 60000) {
       const r = await fetch('/api/ps5/games', {cache: 'no-store'});
       ps5 = r.ok ? await r.json() : null; if (ps5) ps5._at = Date.now();

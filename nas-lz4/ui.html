@@ -271,7 +271,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     <div class="mut">The same game (Title ID) is in the library more than once, as other versions or as a folder and an image.
     The newest is marked; deleting an older one frees its space (needs DELETE_ORIGINALS=yes). Its LZ4 copy, if any, stays.</div>
     <div id="dups"></div></div>
-  <div class="card"><h2>Library</h2><div class="scroll"><table id="games"></table></div></div>
+  <div class="card"><h2>Library</h2><div id="unread"></div><div class="scroll"><table id="games"></table></div></div>
   <div class="card" id="pkgcard" hidden><h2>Packages <span class="mut" style="font-weight:500">· .pkg, installed on the PS5 by pkg-receiver (Remote tab)</span></h2>
     <div class="scroll"><table id="pkgs"></table></div></div>
 </main>
@@ -902,6 +902,10 @@ function render() {
         <td class="c-ps5"></td><td class="c-act">${act}</td></tr>`;
     }).join('');
 
+  const unr = d.unreadable || [];
+  document.getElementById('unread').innerHTML = unr.length ? `<div class="why bad" style="margin-bottom:10px">⚠ The NAS user (uid ${d.uid}) may not read
+    ${unr.map(x => '<code>' + esc(x) + '</code>').join(', ')}: they are left out. Fix it as root on the NAS:
+    <pre class="log">${unr.map(x => `chown -R ${d.uid}:${d.uid} "${esc((d.library_host || '/volume1/games/roms/ps5') + '/' + x)}"`).join('\n')}</pre></div>` : '';
   const dups = d.duplicates || [];
   document.getElementById('dupcard').hidden = !dups.length;
   document.getElementById('dups').innerHTML = dups.map(grp => `<div class="dl"><div class="dl-top"><b>${esc(grp.name)}</b><span class="mut">${esc(grp.title_id)} · ${grp.items.length} copies</span></div>` +

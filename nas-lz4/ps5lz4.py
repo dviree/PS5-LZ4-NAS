@@ -479,6 +479,9 @@ class Entry:
         return self.path.stat().st_size
 
 
+UNREADABLE: set = set()  # library folders this container may not read (shown on the page)
+
+
 def scan_library() -> list[Entry]:
     entries: list[Entry] = []
     if not LIBRARY.is_dir():
@@ -508,6 +511,7 @@ def scan_library() -> list[Entry]:
                     entries.append(Entry(p, IMAGE_EXTS[p.suffix.lower()]))
             except PermissionError:
                 # One unreadable game must not stop the rest of the library.
+                UNREADABLE.add(str(p.relative_to(LIBRARY)))
                 print(f"cannot read {p} as uid {os.getuid()}: fix with "
                       f"chown -R <NAS user> \"{HOST_LIBRARY}/{p.relative_to(LIBRARY)}\"",
                       file=sys.stderr)
@@ -3963,8 +3967,14 @@ _RAR_OLD = re.compile(r"^(.*)\.r(\d\d)$", re.I)
 def rar_sets(d: Path) -> list[dict]:
     """The RAR sets in folder d: base name, first volume, every volume."""
     sets: dict = {}
+    files = []
     try:
-        files = [p for p in d.iterdir() if p.is_file() and not p.name.startswith(".")]
+        for p in d.iterdir():
+            try:
+                if not p.name.startswith(".") and p.is_file():
+                    files.append(p)
+            except OSError:
+                continue
     except OSError:
         return []
     for p in files:
@@ -3992,6 +4002,15 @@ def extract_key(first: Path) -> str:
 
 def _ver_key(v: str) -> tuple:
     return tuple(int(x) for x in re.findall(r"\d+", v or "")) or (-1,)
+
+
+def _safe(fn, default):
+    """Extra page data that must never take the whole page down."""
+    try:
+        return fn()
+    except Exception as err:
+        print(f"[{now()}] {fn.__name__}: {err}", flush=True)
+        return default
 
 
 def library_duplicates() -> list[dict]:
@@ -4030,20 +4049,28 @@ def scan_archives() -> list[dict]:
         return out
 
     def walk(d: Path, depth: int):
-        for st in rar_sets(d):
+        sets = rar_sets(d)
+        for st in sets:
             key = extract_key(st["first"])
+            try:
+                size = sum(p.stat().st_size for p in st["vols"])
+            except OSError:
+                size = None
             out.append({"id": str(st["first"].relative_to(LIBRARY)), "dir": str(d.relative_to(LIBRARY)),
-                        "name": d.name if d != LIBRARY and len(rar_sets(d)) == 1 else st["base"],
-                        "parts": len(st["vols"]), "size": sum(p.stat().st_size for p in st["vols"]),
+                        "name": d.name if d != LIBRARY and len(sets) == 1 else st["base"],
+                        "parts": len(st["vols"]), "size": size,
                         "state": read_json(EXTRACTS / f"{key}.json", None)})
         if depth >= 3:
             return
         try:
-            kids = sorted(p for p in d.iterdir() if p.is_dir() and not p.name.startswith("."))
+            kids = sorted(d.iterdir())
         except OSError:
             return
         for p in kids:
-            if p == EXTRACTED or (p / "eboot.bin").is_file():
+            try:
+                if p.name.startswith(".") or not p.is_dir() or p == EXTRACTED or (p / "eboot.bin").is_file():
+                    continue
+            except OSError:  # a folder this container may not read
                 continue
             walk(p, depth + 1)
     walk(LIBRARY, 0)
@@ -5766,9 +5793,10 @@ def dashboard_data() -> dict:
             "free_bytes": free_bytes(OUTPUT), "games": rows, "totals": totals, "failed": failed,
             "lz4c_version": lz4c_version(),
             "delete_originals": DELETE_ORIGINALS,
-            "archives": scan_archives(),
-            "duplicates": library_duplicates(),
-            "verifies": verify_states(),
+            "archives": _safe(scan_archives, []),
+            "unreadable": sorted(UNREADABLE), "uid": os.getuid(), "library_host": HOST_LIBRARY,
+            "duplicates": _safe(library_duplicates, []),
+            "verifies": _safe(verify_states, {}),
             "send_after": list(read_json(SEND_AFTER, {}) or {}),
             "images": images_data(),
             "pkgs": scan_pkgs(),
