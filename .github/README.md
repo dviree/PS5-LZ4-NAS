@@ -1,10 +1,12 @@
 # PS5-LZ4-NAS
 
-Pack PS5 games with **LZ4 HC for APR-EMU on a NAS**, check them byte for byte,
-and send them to the console, all from a web page. Nothing runs on the PS5
-except the game. A fork of
+A **PS5 and PS4 game manager that runs on your NAS**: pack PS5 games with
+**LZ4 HC for APR-EMU**, check them byte for byte, send them to the console,
+install `.pkg` games, back up saves and manage what ShadowMountPlus shows,
+all from one web page. Nothing runs on the PS5 but the game and one small
+payload. A fork of
 [theghostonline/PS5-LZ4-Compression](https://github.com/theghostonline/PS5-LZ4-Compression),
-kept in sync with it every 10 minutes.
+kept in sync with it.
 
 Full guide: [nas-lz4/README.md](../nas-lz4/README.md).
 
@@ -12,34 +14,51 @@ Full guide: [nas-lz4/README.md](../nas-lz4/README.md).
 
 ## What it does
 
-- **LZ4 HC packs** (`AMPRPAK4` / `AMPRDAT3`) built with the original project's
-  packer, level 9 by default, plus the pinned **APR-EMU PackedStdio 0.4.2.1**
-  runtime in `fakelib/libSceAmpr.sprx`, the only build that reads packs.
-- **Sources:** game folders, `.exfat`, `.ffpfs` and `.ffpfsc` images. Images
-  are unpacked on the NAS with MkPFS; `.ffpfsc` inner images are checked
-  against their `.vhash` sidecar when one exists.
+**On the NAS**
+- **LZ4 HC packs** (`AMPRPAK4` / `AMPRDAT3`) built with the original
+  project's packer, level 9 by default, plus the pinned **APR-EMU
+  PackedStdio 0.4.2.1** runtime in `fakelib/libSceAmpr.sprx`.
+- **Sources:** game folders, `.exfat`, `.ffpfs` and `.ffpfsc` images, and
+  **RAR archives**: extracted (CRC of every file checked) into a checked
+  `.exfat`; the RAR files go only on request, after the image is checked
+  against the archive again.
 - **Checks before anything is published:** every chunk decoded and compared
-  with the original, then a full unpack compared byte for byte. Games that
-  don't use AMPR are skipped with the reason.
-- **Originals are never changed:** the library is mounted read-only.
-- **Web page** (port 5921): library with LZ4 status, source type and size,
-  live job steps and progress, savings per game, one-click **Compress**,
-  **Check all** (read-only check, with a **Repair** button when something is
-  wrong), **Full re-check** and **Compress all** (every game that can be LZ4),
-  and the **community game reports** from the original project on every title
-  and in their own tab.
-- **Check cache:** results are stored in a small SQLite database keyed by file
-  size and date, so **Check all** only reads new or changed games.
-- **Send to the PS5** over FTP (ftpsrv, port 2121): SELF decryption turned off,
-  every file size checked, program files compared by SHA-256, duplicate title
-  IDs refused (ShadowMountPlus mounts one copy per title), interrupted
-  transfers resumed.
-- **Wake the PS5 from rest mode** before a transfer, and **pair** with it
-  (Remote Play PIN and account ID, also for a fake signed-in account), the way
-  Chiaki does.
-- **Docker image** `ghcr.io/dviree/ps5-lz4:latest`, rebuilt after every change
-  and upstream sync; Watchtower keeps it updated and waits while a game is
-  packed. An interrupted queue resumes on container start.
+  with the original, then a full unpack compared byte for byte. **Verify
+  LZ4** re-checks a copy before sending; **Check all** / **Repair** check
+  every game. Games that don't use AMPR are skipped with the reason.
+- **exFAT images** of LZ4 copies, built and compared file by file.
+- **Originals are never changed** unless you turn that on
+  (`DELETE_ORIGINALS=yes`); the library is mounted read-only.
+
+**To the PS5**
+- **Send to PS5** over FTP (ftpsrv), resumable and queued: every file's size
+  checked, program files by SHA-256, large files spot-checked, and a final
+  listing proves nothing was dropped. A free-space check refuses what can't
+  fit. **Verify** compares a game on the PS5 with the NAS later.
+- **PS4 and PS5 `.pkg`** (name, version, game / patch / DLC, cover) installed
+  by the console itself, downloaded straight from the NAS, with live progress
+  and Retry.
+- **PS5 games tab:** every game on every drive and the installed PS4 games,
+  with **Needs attention** (what ShadowMountPlus won't pick up, with Fix),
+  Verify, Delete (also takes the tile off the home screen) and Uninstall.
+- **ShadowMount tab:** the games ShadowMountPlus shows, from its own API:
+  remove from the home screen, hide, unmount, rescan, its logs.
+- **Saves tab:** back up every PS5/PS4 save to the NAS, download as .zip,
+  restore one game.
+- **Wake from rest mode** (Remote Play pairing, like Chiaki), keep the PS5
+  awake during work, and notifications on the PS5 and your phone (ntfy or a
+  webhook).
+
+**On the PS5:** the *pkg remote installer* page of
+[pkg-receiver](https://github.com/Loopayeh/pkg-sender), rebuilt here with a
+Glass theme and extras (installed / on-PS5 marks, LZ4 or exFAT per game,
+keep-awake, ShadowMountPlus bridge): see [pkg-receiver/](../pkg-receiver/).
+
+![pkg remote installer](receiver.png)
+
+**Also:** the original project's community game reports and the `.ffpfsc`
+compatibility sheet per title, a Store page for the PS5 browser, Glass /
+Light / Dark themes, Prometheus `/metrics`, an FPKGi feed.
 
 ## Install
 
@@ -53,15 +72,18 @@ bash src/nas-lz4/install.sh --check      # look only
 nohup bash src/nas-lz4/install.sh > install.log 2>&1
 ```
 
-Paths and user are set with environment variables (`LIBRARY`, `OUTPUT`,
-`BASE`, `NAS_USER`, `UI_PORT`); see the guide. Then open
-`http://<NAS IP>:5921`.
+Paths, user and options are environment variables (`LIBRARY`, `OUTPUT`,
+`PS4_LIBRARY`, `BASE`, `NAS_USER`, `UI_PORT`, `DELETE_ORIGINALS`); see the
+guide. Then open `http://<NAS IP>:5921` and press **Start ELF on PS5**.
+Updates: `./lz4-ps5.sh update` (the image `ghcr.io/dviree/ps5-lz4:latest`
+is rebuilt after every change).
 
 ## Layout
 
 | Path | What |
 | --- | --- |
-| `nas-lz4/` | NAS tool: `ps5lz4.py` (CLI, web page, agent, FTP transfer), `ui.html`, `install.sh`, Dockerfile |
+| `nas-lz4/` | The NAS tool: `ps5lz4.py` (CLI, web page, agent, FTP), `ui.html`, `store.html`, `install.sh`, Dockerfile |
+| `pkg-receiver/` | Glass theme and extras for pkg-receiver (built by `pkg-receiver.yml`, release `pkg-receiver-glass`) |
 | `nas-lz4/ps5regist.py` | Remote Play pairing, ported from chiaki-ng (AGPL-3.0) |
 | `nas/` | The original engine's web app built for Linux (port 5920) |
 | `src/`, `app/`, `tests/` | The original project (PS5 app and packer) |
@@ -70,12 +92,18 @@ Paths and user are set with environment variables (`LIBRARY`, `OUTPUT`,
 
 - [theghostonline/PS5-LZ4-Compression](https://github.com/theghostonline/PS5-LZ4-Compression):
   the packer, profiles and community reports (GPL-3.0).
-- [drakmor/ampr_emu](https://github.com/drakmor/ampr_emu): APR-EMU, and
+- [Loopayeh/pkg-sender](https://github.com/Loopayeh/pkg-sender) (MIT):
+  pkg-receiver; ideas from
+  [pkg-sender-synology](https://github.com/mrggbond/pkg-sender-synology) (MIT).
+- [drakmor/ampr_emu](https://github.com/drakmor/ampr_emu) (APR-EMU) and
   [drakmor/ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus).
 - [streetpea/chiaki-ng](https://github.com/streetpea/chiaki-ng): Remote Play
   discovery, wake-up and registration (AGPL-3.0).
+- Ideas from game-library-manager-ps5, ps5upload, P5 Manager, ps5-exporter
+  and FPKGi (reimplemented, no code copied).
 - [MkPFS](https://pypi.org/project/mkpfs/) for exFAT and PFS images,
-  [ps5-payload-dev/ftpsrv](https://github.com/ps5-payload-dev/ftpsrv) on the console.
+  [ps5-payload-dev/ftpsrv](https://github.com/ps5-payload-dev/ftpsrv) on the
+  console, UnRAR (RARLAB freeware) for archives.
 
 Use it with games you own. Verified on the NAS is not the same as tested on
 the PS5: mark the result per game on the web page and share it with the
