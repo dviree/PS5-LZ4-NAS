@@ -1607,7 +1607,7 @@ async function rcvCheck() {
   } catch (e) { st.textContent = 'pkg-receiver: ?'; }
 }
 async function rcvInstall(fromHeader) {
-  if (!confirm('Install the ELF on the PS5?\n\npkg-receiver.elf with the Glass theme (this project's pkg-receiver-glass release, built from Loopayeh/pkg-sender) is downloaded, copied into Payload Manager on the PS5 and started. It replaces a running pkg-receiver.')) return;
+  if (!confirm('Install the ELF on the PS5?\n\npkg-receiver.elf with the Glass theme (the pkg-receiver-glass release of this project, built from Loopayeh/pkg-sender) is downloaded, copied into Payload Manager on the PS5 and started. It replaces a running pkg-receiver.')) return;
   const msg = document.getElementById('rcv-msg'), small = document.getElementById('b-elf-st');
   msg.className = 'why'; msg.textContent = 'Downloading and copying to the PS5…'; small.textContent = 'installing…';
   const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'receiver_install'})});
