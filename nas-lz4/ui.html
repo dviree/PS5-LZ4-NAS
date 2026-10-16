@@ -1323,11 +1323,31 @@ function renderPg() {
         <div class="pg-acts">
           <button class="sm" data-p="${esc(g.image ? g.path.replace(/\/[^/]*$/, '') : g.path)}" onclick="tab('ftp');ftpGo(this.dataset.p)">Open</button>
           ${g.size == null && !g.ps4 ? `<button class="sm" data-p="${esc(g.path)}" data-i="${i}" onclick="measureGame(this.dataset.p, this.dataset.i)">Size</button>` : ''}
+          ${!g.ps4 && !g.image && !(g.issues || []).some(x => x.code === 'archive' || x.code === 'hidden') ? `<button class="sm" data-p="${esc(g.path)}" data-i="${i}" onclick="pgVerify(this.dataset.p, this.dataset.i)">Verify</button>` : ''}
           ${g.lz4 ? `<button class="sm" data-p="${esc(g.path)}" data-i="${i}" onclick="aprCheck(this.dataset.p, document.getElementById('pg-m-' + this.dataset.i))">APR-EMU</button>` : ''}
           <span class="sp"></span>
           ${g.ps4 ? '<span class="mut" style="font-size:12px">uninstall on the PS5</span>' : `<button class="sm danger" data-p="${esc(g.path)}" data-n="${esc(g.name)}" onclick="deletePg(this.dataset.p, this.dataset.n)">🗑 Delete</button>`}
         </div>
       </div></div>`).join('') : '<div class="mut">No games found.</div>';
+}
+async function pgVerify(path, i) {
+  const el = document.getElementById('pg-m-' + i);
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'ps5_verify', path})});
+  const j0 = await r.json().catch(() => ({}));
+  if (!r.ok) { el.innerHTML = `<span class="bad">${esc(j0.error || r.status)}</span>`; return; }
+  for (;;) {
+    const j = await (await fetch('/api/ps5/verify?path=' + encodeURIComponent(path), {cache: 'no-store'})).json();
+    if (j.state === 'running') { el.textContent = `Verifying… ${j.done} of ${j.total} files${j.current ? ' · ' + j.current : ''}`; await new Promise(z => setTimeout(z, 1500)); continue; }
+    if (j.state === 'failed') { el.innerHTML = `<span class="bad">Verify failed: ${esc(j.error)}</span>`; return; }
+    const bad = j.missing.length + j.wrong.length;
+    const list = a => a.slice(0, 8).map(x => '<div class="mut">· ' + esc(x) + '</div>').join('') + (a.length > 8 ? `<div class="mut">… and ${a.length - 8} more</div>` : '');
+    el.innerHTML = bad ? `<span class="bad">✗ ${j.missing.length} missing, ${j.wrong.length} different</span> (of ${j.total} files)` +
+        (j.missing.length ? '<div><b>Missing:</b></div>' + list(j.missing) : '') + (j.wrong.length ? '<div><b>Different:</b></div>' + list(j.wrong) : '') +
+        '<div class="mut">Send it again from My games: files that match are skipped, the rest is sent.</div>'
+      : `<span class="good">✓ all ${j.total} files there with the right size; ${j.hashed} program files identical byte for byte</span>` +
+        (j.extra.length ? `<div class="mut">${j.extra.length} extra file(s) on the PS5 (e.g. ${esc(j.extra[0])})</div>` : '');
+    return;
+  }
 }
 async function pgFix(path, code) {
   const what = {hidden: 'Rename it without the leading dot?', wrapper: 'Move the game folder inside up one level (and remove the empty outer folder)?'}[code] || 'Fix it?';

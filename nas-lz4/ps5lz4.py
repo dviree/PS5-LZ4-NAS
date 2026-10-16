@@ -3137,6 +3137,82 @@ def ps4_apps(f, drives: list[str]) -> list[dict]:
     return out
 
 
+_verify: dict = {}
+
+
+def ps5_verify_start(path: str) -> dict:
+    """Compare a game folder on the PS5 with its copy on the NAS (the LZ4 copy
+    of the same name, or the library folder): every file there with the same
+    size, and the program files (eboot, PRX, ELF; what ftpsrv could decrypt)
+    byte for byte with SHA-256. Runs in the background; ps5_verify_status
+    reports it."""
+    path = ps5_ftp_path(path)
+    name = path.rsplit("/", 1)[1]
+    local = OUTPUT / name
+    if not local.is_dir():
+        local = next((e.path for e in scan_library() if e.path.is_dir() and e.path.name == name), None)
+    if not local:
+        raise ValueError(f"no folder named {name} on the NAS to compare with (only games sent from here can be verified)")
+    st = _verify.get(path)
+    if st and st.get("state") == "running":
+        return st
+    st = _verify[path] = {"state": "running", "local": str(local), "done": 0, "total": 0, "missing": [],
+                          "wrong": [], "extra": [], "hashed": 0, "error": None, "started": now()}
+
+    def run():
+        import ftplib
+        import hashlib
+        try:
+            files = sorted(q for q in local.rglob("*") if q.is_file())
+            st["total"] = len(files)
+            f = ps5_ftp_connect()
+            try:
+                remote: dict = {}
+
+                def walk(d, rel):
+                    for i in ps5_ftp_list_conn(f, d):
+                        r = f"{rel}{i['name']}"
+                        if i["dir"]:
+                            walk(f"{d}/{i['name']}", r + "/")
+                        else:
+                            remote[r] = i.get("size")
+                walk(path, "")
+                for q in files:
+                    rel = q.relative_to(local).as_posix()
+                    st["done"] += 1
+                    st["current"] = rel
+                    size = q.stat().st_size
+                    if rel not in remote:
+                        st["missing"].append(rel)
+                        continue
+                    if remote[rel] is not None and remote[rel] != size:
+                        st["wrong"].append(f"{rel} ({human(remote[rel])} on the PS5, {human(size)} here)")
+                        continue
+                    with open(q, "rb") as fh:
+                        prog = fh.read(4) in PROGRAM_MAGICS
+                    if prog:
+                        h = hashlib.sha256()
+                        f.voidcmd("TYPE I")
+                        f.retrbinary(f"RETR {path}/{rel}", h.update, blocksize=1 << 20)
+                        if h.hexdigest() != hashlib.sha256(q.read_bytes()).hexdigest():
+                            st["wrong"].append(f"{rel} (other bytes)")
+                        st["hashed"] += 1
+                known = {q.relative_to(local).as_posix() for q in files}
+                st["extra"] = sorted(r for r in remote if r not in known)[:50]
+            finally:
+                try:
+                    f.quit()
+                except Exception:
+                    pass
+            st["state"] = "done"
+        except Exception as err:
+            st.update(state="failed", error=str(err))
+        st["current"] = ""
+        st["finished"] = now()
+    __import__("threading").Thread(target=run, daemon=True).start()
+    return st
+
+
 def ps5_fix(path: str, code: str) -> dict:
     """Fix what keeps ShadowMountPlus from seeing a game, by renaming over
     FTP (nothing is deleted but an emptied wrapper folder): "hidden" drops the
@@ -5266,6 +5342,13 @@ def cmd_ui(args) -> int:
                     return self.send(200, json.dumps({"found": ps5_find(self.headers.get("Host") or "")}).encode())
                 except ValueError as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
+            if self.path.startswith("/api/ps5/verify?"):
+                from urllib.parse import parse_qs, urlparse
+                try:
+                    key = ps5_ftp_path((parse_qs(urlparse(self.path).query).get("path") or [""])[0])
+                except ValueError:
+                    key = ""
+                return self.send(200, json.dumps(_verify.get(key) or {"state": "none"}).encode())
             if self.path == "/api/pkg/activity":
                 return self.send(200, json.dumps({"downloads": dl_snapshot(),
                                                   "history": read_json(PKG_HISTORY, []) or []}).encode())
@@ -5435,6 +5518,11 @@ def cmd_ui(args) -> int:
                 ENGINE_DIR.mkdir(parents=True, exist_ok=True)
                 write_json(ENGINE_AUTO, {"on": bool(req.get("on"))})
                 return self.send(200, json.dumps({"auto": engine_auto_on()}).encode())
+            if req.get("action") == "ps5_verify":
+                try:
+                    return self.send(200, json.dumps(ps5_verify_start(str(req.get("path") or ""))).encode())
+                except ValueError as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if req.get("action") == "ps5_fix":
                 try:
                     return self.send(200, json.dumps(ps5_fix(str(req.get("path") or ""), str(req.get("code") or ""))).encode())

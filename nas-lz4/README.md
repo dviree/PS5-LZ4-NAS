@@ -115,6 +115,11 @@ that container alone.
   `sce_sys/param.json`, an archive still to unpack, and two copies with one
   Title ID. **Fix** renames over FTP: drops the dot, or moves the game
   folder up and removes the emptied wrapper.
+  **Verify** on a game compares it with its copy on the NAS (the LZ4 copy
+  of the same name, or the library folder): every file there with the same
+  size, and the program files (eboot, PRX, ELF) byte for byte with SHA-256;
+  it lists what is missing or different. Sending the game again sends just
+  those.
 - **PS5 packages (`.pkg` with the `\x7fFIH` header)** in the package
   folders are read too (embedded CNT, `param.json`: name, Title ID,
   version, game / patch / DLC / app), next to PS4 packages; a package
