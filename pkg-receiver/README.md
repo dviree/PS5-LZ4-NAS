@@ -20,6 +20,10 @@ packages. This folder only restyles its *pkg remote installer* page:
 - `installed.c` also adds `GET /api/df?path=` (free space of any drive)
   and `POST /api/uninstall?tid=` (takes a title off the home screen with
   `sceAppInstUtilAppUnInstall`; never the page's own launcher).
+- `smp.c`: `POST /api/smp?route=…` passes ShadowMountPlus API routes
+  (version, games, games/info, games/unmount, games/uninstall, scan,
+  storage) to 127.0.0.1:10101, `GET /api/smp-icon?title_id=` its icon
+  thumbnails, and `POST /api/notify` shows a notification on the PS5.
 - `glass.py path/to/payload/main.c`: adds these to `main.c` (and `-lSceSystemService` to the Makefile),
   appends `-glass.N` to the build (bump `REV` on every change, so the NAS
   restarts a running receiver), closes the game window on Install so the

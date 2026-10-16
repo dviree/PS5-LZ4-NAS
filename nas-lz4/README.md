@@ -133,6 +133,22 @@ that container alone.
   and rules follow
   [pkg-sender-synology](https://github.com/mrggbond/pkg-sender-synology)
   (MIT).
+- **ShadowMount tab:** the games ShadowMountPlus (1.7+) has on the home
+  screen, from its own API (127.0.0.1:10101 on the PS5) through
+  pkg-receiver's Glass build 7 (`/api/smp`, a fixed set of routes; nothing
+  that moves or deletes a source): icon, name, version, source, mounted.
+  **Remove from home screen** uninstalls the tile and leaves the files (the
+  next scan finds the game again); **Hide** also renames the source with a
+  leading dot, so scans skip it until it is renamed back; **Unmount**;
+  **Rescan**. Delete on the PS5 games tab also uses it to take a tile off.
+- **Notifications on the PS5:** "NAS: installing …", "NAS: sending …",
+  "… is on the PS5 and checked" or "… stopped" pop up on the console
+  (pkg-receiver Glass build 7, `/api/notify`).
+- **Nothing is dropped in a transfer:** each file's size is checked after
+  its upload, program files byte for byte (SHA-256), large files with spot
+  checks, and at the end a fresh listing must show every file of the game
+  with its size, else the transfer stops as failed and Send fills in what
+  is missing.
 - **Notifications (Remote tab):** an [ntfy](https://ntfy.sh) topic URL or
   any webhook (JSON `title`, `message`, `ok`; e.g. Home Assistant) gets a
   push when packing, a check, a transfer to the PS5 or a download by the

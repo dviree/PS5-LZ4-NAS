@@ -204,6 +204,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
   <button id="t-mine" class="on" onclick="tab('mine')">My games</button>
   <button id="t-act" onclick="tab('act')">Activity<span class="badge" id="act-n" hidden></span></button>
   <button id="t-pg" onclick="tab('pg')">PS5 games</button>
+  <button id="t-smp" onclick="tab('smp')">ShadowMount</button>
   <button id="t-comm" onclick="tab('comm')">Community</button>
   <button id="t-ps5" onclick="tab('ps5')">Remote</button>
   <button id="t-ftp" onclick="tab('ftp')">FTP</button>
@@ -418,6 +419,19 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
       <select id="pg-s" onchange="renderPg()"><option value="name">Name</option><option value="size">Largest first</option><option value="drive">Drive</option></select>
     </div>
     <div id="pg-list" class="pg-grid"></div>
+  </div>
+</main>
+<main id="p-smp" hidden>
+  <div class="card">
+    <div class="dhead"><h2 style="margin:0">ShadowMount library</h2><span class="sp"></span>
+      <button class="sm" onclick="smpAct('smp_scan', '', '', 'Ask ShadowMountPlus to scan for games now?')">Rescan</button>
+      <button class="sm" onclick="loadSmp()">Refresh</button></div>
+    <div class="mut" id="smp-sub"><b id="smp-count"></b> The games ShadowMountPlus has put on the PS5's home screen, read from its own API through pkg-receiver
+    (Glass build 7 or newer; ShadowMountPlus 1.7 or newer). <b>Remove from home screen</b> takes the tile off and leaves the game's files
+    alone, but the next scan finds it again; <b>Hide</b> also renames its folder or image with a leading dot, so it stays off until you
+    rename it back (PS5 games tab, ⚠ Needs attention, Fix).</div>
+    <div class="filters"><input id="smp-q" placeholder="Search name or Title ID" oninput="renderSmp()"></div>
+    <div id="smp-list" class="pg-grid"></div>
   </div>
 </main>
 <main id="p-comm" hidden>
@@ -1356,6 +1370,51 @@ async function pgUninstall(tid, name) {
   alert(r.ok ? `${name} uninstalled.` : 'Not uninstalled: ' + (j.error || r.status));
   if (r.ok) loadPg();
 }
+let smpData = null;
+async function loadSmp() {
+  const el = document.getElementById('smp-list');
+  el.innerHTML = '<div class="mut">Asking ShadowMountPlus…</div>';
+  try {
+    const r = await fetch('/api/smp/games', {cache: 'no-store'}), j = await r.json();
+    if (!r.ok) { el.innerHTML = `<div class="bad">${esc(j.error || r.status)}</div>`; return; }
+    smpData = j; renderSmp();
+  } catch (e) { el.innerHTML = `<div class="bad">${esc(String(e))}</div>`; }
+}
+function renderSmp() {
+  if (!smpData) return;
+  const q = document.getElementById('smp-q').value.trim().toLowerCase();
+  const gs = (smpData.games || []).filter(g => !q || (g.title_name + ' ' + g.title_id).toLowerCase().includes(q))
+    .sort((a, b) => (a.title_name || '').localeCompare(b.title_name || ''));
+  document.getElementById('smp-count').textContent = `${(smpData.games || []).length} games in ShadowMountPlus ${smpData.version || ''}.`;
+  document.getElementById('smp-list').innerHTML = gs.length ? gs.map(g => `<div class="pg">
+      <img class="pg-ico${g.platform === 'ps4' ? ' ps4' : ''}" alt="" loading="lazy" src="/api/smp/icon?tid=${encodeURIComponent(g.title_id)}" onerror="this.outerHTML='<div class=&quot;pg-ico fi&quot;>🎮</div>'">
+      <div class="pg-body">
+        <div class="gname">${esc(g.title_name || g.title_id)}</div>
+        <div class="why">${esc(g.title_id)}${g.version ? ' · version ' + esc(g.version) : ''}</div>
+        <div class="chips">
+          <span class="chip ${g.platform === 'ps4' ? 'ps4' : ''}">${esc((g.platform || '').toUpperCase())}</span>
+          <span class="chip">${esc(g.source_type === 'image' ? (g.image_type || 'image') + ' image' : g.source_type || '')}</span>
+          ${g.installed ? '<span class="chip ok">on home screen</span>' : '<span class="chip">not on home screen</span>'}
+          ${g.mounted ? '<span class="chip ok">mounted</span>' : ''}
+          ${g.source_available === false ? '<span class="chip bad">source missing</span>' : ''}
+        </div>
+        <div class="why" title="${esc(g.path || '')}">${esc(g.path || '')}</div>
+        <div class="pg-acts">
+          ${g.mounted ? `<button class="sm" data-t="${esc(g.title_id)}" onclick="smpAct('smp_unmount', this.dataset.t, '', 'Unmount it now?')">Unmount</button>` : ''}
+          <span class="sp"></span>
+          ${g.installed && g.can_uninstall !== false ? `<button class="sm" data-t="${esc(g.title_id)}" data-n="${esc(g.title_name || g.title_id)}" onclick="smpAct('smp_uninstall', this.dataset.t, '', 'Take ' + this.dataset.n + ' off the home screen?\n\nIts files stay; the next ShadowMountPlus scan puts it back (use Hide to keep it off).')">Remove from home screen</button>` : ''}
+          ${g.installed && g.can_uninstall !== false && g.path && !g.path.split('/').pop().startsWith('.') ? `<button class="sm danger" data-t="${esc(g.title_id)}" data-p="${esc(g.path)}" data-n="${esc(g.title_name || g.title_id)}" onclick="smpAct('smp_hide', this.dataset.t, this.dataset.p, 'Hide ' + this.dataset.n + '?\n\nThe tile goes off the home screen and its source is renamed with a leading dot, so scans skip it. Nothing is deleted.')">Hide</button>` : ''}
+        </div>
+      </div></div>`).join('') : '<div class="mut">No games.</div>';
+}
+async function smpAct(action, tid, path, question) {
+  if (question && !confirm(question)) return;
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action, tid, path})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { alert('Failed: ' + (j.error || r.status)); return; }
+  if (j.scan_deferred) alert('Done. ShadowMountPlus will scan when it can (' + (j.scan_deferred_reason || 'later') + ').');
+  setTimeout(loadSmp, 1500);
+}
 async function pgFix(path, code) {
   const what = {hidden: 'Rename it without the leading dot?', wrapper: 'Move the game folder inside up one level (and remove the empty outer folder)?'}[code] || 'Fix it?';
   if (!confirm(what + '\n\n' + path)) return;
@@ -1433,12 +1492,13 @@ async function ps5Copies(tid) {
 }
 let comm = null;
 function tab(t) {
-  for (const k of ['mine', 'act', 'pg', 'ps5', 'comm', 'ftp']) {
+  for (const k of ['mine', 'act', 'pg', 'smp', 'ps5', 'comm', 'ftp']) {
     document.getElementById('p-' + k).hidden = t !== k;
     document.getElementById('t-' + k).classList.toggle('on', t === k);
   }
   try { localStorage.setItem('tab', t); } catch (e) {}
   if (t === 'comm') loadComm();
+  if (t === 'smp') loadSmp();
   if (t === 'act') setTimeout(loadPkgAct, 0);
   if (t === 'pg' && !pgData) loadPg();
   if (t === 'ps5') rcvCheck();
