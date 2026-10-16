@@ -329,7 +329,13 @@ an address the PS5 can reach.
   pkg-sender on port 9898 (`/catalog`, `/pkg/<id>`, `/icon/<id>`;
   `CATALOG_PORT` in the install script) and tells the PS5 where it is with
   pkg-sender's UDP message to port 12802 every 3 seconds. Pick a game with
-  the controller and install it.
+  the controller and install it. Its **Images** tab lists the library's
+  `.exfat` / `.ffpfsc` / `.ffpfs` images and the LZ4 copies' `.exfat`
+  images, with covers (read from inside `.exfat` images, or from the LZ4
+  copy); **Copy to homebrew** pulls one from the NAS into
+  `/data/homebrew`. If pkg-sender also runs on a PC, the page follows
+  whichever announced itself last: close it there, or type the NAS address
+  in the page.
 - **🔍 Find PS5** (Remote tab, next to the address) sends the PS5's own
   discovery message to every address of the local /24 and lists each PS5
   that answers, on or in rest mode, with its name; **Use this one** saves
