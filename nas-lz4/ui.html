@@ -75,7 +75,9 @@ tr.row{cursor:pointer}tr.row td{transition:background .12s}tr.row:hover td{backg
 .chips{display:flex;flex-wrap:wrap;gap:4px 6px;margin-top:6px}
 .chip{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;padding:2px 8px;border-radius:99px;background:var(--chip);color:var(--mut);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .chip.ok{background:var(--okbg);color:var(--ok)}.chip.bad{background:var(--badbg);color:var(--bad)}
-.chip.ps4{background:#0070D1;color:#fff}.pg-ico.ps4{border-radius:6px}
+.chip.ps4{background:#0070D1;color:#fff}
+button.send-on{background:linear-gradient(135deg,#34d399,#059669);color:#fff;border-color:rgba(255,255,255,.3)}
+button.send-off{background:linear-gradient(135deg,#fb7185,#e11d48);color:#fff;border-color:rgba(255,255,255,.3)}.pg-ico.ps4{border-radius:6px}
 .why{font-size:12px;color:var(--mut);max-width:420px}
 .sz{height:6px;margin-top:6px;min-width:90px;border-radius:99px;background:var(--okbg)}
 .sz i{display:block;height:100%;border-radius:99px;background:var(--acc)}
@@ -513,8 +515,8 @@ function sendWhenPacked(id, small) {
   const on = (data.send_after || []).includes(id);
   if (!(data.settings || {}).ps5_ftp) return '';
   return on
-    ? `<button class="${small ? 'sm ' : ''}ghost" data-g="${esc(id)}" onclick="sendAfterToggle(this.dataset.g, false)" title="Press to undo">⬆️ Sent to PS5 when packed ✓</button>`
-    : `<button class="${small ? 'sm ' : ''}pri" data-g="${esc(id)}" onclick="sendAfterToggle(this.dataset.g, true)" title="Send it to the PS5 by itself once it is packed and checked">⬆️ ${small ? 'Send when packed' : 'Send to PS5 when packed'}</button>`;
+    ? `<button class="${small ? 'sm ' : ''}send-on" data-g="${esc(id)}" onclick="sendAfterToggle(this.dataset.g, false)" title="On: it is sent to the PS5 by itself once packed and checked. Press to turn off">⬆️ ${small ? 'Sent when packed' : 'Sent to PS5 when packed'} ✓</button>`
+    : `<button class="${small ? 'sm ' : ''}send-off" data-g="${esc(id)}" onclick="sendAfterToggle(this.dataset.g, true)" title="Off: it stays on the NAS when packed. Press to send it to the PS5 by itself once packed and checked">⬆️ ${small ? 'Not sent when packed' : 'Not sent to PS5 when packed'} ✗</button>`;
 }
 async function sendAfterToggle(id, on) {
   await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
