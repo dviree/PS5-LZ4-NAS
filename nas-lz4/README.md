@@ -148,6 +148,16 @@ that container alone.
   by date, can be downloaded as a .zip, and **Restore** writes one game's
   saves back to the same user (close the game first; saves are tied to the
   user and console).
+- **FPKGi feed:** the package library as FPKGi lists on the catalog port:
+  `http://<NAS>:9898/fpkgi/GAMES.json`, `UPDATES.json` and `DLC.json`
+  (name, size, region, version, cover; download links on the same port), for
+  the FPKGi store app on the console.
+- **ShadowMount logs:** **ShadowMount log** and **Kernel log** on the
+  ShadowMount tab read SMP's logs (receiver Glass build 8) and mark the
+  lines with errors.
+- **Metrics:** `http://<NAS>:5921/metrics` in Prometheus format (LZ4 games,
+  bytes saved, packing, transfers, PS5 downloads and their speed, save
+  backups) for Grafana or Home Assistant.
 - **Notifications on the PS5:** "NAS: installing …", "NAS: sending …",
   "… is on the PS5 and checked" or "… stopped" pop up on the console
   (pkg-receiver Glass build 7, `/api/notify`).
