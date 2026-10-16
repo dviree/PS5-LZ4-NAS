@@ -11,6 +11,12 @@ packages. This folder only restyles its *pkg remote installer* page:
 - `awake.c`: keeps the PS5 out of rest mode (auto power-down timer reset
   every 20 s): always unless switched off with the header's **Stay awake**,
   and while it installs, copies or the NAS asks (`/api/keep-awake`).
+- `installed.c` + the end of `glass.js`: `/api/installed` lists the apps in
+  `/user/app` (version from their `param.sfo` / `param.json`, patch folder
+  in `/user/patch`) and the files in the homebrew folders; the page marks
+  cards **✓ Installed · v…**, **✓ On PS5** (an image, or the LZ4 copy's
+  `<game>-lz4` folder), **Partly copied**, or a patch newer than the
+  installed game. Refreshed every 30 seconds.
 - `glass.py path/to/payload/main.c`: adds these to `main.c` (and `-lSceSystemService` to the Makefile),
   appends `-glass.N` to the build (bump `REV` on every change, so the NAS
   restarts a running receiver), closes the game window on Install so the

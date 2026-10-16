@@ -45,3 +45,6 @@ input::placeholder{color:rgba(236,232,255,.6)}
 .vfmt{display:inline-block;color:#fff;font-size:15px;font-weight:bold;border-radius:999px;padding:3px 10px}
 .hd #awake{font-size:12px;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.24);color:rgba(236,232,255,.8);cursor:pointer;white-space:nowrap}
 .hd #awake.on{color:#fcd77a;border-color:rgba(252,215,122,.55);background:rgba(245,158,11,.18)}
+.inst{display:inline-block;align-self:center;margin:0 auto 10px;padding:4px 12px;border-radius:999px;font-size:14px;font-weight:600;color:#7cf0c0;background:rgba(16,185,129,.18);border:1px solid rgba(124,240,192,.45)}
+.member .inst{margin:6px 0 0;font-size:13px}
+.inst.dim{color:#fcd77a;background:rgba(245,158,11,.16);border-color:rgba(252,215,122,.45)}

@@ -362,7 +362,10 @@ an address the PS5 can reach.
   unpacked; or from the LZ4 copy). The library and Store use the same
   covers. A game with more than one image (the original and its LZ4 copy's
   `.exfat` image) gets one card with **exFAT | LZ4** to pick which one;
-  **Copy to homebrew** pulls one from the NAS into
+  The page also shows what is already on the PS5: **✓ Installed** (with the
+  installed version) on games and patches, **✓ On PS5** on images in a
+  homebrew folder (and LZ4 copies sent there), **Partly copied** on a short
+  copy. **Copy to homebrew** pulls one from the NAS into
   `/data/homebrew`. If pkg-sender also runs on a PC, the page follows
   whichever announced itself last: close it there, or type the NAS address
   in the page.
