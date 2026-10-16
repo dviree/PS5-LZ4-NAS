@@ -147,3 +147,26 @@ installed_api(int fd)
 	send_json(fd, j);
 	free(j);
 }
+
+/* GET /api/df?path=/mnt/usb0 : {"ok":true,"total":N,"free":N} for any drive
+ * (pkg-receiver's own /api/space covers /data only). */
+static void
+df_api(int fd, const char *path)
+{
+	char p[256], out[160];
+	struct statvfs sv;
+
+	if (!query_param(path, "path", p, sizeof(p)) || p[0] != '/' || strstr(p, "..") ||
+	    (strncmp(p, "/data", 5) != 0 && strncmp(p, "/mnt/", 5) != 0 && strncmp(p, "/user", 5) != 0)) {
+		send_json(fd, "{\"ok\":false,\"error\":\"bad path\"}");
+		return;
+	}
+	if (statvfs(p, &sv) != 0) {
+		send_json(fd, "{\"ok\":false,\"error\":\"no such drive\"}");
+		return;
+	}
+	snprintf(out, sizeof(out), "{\"ok\":true,\"total\":%llu,\"free\":%llu}",
+	    (unsigned long long)sv.f_blocks * sv.f_frsize,
+	    (unsigned long long)sv.f_bavail * sv.f_frsize);
+	send_json(fd, out);
+}
