@@ -5,9 +5,13 @@
 packages. This folder only restyles its *pkg remote installer* page:
 
 - `glass.css`: the Glass theme, applied after pkg-sender's own CSS.
-- `glass.py path/to/payload/main.c`: adds `glass.css` to the page in
-  `main.c`, appends `-glass` to the build and adds a `;` the newer page
-  script is missing.
+- `glass.js`: on the Images tab, one card per game with a choice of its
+  images (**exFAT** / **FFPFSC** original or **LZ4**), from the catalog's
+  `game` and `variant` fields.
+- `glass.py path/to/payload/main.c`: adds both to the page in `main.c`,
+  appends `-glass.N` to the build (bump `REV` on every change, so the NAS
+  restarts a running receiver), closes the game window on Install so the
+  answer shows, and adds a `;` the newer page script is missing.
 
 `.github/workflows/pkg-receiver.yml` builds it from a pinned pkg-sender
 commit with the PS5 payload SDK and publishes `pkg-receiver.elf` in the

@@ -3738,6 +3738,9 @@ def catalog_icon(cid: str) -> bytes | None:
     return None
 
 
+IMG_VARIANT = {"exfat": "exFAT", "ffpfsc": "FFPFSC", "ffpfs": "FFPFS"}
+
+
 def pkg_catalog() -> list[dict]:
     role = {"Game": "Game", "Update": "Patch", "DLC": "DLC"}
     out = []
@@ -3749,7 +3752,9 @@ def pkg_catalog() -> list[dict]:
         out.append({"id": cid, "title": meta["title"] + (" (LZ4)" if lz4 else ""), "titleId": meta["title_id"],
                     "version": "", "size": size, "sizeText": human(size), "role": "Game",
                     "familyKey": "FILE:" + p.name, "platform": "PS5", "format": fmt, "file": p.name,
-                    "hasIcon": bool(meta.get("icon") or (gid and nas_icon(gid)))})
+                    "hasIcon": bool(meta.get("icon") or (gid and nas_icon(gid))),
+                    # the Glass page groups a game's images and offers a choice
+                    "game": gid or p.name, "variant": "LZ4" if lz4 else IMG_VARIANT.get(fmt, fmt)})
     for p in scan_pkgs():
         tid = p.get("title_id") or ""
         out.append({"id": p["id"], "title": p.get("name") or p["file"], "titleId": tid,

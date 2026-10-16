@@ -36,3 +36,10 @@ input::placeholder{color:rgba(236,232,255,.6)}
 #movl{position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(20,10,60,.55)!important;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
 .mbox{background:rgba(46,30,110,.94);border:1px solid rgba(255,255,255,.28);border-radius:22px;box-shadow:0 24px 60px rgba(10,5,40,.6);-webkit-backdrop-filter:blur(22px);backdrop-filter:blur(22px)}
 .hd img{box-shadow:0 6px 20px rgba(15,8,50,.45)}
+#msg:not(:empty){padding:12px 18px;border-radius:16px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.24);margin-bottom:12px}
+#msg.ok:not(:empty){background:rgba(16,185,129,.22);border-color:rgba(124,240,192,.5)}
+#msg.err:not(:empty){background:rgba(244,63,94,.25);border-color:rgba(255,176,187,.55)}
+.vsel{display:flex;gap:6px;justify-content:center;margin:2px 0 8px}
+.vsel button{flex:1;margin:0;padding:10px 6px;font-size:16px;font-weight:600;background:linear-gradient(135deg,rgba(255,255,255,.16),rgba(255,255,255,.06));border:1px solid rgba(255,255,255,.24);border-radius:12px;color:#fff;box-shadow:none}
+.vsel button.on{background:linear-gradient(135deg,#b794ff,#7c5cff 50%,#4f7bff);border-color:rgba(255,255,255,.35);box-shadow:0 4px 14px rgba(79,60,200,.45)}
+.vfmt{display:inline-block;color:#fff;font-size:15px;font-weight:bold;border-radius:999px;padding:3px 10px}
