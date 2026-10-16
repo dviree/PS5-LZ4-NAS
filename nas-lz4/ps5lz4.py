@@ -2345,11 +2345,14 @@ def ps5_ftp_icon(path: str) -> bytes | None:
 
 
 def nas_icon(game_id: str) -> bytes | None:
-    """sce_sys/icon0.png from a game's LZ4 folder, or its source folder."""
+    """sce_sys/icon0.png from a game's LZ4 folder, its source folder, or from
+    inside its .exfat / .ffpfsc / .ffpfs image."""
     cands = [OUTPUT / game_id, OUTPUT / f"{game_id}-lz4"]
+    image = None
     for e in scan_library():
         if e.id == game_id:
             cands = [e.output, e.path] + cands
+            image = e.path if e.kind != "folder" else None
             break
     for d in cands:
         for name in ("sce_sys/icon0.png", "sce_sys/ICON0.PNG"):
@@ -2359,6 +2362,11 @@ def nas_icon(game_id: str) -> bytes | None:
                     return p.read_bytes()
             except OSError:
                 pass
+    if image is not None:
+        try:
+            return image_meta(image).get("icon")
+        except OSError:
+            pass
     return None
 
 
@@ -3645,22 +3653,35 @@ def image_meta(path: Path) -> dict:
     stem = re.sub(r"\s*\[[^\]]*\]|\s*\([^)]*\)|\s*_[A-Z]{4}\d{5}_\s*", " ", stem).strip()
     info = {"title": stem or path.stem,
             "title_id": m.group(0).upper() if m else "", "icon": None}
-    if path.suffix.lower() == ".exfat":
+    if path.suffix.lower() in (".exfat", ".ffpfsc", ".ffpfs"):
+        fh = None
         try:
             from mkpfs.exfat import ExfatReader  # pinned MkPFS 1.1.0
-            with open(path, "rb") as fh:
-                reader = ExfatReader(fh)
-                files = {e.rel_path.lower(): e for e in reader.iter_files()}
-                pj = next((e for k, e in files.items() if k.endswith("sce_sys/param.json")), None)
-                if pj:
-                    tid, name = parse_param_json(b"".join(reader.read_file(pj)))
-                    info["title"] = name or info["title"]
-                    info["title_id"] = (tid or info["title_id"]).upper()
-                ic = next((e for k, e in files.items() if k.endswith("sce_sys/icon0.png")), None)
-                if ic and ic.length < 8 << 20:
-                    info["icon"] = b"".join(reader.read_file(ic))
+            if path.suffix.lower() == ".exfat":
+                fh = open(path, "rb")
+                src = fh
+            else:
+                # The exFAT inside a .ffpfsc/.ffpfs, read on demand (nothing unpacked).
+                from mkpfs.pfs import open_inner_file_view
+                opened = open_inner_file_view(path)
+                if not opened:
+                    raise ValueError("no single inner image")
+                src, fh, _name = opened
+            reader = ExfatReader(src)
+            files = {e.rel_path.lower(): e for e in reader.iter_files()}
+            pj = next((e for k, e in files.items() if k.endswith("sce_sys/param.json")), None)
+            if pj:
+                tid, name = parse_param_json(b"".join(reader.read_file(pj)))
+                info["title"] = name or info["title"]
+                info["title_id"] = (tid or info["title_id"]).upper()
+            ic = next((e for k, e in files.items() if k.endswith("sce_sys/icon0.png")), None)
+            if ic and ic.length < 8 << 20:
+                info["icon"] = b"".join(reader.read_file(ic))
         except Exception:
             pass
+        finally:
+            if fh:
+                fh.close()
     _img_meta[key] = info
     return info
 
