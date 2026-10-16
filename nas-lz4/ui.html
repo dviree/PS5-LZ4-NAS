@@ -59,6 +59,7 @@ h2{font-size:15px;margin:0 0 10px;letter-spacing:-.1px}
 .st.d{background:var(--okbg);color:var(--ok)}.st.r{background:var(--accbg);color:var(--acc);font-weight:700;box-shadow:inset 0 0 0 1px var(--acc)}
 .bar{height:8px;background:var(--chip);border-radius:99px;overflow:hidden}
 .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2));border-radius:99px;transition:width .5s}
+.dl{padding:10px 0;border-top:1px solid var(--line)}.dl:first-child{border-top:0}.dl-top{display:flex;align-items:center;gap:8px;margin-bottom:6px}.dl-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line);flex-wrap:wrap}.dl-name{font-weight:600}
 /* tables */
 .scroll{overflow-x:auto}
 table{width:100%;border-collapse:collapse;min-width:820px}
@@ -268,9 +269,12 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
   <div class="card"><h2>Packing</h2><div id="job"></div><div id="pq"></div></div>
   <div class="card" id="imgcard" hidden><h2>exFAT images</h2><div id="imgs"></div></div>
   <div class="card"><h2>Transfers to the PS5</h2><div id="xfer"></div><div id="xq"></div><div id="xstop"></div>
-    <div class="why" style="margin-top:10px">While a game is sent, the LZ4 Compression engine on the PS5 keeps it awake. If it
-    goes to rest mode anyway, it is woken (Remote Play key) and the transfer continues where it stopped. When this page
-    woke the PS5 and everything is sent, it is put back in rest mode after a few minutes (Remote tab).</div></div>
+    <div class="why" style="margin-top:10px">While a game is sent, pkg-receiver on the PS5 (Glass build) keeps it awake. If it
+    goes to rest mode anyway, it is woken (Remote Play key) and the transfer continues where it stopped.</div></div>
+  <div class="card"><h2>Downloads to the PS5</h2>
+    <div class="mut">Packages and images the PS5 downloads from this NAS (installs from this page or from <i>pkg remote installer</i>),
+    with progress and speed, and the recent ones with <b>Retry</b>.</div>
+    <div id="dl-now" style="margin-top:10px"></div><div id="dl-hist"></div></div>
   <div class="card" id="failed" hidden></div>
   <div class="card"><h2>Report</h2>
     <div class="mut">Pick the PS5 result in the <b>PS5</b> column for an LZ4 game. It is saved here, and
@@ -1370,6 +1374,7 @@ function tab(t) {
   }
   try { localStorage.setItem('tab', t); } catch (e) {}
   if (t === 'comm') loadComm();
+  if (t === 'act') setTimeout(loadPkgAct, 0);
   if (t === 'pg' && !pgData) loadPg();
   if (t === 'ps5') rcvCheck();
   if (t === 'ps5' && !window._drives) { window._drives = 1; loadDrives(); }
@@ -1702,6 +1707,27 @@ async function ps5State() {
   } catch (e) {}
 }
 load(); setInterval(load, 5000);
+async function loadPkgAct() {
+  if (document.getElementById('p-act').hidden) return;
+  let j;
+  try { j = await (await fetch('/api/pkg/activity', {cache: 'no-store'})).json(); } catch (e) { return; }
+  const mb = b => b >= 1 << 30 ? (b / (1 << 30)).toFixed(2) + ' GB' : (b / (1 << 20)).toFixed(0) + ' MB';
+  document.getElementById('dl-now').innerHTML = j.downloads.length ? j.downloads.map(d => `<div class="dl">
+      <div class="dl-top"><b>${esc(d.name)}</b><span class="sp"></span><span class="chip ${d.status === 'done' ? 'ok' : ''}">${
+        d.status === 'done' ? '✓ downloaded' : d.status === 'paused' ? 'paused' : d.rate ? mb(d.rate) + '/s' : 'downloading'}</span></div>
+      <div class="bar"><i style="width:${Math.min(100, d.percent)}%"></i></div>
+      <div class="why">${mb(d.got)} of ${mb(d.total)} · ${d.percent} %${d.status === 'downloading' && d.rate ? ` · about ${Math.ceil((d.total - d.got) / d.rate / 60)} min left` : ''}</div></div>`).join('')
+    : '<div class="mut">Nothing is downloading right now.</div>';
+  const h = (j.history || []).slice(0, 15);
+  document.getElementById('dl-hist').innerHTML = h.length ? '<h3 style="margin:14px 0 6px;font-size:14px">Recent</h3>' + h.map(r => `<div class="dl-row">
+      <span class="chip ${r.ok ? 'ok' : 'bad'}">${r.kind === 'install' ? (r.ok ? 'install asked' : 'install failed') : (r.ok ? 'downloaded' : 'stopped')}</span>
+      <span class="dl-name">${esc(r.name || r.id)}</span>
+      <span class="mut">${esc((r.at || '').slice(5, 16))}${r.size ? ' · ' + mb(r.size) : ''}${r.seconds ? ' · ' + Math.max(1, Math.round(r.seconds / 60)) + ' min' : ''}${r.error && r.error !== 'stopped' ? ' · ' + esc(r.error) : ''}</span>
+      <span class="sp"></span>
+      ${!r.ok && r.id && !String(r.id).startsWith('img/') ? `<button class="sm" data-id="${esc(r.id)}" data-n="${esc(r.name || r.id)}" onclick="pkgInstall(this.dataset.id, this.dataset.n, 'url')">Retry</button>` : ''}
+    </div>`).join('') : '';
+}
+loadPkgAct(); setInterval(loadPkgAct, 3000);
 setInterval(() => { if (!document.getElementById('p-comm').hidden) loadComm(); }, 60000); ps5State(); setInterval(ps5State, 15000); rcvCheck(); setInterval(rcvCheck, 60000);
 try {
   const saved = {'#community': 'comm', '#remote': 'ps5', '#ftp': 'ftp', '#activity': 'act', '#games': 'pg'}[location.hash] || localStorage.getItem('tab');
