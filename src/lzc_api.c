@@ -11120,18 +11120,19 @@ summary_add_lzc(char *out, size_t size, const char *part) {
 }
 
 /* Files the game needs to boot from a folder, for any format: the runtime
- * folder name the eboot asks for and a PlayGo emulator (HITMAN 3, 007 First
- * Light). Fills changed/notes; -1 with op->error when a repair failed or a
- * read-only image needs a change. */
+ * folder name the eboot asks for, a PlayGo emulator (HITMAN 3, 007 First
+ * Light) and an ampr_emu.index that matches the files. Fills changed/notes;
+ * -1 with op->error when a repair failed or a read-only image needs a
+ * change. */
 static int
 lzc_boot_files_fix(lzc_operation_t *op, const char *root, int repair,
-                   char *changed, size_t changed_size, char *notes,
+                   int packed, char *changed, size_t changed_size, char *notes,
                    size_t notes_size, const char *log_name) {
   lzc_boot_report_t br;
   char err[256] = {0};
   char part[320];
   lzc_checkpoint("boot files");
-  if(lzc_boot_files_check(root, repair, NULL, &br, err, sizeof(err)) != 0) {
+  if(lzc_boot_files_check(root, repair, packed, NULL, &br, err, sizeof(err)) != 0) {
     snprintf(op->error, sizeof(op->error), "%s", err);
     lzc_log("%s boot files failed title=%s err=%s", log_name, op->title_id,
            op->error);
@@ -11149,15 +11150,25 @@ lzc_boot_files_fix(lzc_operation_t *op, const char *root, int repair,
     lzc_log("%s added playgo emu title=%s source=%s", log_name, op->title_id,
            br.playgo_source);
   }
-  if(!repair && (br.runtime_case_wrong || br.playgo_missing)) {
+  if(br.ampr_index_removed) {
+    summary_add_lzc(changed, changed_size,
+                    "out-of-date ampr_emu.index moved aside (APR-EMU rebuilds "
+                    "it on the next launch)");
+    lzc_log("%s stale ampr index title=%s missing=%s", log_name, op->title_id,
+           br.ampr_index_missing);
+  }
+  if(!repair && (br.runtime_case_wrong || br.playgo_missing ||
+                 br.ampr_index_stale)) {
+    char need[256] = "";
+    if(br.runtime_case_wrong) summary_add_lzc(need, sizeof(need), "its runtime folder renamed");
+    if(br.playgo_missing) summary_add_lzc(need, sizeof(need), "a PlayGo emulator in fakelib");
+    if(br.ampr_index_stale) summary_add_lzc(need, sizeof(need), "its out-of-date ampr_emu.index removed");
     snprintf(op->error, sizeof(op->error),
-             "this image needs %s%s%s, and images are read-only here. Make a "
-             "folder copy and verify that",
-             br.runtime_case_wrong ? "its runtime folder renamed" : "",
-             br.runtime_case_wrong && br.playgo_missing ? " and " : "",
-             br.playgo_missing ? "a PlayGo emulator in fakelib" : "");
-    lzc_log("%s boot files needed title=%s runtime=%d playgo=%d", log_name,
-           op->title_id, br.runtime_case_wrong, br.playgo_missing);
+             "this image needs %s, and images are read-only here. Make a "
+             "folder copy and verify that", need);
+    lzc_log("%s boot files needed title=%s runtime=%d playgo=%d index=%d",
+           log_name, op->title_id, br.runtime_case_wrong, br.playgo_missing,
+           br.ampr_index_stale);
     return -1;
   }
   if(br.playgo_missing && !br.playgo_added) {
@@ -11180,7 +11191,7 @@ lzc_boot_files_fix(lzc_operation_t *op, const char *root, int repair,
 static void
 lzc_lz4_pack_boot_files(lzc_operation_t *op, const char *root) {
   char changed[512] = "", notes[512] = "";
-  if(lzc_boot_files_fix(op, root, 1, changed, sizeof(changed), notes,
+  if(lzc_boot_files_fix(op, root, 1, 1, changed, sizeof(changed), notes,
                         sizeof(notes), "lz4-pack") != 0) {
     char part[320];
     snprintf(part, sizeof(part), "boot files not fixed (%s), run Verify",
@@ -11565,7 +11576,8 @@ run_lz4_verify_op(lzc_operation_t *op) {
       summary_add_lzc(changed, sizeof(changed), part);
     }
   }
-  if(lzc_boot_files_fix(op, root, repair, changed, sizeof(changed), notes,
+  if(lzc_boot_files_fix(op, root, repair, game.lz4_packed, changed,
+                        sizeof(changed), notes,
                         sizeof(notes), "lz4-verify") != 0) {
     return -1;
   }
