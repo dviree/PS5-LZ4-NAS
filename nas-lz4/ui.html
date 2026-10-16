@@ -59,7 +59,7 @@ h2{font-size:15px;margin:0 0 10px;letter-spacing:-.1px}
 .st.d{background:var(--okbg);color:var(--ok)}.st.r{background:var(--accbg);color:var(--acc);font-weight:700;box-shadow:inset 0 0 0 1px var(--acc)}
 .bar{height:8px;background:var(--chip);border-radius:99px;overflow:hidden}
 .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2));border-radius:99px;transition:width .5s}
-.dl{padding:10px 0;border-top:1px solid var(--line)}.dl:first-child{border-top:0}.dl-top{display:flex;align-items:center;gap:8px;margin-bottom:6px}.dl-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line);flex-wrap:wrap}.dl-name{font-weight:600}
+.dl{padding:10px 0;border-top:1px solid var(--line)}.dl:first-child{border-top:0}.dl-top{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-bottom:6px}.dl-top>*{min-width:0;overflow-wrap:anywhere}.dl-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line);flex-wrap:wrap}.dl-name{font-weight:600}
 /* tables */
 .scroll{overflow-x:auto}
 table{width:100%;border-collapse:collapse;min-width:820px}
@@ -183,6 +183,9 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
   #games td.c-ps5:empty,#games td.c-act:empty{display:none}
   #games td.c-ps5{grid-column:1}#games td.c-act{grid-column:2;text-align:right}
   #games td.c-ps5 .mut{display:none}
+  #pkgs,#pkgs tbody,#comm,#comm tbody{display:block;min-width:0}#pkgs tr:first-child,#comm tr:first-child{display:none}
+  #pkgs tr,#comm tr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;padding:10px 0;border-top:1px solid var(--line)}
+  #pkgs td,#comm td{border:0;padding:0;overflow-wrap:anywhere}#pkgs td:first-child,#comm td:first-child{flex-basis:100%;font-weight:600}
   .kv{grid-template-columns:1fr;gap:2px}.kv > div:nth-child(odd){margin-top:8px;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
   .modal{padding:40px 0 0;align-items:flex-start}
   .sheet{border-radius:20px 20px 0 0;max-width:none;min-height:70vh;margin-top:auto;padding-bottom:calc(22px + env(safe-area-inset-bottom));animation:up .22s ease-out}
@@ -884,7 +887,7 @@ function render() {
         g.verdict === 'LZ4' ? ['p-LZ4', 'LZ4'] : g.verdict === 'can be LZ4' ? ['p-can', 'can be LZ4'] :
         g.verdict === 'error' ? ['p-err', 'error'] : ['p-no', 'not LZ4'];
       const lz4 = g.verdict === 'LZ4' && g.output_bytes;
-      const ps5 = lz4 && !g.output_only ? `<select onclick="event.stopPropagation()" data-game="${esc(g.id)}" onchange="this.blur();if(this.value)act('community',null,{game:this.dataset.game,result:this.value})">
+      const ps5 = !g.output_only && g.rel ? `<select onclick="event.stopPropagation()" data-game="${esc(g.id)}" onchange="this.blur();if(this.value)act('community',null,{game:this.dataset.game,result:this.value})">
           <option value="">${g.ps5 ? esc(PS5_EN[g.ps5]) : 'not tested'}</option>
           ${Object.entries(PS5_EN).map(([k, s]) => `<option value="${k}">${s}</option>`).join('')}</select>` : '<span class="mut">–</span>';
       const waiting = pendingFor(g.id), sendNext = (d.send_after || []).includes(g.id);
@@ -942,7 +945,8 @@ function render() {
     const pct = st.total ? Math.min(100, 100 * st.done / st.total) : 0;
     return `<div class="dl"><div class="dl-top"><b>${esc(a.name)}</b><span class="mut">${a.parts} part${a.parts > 1 ? 's' : ''} · ${gb(a.size)} · ${esc(a.dir || '.')}</span><span class="sp"></span>
       ${st.state === 'done' && run ? `<span class="chip">${esc(st.phase)}</span>`
-        : st.state === 'done' ? `<span class="chip ok">✓ ${esc((st.image || '').split('/').pop())}</span>` + (d.delete_originals ? ` <button class="sm danger" data-a="${esc(a.id)}" data-n="${esc(a.name)}" onclick="act('delete_rars', 'Delete the ' + ${a.parts} + ' RAR files of ' + this.dataset.n + '?\n\nFirst every file in the archive is checked against the .exfat (size and CRC32); only if all match are they deleted. The game stays as the .exfat in _extracted.', {game: this.dataset.a})">🗑 Delete RAR files</button>` : '')
+        : st.state === 'done' ? `<span class="chip ok">✓ ${esc((st.image || '').split('/').pop())}</span>` + (d.delete_originals && !a.tested ? ` <span class="mut" style="font-size:12px">test the game on the PS5 and mark it works, then the RAR files can go</span>` : '')
+          + (d.delete_originals && a.tested ? ` <button class="sm danger" data-a="${esc(a.id)}" data-n="${esc(a.name)}" onclick="act('delete_rars', 'Delete the ' + ${a.parts} + ' RAR files of ' + this.dataset.n + '?\n\nFirst every file in the archive is checked against the .exfat (size and CRC32); only if all match are they deleted. The game stays as the .exfat in _extracted.', {game: this.dataset.a})">🗑 Delete RAR files</button>` : '')
         : run ? `<span class="chip">${esc(st.phase || 'working')}</span>`
         : `<button class="sm pri" data-a="${esc(a.id)}" data-n="${esc(a.name)}" onclick="act('extract', 'Extract ' + this.dataset.n + ' and make a checked .exfat of it?\n\nIt needs about twice the game size free in the library for a while. The RAR files are not changed.', {game: this.dataset.a})">${st.state === 'failed' || st.state === 'stopped' ? '↻ Try again' : '📦 Extract to exFAT'}</button>`}</div>
       ${run ? `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div><div class="why">${gb(st.done)} of ${gb(st.total)}</div>` : ''}
@@ -1117,7 +1121,7 @@ function gameHtml(g, det) {
     acts.push(`<button class="pri" data-game="${esc(g.id)}" onclick="compress(this.dataset.game, true)" title="Compress with LZ4, check it, then send it to the PS5 by itself">⚡ Compress &amp; send to PS5</button>`,
       `<button class="ghost" data-game="${esc(g.id)}" onclick="compress(this.dataset.game)">Compress only</button>`,
       `<button class="ghost" data-game="${esc(g.id)}" onclick="compress(this.dataset.game, true, true)" title="LZ4, then an exFAT image of the LZ4 game, then the image to the PS5">Compress, exFAT &amp; send</button>`);
-  if (g.verdict === 'LZ4' && !g.output_only)
+  if (!g.output_only && g.rel)
     acts.push(`<select data-game="${esc(g.id)}" onchange="this.blur();if(this.value)act('community',null,{game:this.dataset.game,result:this.value})">
       <option value="">PS5 result: ${g.ps5 ? esc(PS5_EN[g.ps5]) : 'not tested'}</option>
       ${Object.entries(PS5_EN).map(([k, s]) => `<option value="${k}">${s}</option>`).join('')}</select>`);
@@ -1723,6 +1727,8 @@ function deleteOriginal(gid) {
   const g = (data.games || []).find(x => x.id === gid);
   if (!g) return;
   const lz4 = g.verdict === 'LZ4' && g.output;
+  if (lz4 && g.ps5 !== 'works' && g.ps5 !== 'issues')
+    return alert(`Test the LZ4 copy of ${g.name} on the PS5 first.\n\nWhen it starts and plays, set its PS5 result to "works"; then the original can be deleted.`);
   closeGame();
   act('delete_original', `Delete the ORIGINAL of ${g.name} from the NAS?\n\n${g.source_path}\n${gb(g.source_size || g.source_bytes)}\n\n` +
     (lz4 ? 'The LZ4 copy stays and still works on the PS5.' : 'There is no LZ4 copy: after this the game is gone from the NAS.') +
