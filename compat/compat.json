@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T14:54:36Z",
+ "updated": "2026-10-16T18:18:01Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -456,6 +456,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-15T14:54:37Z",
     "issue": 27
+   }
+  },
+  "PPSA30223": {
+   "name": "Yakuza Kiwami 3 & Dark Ties",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Yakuza Kiwami 3 & Dark Ties",
+    "gameVersion": "01.015.000",
+    "level": "9",
+    "source": "Folder",
+    "firmware": "12.40",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T18:17:51Z",
+    "issue": 48
    }
   },
   "PPSA32802": {
