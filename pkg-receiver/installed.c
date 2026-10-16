@@ -170,3 +170,42 @@ df_api(int fd, const char *path)
 	    (unsigned long long)sv.f_bavail * sv.f_frsize);
 	send_json(fd, out);
 }
+
+/* POST /api/uninstall?tid=PPSA01234 : unregister a title from the home
+ * screen (sceAppInstUtilAppUnInstall), e.g. after its game folder was
+ * deleted. The page's own launcher can't be removed this way. */
+typedef int (*uninstall_fn)(const char *);
+
+static void
+uninstall_api(int fd, const char *path)
+{
+	char tid[16], out[160];
+	uninstall_fn f;
+	int rc, i;
+
+	if (!query_param(path, "tid", tid, sizeof(tid)) || strlen(tid) != 9) {
+		send_json(fd, "{\"ok\":false,\"error\":\"bad title id\"}");
+		return;
+	}
+	for (i = 0; i < 9; i++)
+		if (!((tid[i] >= 'A' && tid[i] <= 'Z') || (tid[i] >= '0' && tid[i] <= '9'))) {
+			send_json(fd, "{\"ok\":false,\"error\":\"bad title id\"}");
+			return;
+		}
+	if (!strcmp(tid, "PKGS12800")) {
+		send_json(fd, "{\"ok\":false,\"error\":\"that is this page's launcher\"}");
+		return;
+	}
+	if (installer_init() != 0) {
+		send_json(fd, "{\"ok\":false,\"error\":\"AppInstUtil not available\"}");
+		return;
+	}
+	f = (uninstall_fn)dlsym(g_applib, "sceAppInstUtilAppUnInstall");
+	if (!f) {
+		send_json(fd, "{\"ok\":false,\"error\":\"sceAppInstUtilAppUnInstall not found\"}");
+		return;
+	}
+	rc = f(tid);
+	snprintf(out, sizeof(out), "{\"ok\":%s,\"rc\":\"0x%08X\"}", rc == 0 ? "true" : "false", (unsigned)rc);
+	send_json(fd, out);
+}

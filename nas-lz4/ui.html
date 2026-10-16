@@ -1326,7 +1326,7 @@ function renderPg() {
           ${!g.ps4 && !g.image && !(g.issues || []).some(x => x.code === 'archive' || x.code === 'hidden') ? `<button class="sm" data-p="${esc(g.path)}" data-i="${i}" onclick="pgVerify(this.dataset.p, this.dataset.i)">Verify</button>` : ''}
           ${g.lz4 ? `<button class="sm" data-p="${esc(g.path)}" data-i="${i}" onclick="aprCheck(this.dataset.p, document.getElementById('pg-m-' + this.dataset.i))">APR-EMU</button>` : ''}
           <span class="sp"></span>
-          ${g.ps4 ? '<span class="mut" style="font-size:12px">uninstall on the PS5</span>' : `<button class="sm danger" data-p="${esc(g.path)}" data-n="${esc(g.name)}" onclick="deletePg(this.dataset.p, this.dataset.n)">🗑 Delete</button>`}
+          ${g.ps4 ? `<button class="sm danger" data-t="${esc(g.title_id)}" data-n="${esc(g.name)}" onclick="pgUninstall(this.dataset.t, this.dataset.n)">🗑 Uninstall</button>` : `<button class="sm danger" data-p="${esc(g.path)}" data-n="${esc(g.name)}" onclick="deletePg(this.dataset.p, this.dataset.n)">🗑 Delete</button>`}
         </div>
       </div></div>`).join('') : '<div class="mut">No games found.</div>';
 }
@@ -1344,10 +1344,17 @@ async function pgVerify(path, i) {
     el.innerHTML = bad ? `<span class="bad">✗ ${j.missing.length} missing, ${j.wrong.length} different</span> (of ${j.total} files)` +
         (j.missing.length ? '<div><b>Missing:</b></div>' + list(j.missing) : '') + (j.wrong.length ? '<div><b>Different:</b></div>' + list(j.wrong) : '') +
         '<div class="mut">Send it again from My games: files that match are skipped, the rest is sent.</div>'
-      : `<span class="good">✓ all ${j.total} files there with the right size; ${j.hashed} program files identical byte for byte</span>` +
+      : `<span class="good">✓ all ${j.total} files there with the right size; ${j.hashed} program files identical byte for byte${j.sampled ? `; ${j.sampled} large files spot-checked (4 MiB each)` : ''}</span>` +
         (j.extra.length ? `<div class="mut">${j.extra.length} extra file(s) on the PS5 (e.g. ${esc(j.extra[0])})</div>` : '');
     return;
   }
+}
+async function pgUninstall(tid, name) {
+  if (!confirm(`Uninstall ${name} (${tid}) from the PS5?\n\nThe game and its tile go away, as with Delete on the PS5 itself. Saves stay.`)) return;
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'ps5_uninstall', tid})});
+  const j = await r.json().catch(() => ({}));
+  alert(r.ok ? `${name} uninstalled.` : 'Not uninstalled: ' + (j.error || r.status));
+  if (r.ok) loadPg();
 }
 async function pgFix(path, code) {
   const what = {hidden: 'Rename it without the leading dot?', wrapper: 'Move the game folder inside up one level (and remove the empty outer folder)?'}[code] || 'Fix it?';
@@ -1383,6 +1390,7 @@ async function deletePg(path, name) {
     body: JSON.stringify({action: 'ftp_delete', path})});
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { alert('Not deleted: ' + (j.error || r.status)); if (card) card.classList.remove('busy-del'); return; }
+  if (j.home_screen && j.home_screen !== 'removed') alert(`Deleted. Home screen tile ${j.home_screen}.`);
   pgData.games = pgData.games.filter(g => g.path !== path);
   pgData.games.forEach(g => { g.duplicates = g.duplicates.filter(p => p !== path); });
   renderPg(); setTimeout(load, 500);
@@ -1393,7 +1401,7 @@ async function deleteFromPs5(path, name) {
       "The LZ4 copy on the NAS stays, so you can send it again.")) return;
   const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'ftp_delete', path})});
   const j = await r.json().catch(() => ({}));
-  alert(r.ok ? `Deleted ${name} from the PS5 (${j.files} files).` : 'Not deleted: ' + (j.error || r.status));
+  alert(r.ok ? `Deleted ${name} from the PS5 (${j.files} files).` + (j.home_screen ? ` Home screen tile: ${j.home_screen}.` : '') : 'Not deleted: ' + (j.error || r.status));
   if (r.ok) { pgData = null; closeGame(); setTimeout(load, 500); }
 }
 const ORIG_OFF = "Deleting original games is turned off: the library is mounted read-only so nothing can harm the originals.\n\n" +

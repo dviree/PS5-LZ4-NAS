@@ -3138,6 +3138,50 @@ def ps4_apps(f, drives: list[str]) -> list[dict]:
 
 
 _verify: dict = {}
+SAMPLE_MIN = 256 << 20   # files from this size get spot checks
+SAMPLE_COUNT = 4         # 1 MiB pieces read back per file (start, end, two random)
+
+
+def ftp_read_at(f, remote: str, offset: int, n: int) -> bytes:
+    """n bytes of a file on the PS5 from offset (REST + RETR, stopped early)."""
+    import ftplib
+    f.voidcmd("TYPE I")
+    conn = f.transfercmd(f"RETR {remote}", rest=offset or None)
+    buf = bytearray()
+    try:
+        conn.settimeout(30)
+        while len(buf) < n:
+            d = conn.recv(min(1 << 16, n - len(buf)))
+            if not d:
+                break
+            buf += d
+    finally:
+        conn.close()
+    try:
+        f.voidresp()  # 226, or 426 for the early stop
+    except ftplib.all_errors:
+        pass
+    return bytes(buf)
+
+
+def spot_check(f, local: Path, remote: str) -> str | None:
+    """Compare SAMPLE_COUNT 1 MiB pieces of a large file on the PS5 with the
+    NAS copy: catches a damaged or misplaced write while reading back only a
+    few MiB (the drive on the PS5 isn't read through). None when they match."""
+    import random
+    size = local.stat().st_size
+    if size < SAMPLE_MIN:
+        return None
+    piece = 1 << 20
+    offs = {0, size - piece} | {random.randrange(0, size - piece) for _ in range(SAMPLE_COUNT - 2)}
+    with open(local, "rb") as fh:
+        for off in sorted(offs):
+            fh.seek(off)
+            want = fh.read(piece)
+            got = ftp_read_at(f, remote, off, len(want))
+            if got != want:
+                return f"bytes at {human(off)} differ"
+    return None
 
 
 def ps5_verify_start(path: str) -> dict:
@@ -3190,6 +3234,11 @@ def ps5_verify_start(path: str) -> dict:
                         continue
                     with open(q, "rb") as fh:
                         prog = fh.read(4) in PROGRAM_MAGICS
+                    if not prog and size >= SAMPLE_MIN:
+                        bad = spot_check(f, q, f"{path}/{rel}")
+                        if bad:
+                            st["wrong"].append(f"{rel} ({bad})")
+                        st["sampled"] = st.get("sampled", 0) + 1
                     if prog:
                         h = hashlib.sha256()
                         f.voidcmd("TYPE I")
@@ -3324,6 +3373,19 @@ def ps5_ftp_delete(path: str) -> dict:
     if kind is None:
         f.quit()
         raise ValueError(f"{path} is not on the PS5")
+    # The game's Title ID, so its home screen tile can go too.
+    tid = ""
+    if kind == "d":
+        buf = bytearray()
+        try:
+            f.voidcmd("TYPE I")
+            f.retrbinary(f"RETR {path}/sce_sys/param.json", buf.extend)
+            tid = parse_param_json(bytes(buf))[0].upper()
+        except ftplib.all_errors:
+            pass
+    elif name.lower().endswith((".exfat", ".ffpfs", ".ffpfsc")):
+        m = TITLE_RE.search(name)
+        tid = m.group(0).upper() if m else ""
 
     try:
         rm_tree(path, kind)
@@ -3339,7 +3401,65 @@ def ps5_ftp_delete(path: str) -> dict:
         st = read_json(t, {}) or {}
         if isinstance(st, dict) and st.get("state") != "running" and inside(st):
             t.unlink(missing_ok=True)
-    return {"deleted": path, **count}
+    return {"deleted": path, **count, **({"home_screen": untile(tid)} if tid else {})}
+
+
+def ps5_uninstall(tid: str) -> str:
+    """Uninstall an installed app (a PS4 game in /user/app) through pkg-receiver."""
+    import urllib.request
+    tid = tid.upper()
+    if not re.fullmatch(r"CUSA\d{5}|PPSA\d{5}", tid):
+        raise ValueError("bad Title ID")
+    host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
+    try:
+        req = urllib.request.Request(f"http://{host}:{RECV_PORT}/api/uninstall?tid={tid}", data=b"", method="POST")
+        with urllib.request.urlopen(req, timeout=60) as r:
+            j = json.load(r)
+    except Exception as err:
+        raise ValueError(f"pkg-receiver (Glass build 6 or newer) does not answer on the PS5: {err}")
+    if not j.get("ok"):
+        raise ValueError(f"the PS5 refused: {j.get('error') or j.get('rc')}")
+    return "uninstalled"
+
+
+def untile(tid: str) -> str:
+    """Take a deleted game's tile off the PS5 home screen (pkg-receiver's
+    Glass build: sceAppInstUtilAppUnInstall), unless another copy with that
+    Title ID is still in a game folder (ShadowMountPlus would show it again)."""
+    import ftplib
+    import urllib.request
+    if not re.fullmatch(r"PPSA\d{5}|CUSA\d{5}", tid):
+        return "kept (no Title ID)"
+    try:
+        f = ps5_ftp_connect()
+        try:
+            mnt = ps5_ftp_names(f, "/mnt") or []
+            for drive in ["/data"] + [f"/mnt/{n}" for n in mnt if re.fullmatch(r"(usb|ext)\d+", n)]:
+                for sub in GAME_DIRS:
+                    try:
+                        names = ps5_ftp_names(f, f"{drive}/{sub}") or []
+                    except ftplib.all_errors:
+                        continue
+                    if any(tid in n.upper() for n in names):
+                        return f"kept: another copy of {tid} is in {drive}/{sub}"
+        finally:
+            try:
+                f.quit()
+            except Exception:
+                pass
+    except ValueError:
+        pass
+    host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
+    try:
+        req = urllib.request.Request(f"http://{host}:{RECV_PORT}/api/uninstall?tid={tid}", data=b"", method="POST")
+        with urllib.request.urlopen(req, timeout=20) as r:
+            j = json.load(r)
+    except Exception:
+        return "not removed: start pkg-receiver (Glass build 6 or newer) and delete again, or remove the tile on the PS5"
+    if j.get("ok"):
+        print(f"[{now()}] {tid} taken off the PS5 home screen", flush=True)
+        return "removed"
+    return f"not removed: {j.get('error') or j.get('rc')}"
 
 
 def ftp_open(host: str, port: int, timeout: float = 3) -> bool:
@@ -4625,6 +4745,18 @@ def push_one(game: str, force: bool = False) -> int:
                         raise RuntimeError(f"{rel}: PS5 has {got} bytes, expected {size}")
                     if offset and size <= 1 << 30 and (p, remote) not in programs:
                         programs.append((p, remote))  # a joined file is compared byte for byte below
+                    if size >= SAMPLE_MIN and (p, remote) not in programs:
+                        st["current"] = "spot check " + rel
+                        bad = spot_check(ftp, p, remote)
+                        if bad:
+                            st["bytes"] = start
+                            st["spot_failed"] = st.get("spot_failed", 0) + 1
+                            try:
+                                ftp.sendcmd(f"DELE {remote}")  # ftpsrv answers 226; sent whole again below
+                            except ftplib.all_errors:
+                                pass
+                            raise RuntimeError(f"{rel}: {bad} on the PS5; sending it again")
+                        st["spot_checked"] = st.get("spot_checked", 0) + 1
                     break
                 except (*ftplib.all_errors, OSError, RuntimeError) as err:
                     if "No space" in str(err) or attempt == 5:
@@ -5588,6 +5720,11 @@ def cmd_ui(args) -> int:
                         f.quit()
                     return self.send(200, json.dumps({"made": path}).encode())
                 except Exception as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+            if req.get("action") == "ps5_uninstall":
+                try:
+                    return self.send(200, json.dumps({"result": ps5_uninstall(str(req.get("tid") or ""))}).encode())
+                except ValueError as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
             if req.get("action") == "ftp_delete":
                 try:

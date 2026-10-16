@@ -17,6 +17,9 @@ packages. This folder only restyles its *pkg remote installer* page:
   cards **✓ Installed · v…**, **✓ On PS5** (an image, or the LZ4 copy's
   `<game>-lz4` folder), **Partly copied**, or a patch newer than the
   installed game. Refreshed every 30 seconds.
+- `installed.c` also adds `GET /api/df?path=` (free space of any drive)
+  and `POST /api/uninstall?tid=` (takes a title off the home screen with
+  `sceAppInstUtilAppUnInstall`; never the page's own launcher).
 - `glass.py path/to/payload/main.c`: adds these to `main.c` (and `-lSceSystemService` to the Makefile),
   appends `-glass.N` to the build (bump `REV` on every change, so the NAS
   restarts a running receiver), closes the game window on Install so the
