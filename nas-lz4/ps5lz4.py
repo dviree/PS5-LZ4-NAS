@@ -53,6 +53,7 @@ PROFILES = Path(os.environ.get("PS5LZ4_PROFILES", "/opt/ps5lz4/profiles"))
 CUSTOM_PROFILES = STATE / "profiles"
 LOGS = STATE / "logs"
 REPORTS = STATE / "reports"
+PLAYED = STATE / "played"  # PS5 result of games that are not LZ4 (a sent original, an extracted RAR)
 LOCK_PATH = STATE / "run.lock"
 QUEUE_PATH = STATE / "queue.json"
 # The same folders as the NAS sees them, for reports.
@@ -1561,6 +1562,16 @@ def community_text(title_id: str, games: dict | None = None) -> str:
     return f"community: {', '.join(parts)} ({g['reports']} report{'s' if g['reports'] != 1 else ''})"
 
 
+def ps5_result(eid: str) -> str | None:
+    """What the user saw on the PS5 for this game: from its LZ4 report, else from state/played."""
+    return ((read_json(REPORTS / f"{eid}.json") or {}).get("ps5_result")
+            or (read_json(PLAYED / f"{eid}.json") or {}).get("result"))
+
+
+def tested_ok(eid: str) -> bool:
+    return ps5_result(eid) in ("works", "issues")
+
+
 def ps5_text(rep: dict) -> str:
     st = rep.get("ps5_result")
     return f"PS5 {PLAY_STATES[st][1]}" if st in PLAY_STATES else "PS5 untested"
@@ -1589,9 +1600,13 @@ def cmd_community(args) -> int:
     e = resolve_targets([args.game], scan_library())[0]
     rep_path = REPORTS / f"{e.id}.json"
     rep = read_json(rep_path)
-    if not rep:
-        raise SystemExit(f"{e.id} has no LZ4 report yet; pack it first")
     form, label = PLAY_STATES[args.result]
+    if not rep:
+        # Not LZ4 (an original or an extracted RAR game): keep the result here, nothing to share.
+        PLAYED.mkdir(parents=True, exist_ok=True)
+        write_json(PLAYED / f"{e.id}.json", {"result": args.result, "at": now(), "rel": e.rel})
+        print(f"saved: {e.id}: PS5 {label}")
+        return 0
     rep["ps5_result"] = args.result
     rep["playable_on_ps5"] = f"{label} (reported {now()})"
     write_json(rep_path, rep)
@@ -1602,7 +1617,7 @@ def cmd_community(args) -> int:
               ("title_id", rep.get("title_id") or e.title_id), ("game", name), ("status", form),
               ("game_version", game_version(e.output, *([e.path] if e.kind == "folder" else []),
                                             name=e.rel).get("version", "")),
-              ("level", str((rep.get("codec") or "").split()[-1])), ("source", source),
+              ("level", ((rep.get("codec") or "").split() or [""])[-1]), ("source", source),
               ("firmware", os.environ.get("PS5LZ4_FIRMWARE", "")),
               ("app_version", lz4c_version() or f"ps5-lz4 NAS {VERSION}")]
     from urllib.parse import quote
@@ -1934,6 +1949,9 @@ def cmd_delete_original(args) -> int:
     q = read_json(QUEUE_PATH, {}) or {}
     if running and q.get("current") == e.id:
         raise SystemExit("that game is being packed right now; stop the job first")
+    if e.output.is_dir() and not tested_ok(e.id):
+        raise SystemExit("test the LZ4 copy on the PS5 first: mark it 'works' (PS5 result), "
+                         "then the original can go; nothing was deleted")
     files, size = tree_bytes(e.path) if e.path.is_dir() else (1, e.path.stat().st_size)
     if e.path.is_dir():
         shutil.rmtree(e.path)
@@ -4108,7 +4126,8 @@ def scan_archives() -> list[dict]:
             out.append({"id": str(st["first"].relative_to(LIBRARY)), "dir": str(d.relative_to(LIBRARY)),
                         "name": d.name if d != LIBRARY and len(sets) == 1 else st["base"],
                         "parts": len(st["vols"]), "size": size,
-                        "state": read_json(EXTRACTS / f"{key}.json", None)})
+                        "state": (stj := read_json(EXTRACTS / f"{key}.json", None)),
+                        "tested": bool(stj and stj.get("image") and tested_ok(safe_name(Path(stj["image"]).stem)))})
         if depth >= 3:
             return
         try:
@@ -4277,6 +4296,10 @@ def cmd_delete_rars(args) -> int:
         img = EXTRACTED / next(iter(done["moved"].values()))
     if done.get("state") != "done" or not img.is_file():
         raise SystemExit("extract it first: the RAR files go only after a checked .exfat exists")
+    ent = next((x for x in scan_library() if x.path == img), None)
+    if ent is None or not tested_ok(ent.id):
+        raise SystemExit(f"test {img.name} on the PS5 first: mark it 'works' (PS5 result in My games), "
+                         "then the RAR files can go; nothing was deleted")
 
     def state(**kw):
         cur = read_json(state_p, {}) or {}
@@ -5778,7 +5801,7 @@ def dashboard_data() -> dict:
                "can_queue": can, "running": e.id == current,
                "queued": e.id in (queue.get("remaining") or []) and running,
                "source_bytes": rep.get("source_bytes"), "output_bytes": rep.get("output_bytes"),
-               "saved_percent": rep.get("saved_percent"), "ps5": rep.get("ps5_result"), "finished": rep.get("finished"),
+               "saved_percent": rep.get("saved_percent"), "ps5": ps5_result(e.id), "finished": rep.get("finished"),
                "community": {k: g.get(k, 0) for k in ("works", "issues", "noStart", "crash", "reports")},
                "output": str(Path(HOST_OUTPUT) / e.output.name) if e.output.is_dir() else None}
         if verdict == "LZ4" and rep:

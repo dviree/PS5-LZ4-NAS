@@ -532,6 +532,13 @@ web page container still sees it read-only, and packing never writes to it.
 Each delete asks first and says whether an LZ4 copy remains. Reinstall
 without the variable to turn it off again.
 
+**Test first, delete later.** An original that has an LZ4 copy is only
+deleted once that game's **PS5 result** says *works* (or *works with issues*),
+and the RAR files of an extracted game only once the extracted `.exfat` is
+marked so. Set the PS5 result in My games (every game has it, not only LZ4
+ones; results of games that are not LZ4 stay on the NAS in `state/played`).
+Verified on the NAS is not the same as playable on the PS5.
+
 ## Commands
 
 Run from `/volume2/docker/ps5-lz4/` with `sudo` (Docker needs root). Jobs run
