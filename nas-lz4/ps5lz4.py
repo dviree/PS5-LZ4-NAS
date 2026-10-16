@@ -3305,6 +3305,55 @@ def ps5_verify_start(path: str) -> dict:
     return st
 
 
+def lzc_call(method: str, path: str, timeout: float = 20) -> dict:
+    """The LZ4 Compression engine on the PS5 (port LZC_PORT)."""
+    import urllib.error
+    import urllib.request
+    host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
+    if not host:
+        raise ValueError("set the PS5 address first")
+    req = urllib.request.Request(f"http://{host}:{LZC_PORT}{path}", data=b"" if method == "POST" else None, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode("utf-8", "replace") or "{}")
+    except urllib.error.HTTPError as err:
+        try:
+            j = json.loads(err.read().decode("utf-8", "replace"))
+        except ValueError:
+            j = {}
+        raise ValueError(f"LZ4 engine: {j.get('error') or err}")
+    except (urllib.error.URLError, OSError) as err:
+        raise ValueError(f"the LZ4 Compression engine does not answer on the PS5 (port {LZC_PORT}): {err}")
+
+
+def ps5_compress(path: str, tid: str) -> dict:
+    """Pack a game that is on the PS5 with LZ4 on the PS5 itself, by the LZ4
+    Compression engine (started, or installed and started, when it doesn't
+    run). The original stays; the LZ4 copy is written next to it as <name>-lz4."""
+    import urllib.parse
+    path = ps5_ftp_path(path)
+    tid = tid.upper()
+    if not re.fullmatch(r"PPSA\d{5}", tid):
+        raise ValueError("only PS5 games (PPSA…) can be LZ4 packed")
+    started = None
+    if engine_status()["state"] not in ("connected", "original"):
+        try:
+            started = engine_start()
+        except ValueError:
+            engine_install()
+            started = engine_start()
+        for _ in range(20):
+            time.sleep(1.5)
+            if engine_status()["state"] in ("connected", "original"):
+                break
+        else:
+            raise ValueError("the LZ4 Compression engine was started but does not answer yet; try again in a minute")
+    q = urllib.parse.urlencode({"titleId": tid, "sourcePath": path, "level": os.environ.get("PS5LZ4_LEVEL", "9"), "deletePolicy": "keep"})
+    res = lzc_call("POST", f"/api/lzc/lz4-pack?{q}")
+    ps5_notify(f"NAS: LZ4 packing {path.rsplit('/', 1)[1]} on the PS5")
+    return {"queued": True, "engine": started and started.get("via"), **({"answer": res} if isinstance(res, dict) else {})}
+
+
 def ps5_fix(path: str, code: str) -> dict:
     """Fix what keeps ShadowMountPlus from seeing a game, by renaming over
     FTP (nothing is deleted but an emptied wrapper folder): "hidden" drops the
@@ -6230,6 +6279,11 @@ def cmd_ui(args) -> int:
                 return self.send(200, json.dumps(_verify.get(key) or {"state": "none"}).encode())
             if self.path == "/metrics":
                 return self.send(200, metrics_text().encode(), "text/plain; version=0.0.4")
+            if self.path == "/api/ps5/lz4job":
+                try:
+                    return self.send(200, json.dumps(lzc_call("GET", "/api/lzc/job", timeout=4)).encode())
+                except ValueError as err:
+                    return self.send(200, json.dumps({"busy": False, "off": True, "error": str(err)}).encode())
             if self.path == "/api/saves":
                 return self.send(200, json.dumps({"job": _saves_job, "backups": saves_list()}).encode())
             if self.path.startswith("/api/saves/zip?"):
@@ -6451,6 +6505,16 @@ def cmd_ui(args) -> int:
             if req.get("action") == "ps5_verify":
                 try:
                     return self.send(200, json.dumps(ps5_verify_start(str(req.get("path") or ""))).encode())
+                except ValueError as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+            if req.get("action") == "ps5_lz4":
+                try:
+                    return self.send(200, json.dumps(ps5_compress(str(req.get("path") or ""), str(req.get("tid") or ""))).encode())
+                except ValueError as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+            if req.get("action") == "ps5_lz4_cancel":
+                try:
+                    return self.send(200, json.dumps(lzc_call("POST", "/api/lzc/job/cancel")).encode())
                 except ValueError as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
             if req.get("action") == "ps5_fix":

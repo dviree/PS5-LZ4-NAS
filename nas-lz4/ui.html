@@ -433,6 +433,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
       <select id="pg-k" onchange="renderPg()"><option value="">PS5 and PS4</option><option value="ps5">PS5 games</option><option value="ps4">PS4 games (installed)</option><option value="att">⚠ Needs attention</option></select>
       <select id="pg-s" onchange="renderPg()"><option value="name">Name</option><option value="size">Largest first</option><option value="drive">Drive</option></select>
     </div>
+    <div id="pg-job"></div>
     <div id="pg-list" class="pg-grid"></div>
   </div>
 </main>
@@ -1398,7 +1399,7 @@ async function loadPg() {
   try {
     const r = await fetch('/api/ps5/games', {cache: 'no-store'}), j = await r.json();
     if (!r.ok) { el.innerHTML = `<div class="bad">${esc(j.error || r.status)}</div>`; return; }
-    pgData = j; pgAt = Date.now();
+    pgData = j; pgAt = Date.now(); pgJob();
     const drives = [...new Set(j.games.map(g => g.drive))];
     document.getElementById('pg-d').innerHTML = '<option value="">All drives</option>' + drives.map(d => `<option value="${esc(d)}">${esc(driveName(d))}</option>`).join('');
     renderPg();
@@ -1437,6 +1438,7 @@ function renderPg() {
           <button class="sm" data-p="${esc(g.image ? g.path.replace(/\/[^/]*$/, '') : g.path)}" onclick="tab('ftp');ftpGo(this.dataset.p)">Open</button>
           ${g.size == null && !g.ps4 ? `<button class="sm" data-p="${esc(g.path)}" data-i="${i}" onclick="measureGame(this.dataset.p, this.dataset.i)">Size</button>` : ''}
           ${!g.ps4 && !g.image && !(g.issues || []).some(x => x.code === 'archive' || x.code === 'hidden') ? `<button class="sm" data-p="${esc(g.path)}" data-i="${i}" onclick="pgVerify(this.dataset.p, this.dataset.i)">Verify</button>` : ''}
+          ${!g.ps4 && !g.lz4 && /^PPSA/i.test(g.title_id || '') && !(g.issues || []).length ? `<button class="sm pri" data-p="${esc(g.path)}" data-t="${esc(g.title_id)}" data-n="${esc(g.name)}" onclick="pgCompress(this.dataset.p, this.dataset.t, this.dataset.n)">⚡ Compress on PS5</button>` : ''}
           ${g.lz4 ? `<button class="sm" data-p="${esc(g.path)}" data-i="${i}" onclick="aprCheck(this.dataset.p, document.getElementById('pg-m-' + this.dataset.i))">APR-EMU</button>` : ''}
           <span class="sp"></span>
           ${g.ps4 ? `<button class="sm danger" data-t="${esc(g.title_id)}" data-n="${esc(g.name)}" onclick="pgUninstall(this.dataset.t, this.dataset.n)">🗑 Uninstall</button>` : `<button class="sm danger" data-p="${esc(g.path)}" data-n="${esc(g.name)}" onclick="deletePg(this.dataset.p, this.dataset.n)">🗑 Delete</button>`}
@@ -1633,6 +1635,29 @@ async function smpAct(action, tid, path, question, extra) {
   if (action === 'smp_cancel') { smpJob(); return; }
   if (j.scan_deferred) alert('Done. ShadowMountPlus will scan when it can (' + (j.scan_deferred_reason || 'later') + ').');
   setTimeout(loadSmp, 1500);
+}
+async function pgCompress(path, tid, name) {
+  if (!confirm(`LZ4-pack ${name} on the PS5?\n\nThe PS5's LZ4 Compression engine does it (it is started, or installed and started, if needed). ` +
+      `The original stays; the LZ4 copy is written next to it as a "-lz4" folder, so the drive needs room for it. Keep the game closed until it is done.`)) return;
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'ps5_lz4', path, tid})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { alert('Not started: ' + (j.error || r.status)); return; }
+  pgJob();
+}
+let pgJobTimer = null;
+async function pgJob() {
+  clearTimeout(pgJobTimer);
+  const el = document.getElementById('pg-job');
+  let j;
+  try { j = await (await fetch('/api/ps5/lz4job', {cache: 'no-store'})).json(); } catch (e) { return; }
+  if (!j || j.off || (!j.busy && !j.error)) { el.innerHTML = ''; return; }
+  const pct = j.totalBytes ? Math.min(100, 100 * (j.copiedBytes || 0) / j.totalBytes) : 0;
+  el.innerHTML = `<div class="dl"><div class="dl-top"><b>⚡ On the PS5: ${esc(j.verb || 'LZ4')} ${esc(j.current || '')}</b><span class="sp"></span>
+      <span class="chip">${esc(j.phase || (j.busy ? 'working' : 'done'))}</span>
+      ${j.busy ? `<button class="sm danger" onclick="if(confirm('Cancel the job on the PS5?'))fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'ps5_lz4_cancel'})}).then(pgJob)">Cancel</button>` : ''}</div>
+    ${j.busy ? `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div><div class="why">${gbd(j.copiedBytes || 0)} of ${gbd(j.totalBytes || 0)} · ${pct.toFixed(0)} %</div>` : ''}
+    ${j.error ? `<div class="why bad">${esc(j.error)}</div>` : ''}</div>`;
+  if (j.busy) pgJobTimer = setTimeout(pgJob, 3000);
 }
 async function pgFix(path, code) {
   const what = {hidden: 'Rename it without the leading dot?', wrapper: 'Move the game folder inside up one level (and remove the empty outer folder)?'}[code] || 'Fix it?';
