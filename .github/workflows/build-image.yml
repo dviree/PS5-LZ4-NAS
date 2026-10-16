@@ -27,6 +27,18 @@ jobs:
           ref: nas-build
           fetch-depth: 2
 
+      - name: Check the pages' scripts and the Python
+        run: |
+          set -euo pipefail
+          python3 -m py_compile nas-lz4/ps5lz4.py
+          for f in nas-lz4/ui.html nas-lz4/store.html; do
+            python3 - "$f" > "$RUNNER_TEMP/page.js" <<'PY'
+          import re, sys
+          print("\n".join(re.findall(r"<script>(.*?)</script>", open(sys.argv[1]).read(), re.S)))
+          PY
+            node --check "$RUNNER_TEMP/page.js" || { echo "::error file=$f::script does not parse"; exit 1; }
+          done
+
       - name: Log in to ghcr.io
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
