@@ -105,6 +105,12 @@ that container alone.
   icon, name, Title ID, version, drive, LZ4 or not, size (Measure), and a
   warning when two folders have the same Title ID (ShadowMountPlus mounts
   one). Buttons: Delete (one OK), Open in the FTP tab, APR-EMU check.
+  It also lists the **PS4 games installed** on the PS5 (`/user/app/CUSA…`,
+  and on extended storage) with icon, name and version from their appmeta
+  `param.sfo`, the size of `app.pkg` and of an installed patch; a filter
+  picks PS5, PS4 or both. Those are uninstalled on the PS5 itself, not here.
+- **Community tab:** sorted by the latest report first (or most reports, or
+  name).
 - **Game sheet (tap a game):** where the original is on the NAS, every copy
   of the game on the PS5 (found by Title ID, however it got there), and the
   buttons **⚡ Compress & send to PS5** (packs it and sends it, or queues it,
