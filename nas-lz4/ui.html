@@ -299,7 +299,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
   </div>
   <div class="card"><h2>ELF on the PS5 <span class="mut" style="font-weight:500">· pkg-receiver</span></h2>
     <div class="mut">The PS5 side is <a href="https://github.com/Loopayeh/pkg-sender" target="_blank" rel="noopener">pkg-receiver</a>
-    from pkg-sender (MIT), a payload on port 12800. It installs <code>.pkg</code> games, updates and DLC with the PS5's own
+    from pkg-sender (MIT) in this project's Glass build, a payload on port 12800. It installs <code>.pkg</code> games, updates and DLC with the PS5's own
     installer, downloading them straight from this NAS, and its own page on the PS5 (the <i>pkg remote installer</i>
     shortcut on the home screen) lists this NAS's packages to install with the controller.
     <b>Install and start</b> copies it into Payload Manager and starts it.</div>
@@ -1607,7 +1607,7 @@ async function rcvCheck() {
   } catch (e) { st.textContent = 'pkg-receiver: ?'; }
 }
 async function rcvInstall(fromHeader) {
-  if (!confirm('Install the ELF on the PS5?\n\npkg-receiver.elf (github.com/Loopayeh/pkg-sender) is downloaded, copied into Payload Manager on the PS5 and started.')) return;
+  if (!confirm('Install the ELF on the PS5?\n\npkg-receiver.elf with the Glass theme (this project's pkg-receiver-glass release, built from Loopayeh/pkg-sender) is downloaded, copied into Payload Manager on the PS5 and started. It replaces a running pkg-receiver.')) return;
   const msg = document.getElementById('rcv-msg'), small = document.getElementById('b-elf-st');
   msg.className = 'why'; msg.textContent = 'Downloading and copying to the PS5…'; small.textContent = 'installing…';
   const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'receiver_install'})});
