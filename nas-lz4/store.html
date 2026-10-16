@@ -37,6 +37,11 @@ main{padding:18px max(20px,calc((100% - 1500px)/2 + 20px)) 120px}
 .tile:hover,.tile:focus-visible{transform:translateY(-3px) scale(1.02);border-color:var(--acc);box-shadow:0 16px 44px var(--glow)}
 .cover{aspect-ratio:1/1;width:100%;background:var(--cover);display:grid;place-items:center;font-size:64px;position:relative}
 .cover img{width:100%;height:100%;object-fit:cover;display:block}
+.fav{position:absolute;bottom:8px;right:10px;font-size:26px;line-height:1;color:rgba(255,255,255,.85);text-shadow:0 2px 8px rgba(0,0,0,.6);cursor:pointer}
+.fav.on{color:#fcd34d}
+.spot-h{font-size:18px;margin:6px 0 10px}.grid.spot{margin-bottom:22px}
+select.sort{min-width:0;flex:none;max-width:200px;font:inherit;padding:10px 14px;border-radius:12px;border:1px solid var(--cardline);background:var(--card);color:var(--txt);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur)}
+select.sort option{color:#1f1937;background:#fff}
 .badge{position:absolute;top:10px;left:10px;padding:4px 10px;border-radius:99px;font-size:12px;font-weight:800;background:rgba(0,0,0,.55);color:#fff;backdrop-filter:blur(6px)}
 .badge.inst{background:#5eeab0;color:#06231a}
 .badge.lz4{left:auto;right:10px;background:var(--pri);color:#fff}.badge.fmt{left:auto;right:10px;background:rgba(0,0,0,.55);color:#fff}.badge.fmt:empty{display:none}
@@ -76,10 +81,15 @@ main{padding:18px max(20px,calc((100% - 1500px)/2 + 20px)) 120px}
   <button data-f="installed" onclick="setF(this)">Installed</button>
   <button data-f="available" onclick="setF(this)">Not installed</button>
   <button data-f="lz4" onclick="setF(this)">LZ4</button>
-  <input class="search" id="q" placeholder="Search" oninput="render()">
+  <button data-f="fav" onclick="setF(this)">★ Favorites</button>
+  <select class="search sort" id="sort" onchange="saveSort(this.value)" title="Sort">
+    <option value="name">A–Z</option><option value="new">Newest packed</option><option value="rated">Best rated</option>
+    <option value="big">Biggest</option><option value="small">Smallest</option><option value="saved">Most saved</option></select>
+  <input class="search" id="q" placeholder="Search name or Title ID" oninput="render()">
 </nav>
 <main>
   <div class="now" id="now"></div>
+  <div id="spot"></div>
   <div class="grid" id="grid"><div class="empty">Loading your library…</div></div>
 </main>
 <div class="sheet-bg" id="sheet" hidden onclick="if(event.target===this)closeSheet()"><div class="sheet" id="sheet-body"></div></div>
@@ -117,6 +127,38 @@ function items() {
             copies: byTid[(g.title_id || '').toUpperCase()] || [], tx: (dash.transfers || {})[key]};
   });
 }
+// Favorites and sort order (ideas from Overdrive), kept in this browser.
+let favs = new Set();
+try { favs = new Set(JSON.parse(localStorage.getItem('favs') || '[]')); } catch (e) {}
+function toggleFav(tid, ev) {
+  ev.stopPropagation();
+  favs.has(tid) ? favs.delete(tid) : favs.add(tid);
+  try { localStorage.setItem('favs', JSON.stringify([...favs])); } catch (e) {}
+  render();
+}
+function saveSort(v) { try { localStorage.setItem('sort', v); } catch (e) {} render(); }
+try { const v = localStorage.getItem('sort'); if (v) document.getElementById('sort').value = v; } catch (e) {}
+function rating(g) { const c = g.community || {}; return c.reports ? (c.works + c.issues) / c.reports + c.works / 1000 : -1; }
+const SORTS = {
+  name: (a, b) => a.g.name.localeCompare(b.g.name),
+  new: (a, b) => (b.g.finished || '').localeCompare(a.g.finished || '') || a.g.name.localeCompare(b.g.name),
+  rated: (a, b) => rating(b.g) - rating(a.g) || a.g.name.localeCompare(b.g.name),
+  big: (a, b) => (b.size || 0) - (a.size || 0),
+  small: (a, b) => (a.size || 0) - (b.size || 0),
+  saved: (a, b) => (b.g.saved_percent || -1) - (a.g.saved_percent || -1),
+};
+function tileHtml(it) {
+  const s = state(it), fav = favs.has(it.g.title_id);
+  const badge = s.k === 'installed' ? '<span class="badge inst">✓ Installed</span>' : s.k === 'sending' ? '<span class="badge">Installing…</span>'
+    : s.k === 'queued' ? '<span class="badge">Queued</span>' : s.k === 'stopped' ? '<span class="badge">Paused</span>' : '';
+  return `<button class="tile" data-id="${esc(it.g.id)}" onclick="showGame(this.dataset.id)">
+    <div class="cover"><img alt="" loading="lazy" src="/api/icon?id=${encodeURIComponent(it.g.id)}" onerror="this.replaceWith(document.createTextNode('🎮'))">${badge}${it.lz4 ? '<span class="badge lz4">LZ4</span>' : `<span class="badge fmt">${{folder: 'Folder', exfat: 'exFAT', ffpfs: '.ffpfs', ffpfsc: '.ffpfsc'}[it.g.kind] || ''}</span>`}
+      <span class="fav ${fav ? 'on' : ''}" role="button" title="${fav ? 'Remove from favorites' : 'Add to favorites'}" data-t="${esc(it.g.title_id)}" onclick="toggleFav(this.dataset.t, event)">${fav ? '★' : '☆'}</span></div>
+    <div class="info"><div class="name">${esc(clean(it.g.name))}</div>
+      <div class="meta">${gb(it.size)}${it.g.saved_percent != null && it.lz4 ? ` · ${Math.round(it.g.saved_percent)} % smaller` : ''}</div>
+      <div class="stars">${community(it.g.community)}</div>
+      ${s.pct != null ? `<div class="prog"><div class="bar"><i style="width:${s.pct}%"></i></div></div>` : ''}</div></button>`;
+}
 function setF(b) { document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b)); filter = b.dataset.f; render(); }
 function community(c) {
   if (!c || !c.reports) return '<span style="color:var(--mut)">no reports yet</span>';
@@ -135,19 +177,18 @@ function render() {
   if (!dash) return;
   const q = document.getElementById('q').value.trim().toLowerCase();
   let list = items().filter(it => !q || (it.g.name + ' ' + it.g.title_id).toLowerCase().includes(q));
-  list = list.filter(it => { const s = state(it).k; return filter === 'all' || (filter === 'installed' ? s === 'installed' : filter === 'available' ? s !== 'installed' : it.lz4); });
-  list.sort((a, b) => a.g.name.localeCompare(b.g.name));
-  document.getElementById('grid').innerHTML = list.length ? list.map(it => {
-    const s = state(it);
-    const badge = s.k === 'installed' ? '<span class="badge inst">✓ Installed</span>' : s.k === 'sending' ? '<span class="badge">Installing…</span>'
-      : s.k === 'queued' ? '<span class="badge">Queued</span>' : s.k === 'stopped' ? '<span class="badge">Paused</span>' : '';
-    return `<button class="tile" data-id="${esc(it.g.id)}" onclick="showGame(this.dataset.id)">
-      <div class="cover"><img alt="" loading="lazy" src="/api/icon?id=${encodeURIComponent(it.g.id)}" onerror="this.replaceWith(document.createTextNode('🎮'))">${badge}${it.lz4 ? '<span class="badge lz4">LZ4</span>' : `<span class="badge fmt">${{folder: 'Folder', exfat: 'exFAT', ffpfs: '.ffpfs', ffpfsc: '.ffpfsc'}[it.g.kind] || ''}</span>`}</div>
-      <div class="info"><div class="name">${esc(clean(it.g.name))}</div>
-        <div class="meta">${gb(it.size)}${it.g.saved_percent != null && it.lz4 ? ` · ${Math.round(it.g.saved_percent)} % smaller` : ''}</div>
-        <div class="stars">${community(it.g.community)}</div>
-        ${s.pct != null ? `<div class="prog"><div class="bar"><i style="width:${s.pct}%"></i></div></div>` : ''}</div></button>`;
-  }).join('') : '<div class="empty">Nothing here.</div>';
+  list = list.filter(it => { const s = state(it).k; return filter === 'all' || (filter === 'installed' ? s === 'installed' : filter === 'available' ? s !== 'installed' : filter === 'fav' ? favs.has(it.g.title_id) : it.lz4); });
+  list.sort(SORTS[document.getElementById('sort').value] || SORTS.name);
+  document.getElementById('grid').innerHTML = list.length ? list.map(tileHtml).join('')
+    : `<div class="empty">${filter === 'fav' ? 'No favorites yet: press ☆ on a game.' : 'Nothing here.'}</div>`;
+  // Spotlight rows (on the full list only): newest packed and best rated.
+  const all = items(), spot = document.getElementById('spot');
+  if (!q && filter === 'all' && all.length > 6) {
+    const newest = all.filter(it => it.g.finished).sort(SORTS.new).slice(0, 6);
+    const rated = all.filter(it => rating(it.g) >= 0).sort(SORTS.rated).slice(0, 6);
+    const row = (t, l) => l.length ? `<h2 class="spot-h">${t}</h2><div class="grid spot">${l.map(tileHtml).join('')}</div>` : '';
+    spot.innerHTML = row('🆕 Newest packed', newest) + row('⭐ Best rated by the community', rated) + (newest.length || rated.length ? '<h2 class="spot-h">All games</h2>' : '');
+  } else spot.innerHTML = '';
   // Now installing
   const tf = dash.transfer, now = document.getElementById('now'), tq = dash.transfer_queue || [];
   if (tf) {

@@ -5702,7 +5702,7 @@ def dashboard_data() -> dict:
                "can_queue": can, "running": e.id == current,
                "queued": e.id in (queue.get("remaining") or []) and running,
                "source_bytes": rep.get("source_bytes"), "output_bytes": rep.get("output_bytes"),
-               "saved_percent": rep.get("saved_percent"), "ps5": rep.get("ps5_result"),
+               "saved_percent": rep.get("saved_percent"), "ps5": rep.get("ps5_result"), "finished": rep.get("finished"),
                "community": {k: g.get(k, 0) for k in ("works", "issues", "noStart", "crash", "reports")},
                "output": str(Path(HOST_OUTPUT) / e.output.name) if e.output.is_dir() else None}
         if verdict == "LZ4" and rep:
