@@ -160,7 +160,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
 /* phones */
 @media (max-width:760px){
   #fab{width:52px;height:52px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom))}#fab .fab-info{display:none!important}#fab .ring{width:42px;height:42px}#fab .ring span{width:34px;height:34px;font-size:11px}#fabpop{bottom:calc(74px + env(safe-area-inset-bottom))}
-  header{padding:10px 14px;gap:8px}
+  header{position:static;padding:10px 14px;gap:8px}
   .hacts{width:100%;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -2px;padding:2px}
   .hacts::-webkit-scrollbar{display:none}.hacts button{white-space:nowrap;flex:none}
   .tabs{position:static;margin:12px 12px 0;max-width:none}
@@ -170,9 +170,10 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
   .card{padding:14px}
   .steps{grid-template-columns:repeat(3,1fr)}
   .k b{font-size:22px}
-  table#games{min-width:0}
+  table#games{min-width:0;width:100%}#games,#games tbody{display:block}
+  #games td.c-act button{white-space:nowrap}
   #games tr:first-child{display:none}
-  #games tr.row{display:grid;grid-template-columns:1fr auto;gap:6px 10px;padding:14px 0;border-top:1px solid var(--line)}
+  #games tr.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;padding:14px 0;border-top:1px solid var(--line)}
   #games tr.row:first-of-type{border-top:0}
   #games td{border:0;padding:0}
   #games td.c-game{grid-column:1}#games td.c-status{grid-column:2;grid-row:1;text-align:right}
@@ -924,7 +925,8 @@ function render() {
   const unr = d.unreadable || [];
   document.getElementById('unread').innerHTML = unr.length ? `<div class="why bad" style="margin-bottom:10px">⚠ The NAS user (uid ${d.uid}) may not read
     ${unr.map(x => '<code>' + esc(x) + '</code>').join(', ')}: they are left out. Fix it as root on the NAS:
-    <pre class="log">${unr.map(x => `chown -R ${d.uid}:${d.uid} "${esc((d.library_host || '/volume1/games/roms/ps5') + '/' + x)}"`).join('\n')}</pre></div>` : '';
+    <pre id="unread-cmd" class="log" style="white-space:pre-wrap;overflow-wrap:anywhere">${unr.map(x => `sudo chown -R ${d.uid}:${d.uid} "${esc((d.library_host || '/volume1/games/roms/ps5') + '/' + x)}"`).join('\n')}</pre>
+    <button class="sm" onclick="copyText(document.getElementById('unread-cmd').textContent, this)">Copy</button></div>` : '';
   const dups = d.duplicates || [];
   document.getElementById('dupcard').hidden = !dups.length;
   document.getElementById('dups').innerHTML = dups.map(grp => `<div class="dl"><div class="dl-top"><b>${esc(grp.name)}</b><span class="mut">${esc(grp.title_id)} · ${grp.items.length} copies</span></div>` +
@@ -1474,6 +1476,16 @@ async function pgUninstall(tid, name) {
   const j = await r.json().catch(() => ({}));
   alert(r.ok ? `${name} uninstalled.` : 'Not uninstalled: ' + (j.error || r.status));
   if (r.ok) loadPg();
+}
+function copyText(t, btn) {
+  // navigator.clipboard needs https; the page is plain http on the LAN, so fall back to a hidden textarea.
+  const done = () => { if (btn) { btn.textContent = 'Copied ✓'; setTimeout(() => btn.textContent = 'Copy', 1500); } };
+  if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(t).then(done, () => {}); return; }
+  const ta = document.createElement('textarea');
+  ta.value = t; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+  document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, t.length);
+  try { document.execCommand('copy'); done(); } catch (e) {}
+  ta.remove();
 }
 function upUrl() {
   let u = '';
