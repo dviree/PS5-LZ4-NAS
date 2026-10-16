@@ -14,6 +14,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -378,8 +379,79 @@ check_eboot_format(const char *root, lzc_boot_report_t *r) {
   close(fd);
 }
 
+/* AMPRIDX3, as APR-EMU writes it: a 48-byte header, entry_count 24-byte
+ * records (path offset, path length, size, mtime), then the NUL-terminated
+ * /app0/... paths. */
+#define AMPR_INDEX_NAME "ampr_emu.index"
+#define AMPR_INDEX_MAX (256u << 20)
+
+static uint32_t
+rd32(const unsigned char *p) {
+  return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 |
+         (uint32_t)p[3] << 24;
+}
+
+static uint64_t
+rd64(const unsigned char *p) {
+  return (uint64_t)rd32(p) | (uint64_t)rd32(p + 4) << 32;
+}
+
+static int
+check_ampr_index(const char *root, int repair, lzc_boot_report_t *r,
+                 char *err, size_t err_size) {
+  char path[1024], file[1024];
+  struct stat st;
+  unsigned char *buf = NULL;
+  int fd, stale = 0;
+  if(join(path, sizeof(path), root, AMPR_INDEX_NAME) != 0 ||
+     stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
+    return 0;
+  }
+  /* Anything this check can't read is left for APR-EMU to judge. */
+  if(st.st_size < 48 || (uint64_t)st.st_size > AMPR_INDEX_MAX) return 0;
+  const uint64_t size = (uint64_t)st.st_size;
+  if((fd = open(path, O_RDONLY)) < 0) return 0;
+  buf = malloc(size);
+  if(buf && read(fd, buf, size) == (ssize_t)size &&
+     !memcmp(buf, "AMPRIDX3", 8) && rd32(buf + 8) == 3 && rd32(buf + 12) == 24) {
+    uint64_t count = rd64(buf + 16), path_bytes = rd64(buf + 24);
+    uint64_t blob = 48 + count * 24;
+    if(count <= (size - 48) / 24 && path_bytes <= size - blob) {
+      for(uint64_t i = 0; i < count && !stale; i++) {
+        const unsigned char *rec = buf + 48 + i * 24;
+        uint32_t off = rd32(rec), len = rd32(rec + 4);
+        const char *p = (const char *)buf + blob + off;
+        if((uint64_t)off + len >= path_bytes || p[len] != 0 ||
+           strncmp(p, "/app0/", 6) || len - 6 >= sizeof(file) - strlen(root) - 1) {
+          continue;
+        }
+        snprintf(file, sizeof(file), "%s/%s", root, p + 6);
+        if(lstat(file, &st) != 0 || !S_ISREG(st.st_mode) ||
+           (uint64_t)st.st_size != rd64(rec + 8)) {
+          snprintf(r->ampr_index_missing, sizeof(r->ampr_index_missing), "%s",
+                   p + 6);
+          stale = 1;
+        }
+      }
+    }
+  }
+  free(buf);
+  close(fd);
+  if(!stale) return 0;
+  r->ampr_index_stale = 1;
+  if(!repair) return 0;
+  if(join(file, sizeof(file), root, AMPR_INDEX_NAME ".stale") != 0 ||
+     rename(path, file) != 0) {
+    set_err(err, err_size, "move %s aside: %s", AMPR_INDEX_NAME,
+            strerror(errno));
+    return -1;
+  }
+  r->ampr_index_removed = 1;
+  return 0;
+}
+
 int
-lzc_boot_files_check(const char *root, int repair,
+lzc_boot_files_check(const char *root, int repair, int packed,
                      const char *const *sources, lzc_boot_report_t *r,
                      char *err, size_t err_size) {
   char eboot[1024];
@@ -392,5 +464,7 @@ lzc_boot_files_check(const char *root, int repair,
   check_eboot_format(root, r);
   if(check_runtime_case(root, repair, r, err, err_size) != 0) return -1;
   if(check_playgo(root, repair, sources, r, err, err_size) != 0) return -1;
+  /* After the runtime rename, which is what usually leaves it stale. */
+  if(!packed && check_ampr_index(root, repair, r, err, err_size) != 0) return -1;
   return 0;
 }
