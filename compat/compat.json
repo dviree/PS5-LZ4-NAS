@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T11:55:11Z",
+ "updated": "2026-10-16T12:46:46Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -323,6 +323,25 @@
     "appVersion": "1.5.0-6-g779",
     "date": "2026-10-15T13:33:13Z",
     "issue": 23
+   }
+  },
+  "PPSA25344": {
+   "name": "Sword Of The Sea",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Sword Of The Sea",
+    "gameVersion": "",
+    "level": "",
+    "source": "Folder",
+    "firmware": "",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T12:46:36Z",
+    "issue": 41
    }
   },
   "PPSA26344": {
