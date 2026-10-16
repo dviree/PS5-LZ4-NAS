@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T23:10:52Z",
+ "updated": "2026-10-16T23:12:29Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -118,21 +118,21 @@
   },
   "PPSA03671": {
    "name": "Marvel's Wolverine",
-   "works": 2,
+   "works": 3,
    "issues": 0,
    "noStart": 0,
    "crash": 0,
-   "reports": 2,
+   "reports": 3,
    "lastReport": {
     "status": "works",
     "game": "Marvel's Wolverine",
-    "gameVersion": "01.001.004",
-    "level": "9",
-    "source": "exFAT image",
-    "firmware": "13.60",
+    "gameVersion": "",
+    "level": "",
+    "source": "",
+    "firmware": "",
     "appVersion": "1.5.0",
-    "date": "2026-10-15T13:57:06Z",
-    "issue": 25
+    "date": "2026-10-16T23:12:19Z",
+    "issue": 58
    }
   },
   "PPSA06960": {
