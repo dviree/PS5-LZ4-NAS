@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T12:46:46Z",
+ "updated": "2026-10-16T12:53:11Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -19,6 +19,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-16T11:54:59Z",
     "issue": 40
+   }
+  },
+  "PPSA01411": {
+   "name": "Marvels Spider Man Miles Morales",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Marvels Spider Man Miles Morales",
+    "gameVersion": "01.015.001",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T12:53:00Z",
+    "issue": 42
    }
   },
   "PPSA01473": {
