@@ -139,8 +139,11 @@ that container alone.
   that moves or deletes a source): icon, name, version, source, mounted.
   **Remove from home screen** uninstalls the tile and leaves the files (the
   next scan finds the game again); **Hide** also renames the source with a
-  leading dot, so scans skip it until it is renamed back; **Unmount**;
-  **Rescan**. Delete on the PS5 games tab also uses it to take a tile off.
+  leading dot, so scans skip it until it is renamed back; **🗑 Delete**
+  unmounts it, takes the tile off and deletes its files over FTP (a copy on
+  the NAS stays); **Unmount**; **Rescan**. Delete on the PS5 games tab also
+  uses it to take a tile off. A name that is only a Title ID is replaced by
+  the game's name from the NAS library, the PS5 list or the folder name.
 - **🔍 Verify LZ4 (game sheet):** checks a finished LZ4 copy before you send
   it: every LZ4 block decoded and its CRC checked, the file list, and the
   APR-EMU runtime; read-only, in the background. The button turns green
