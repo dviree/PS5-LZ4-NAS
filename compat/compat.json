@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T12:53:11Z",
+ "updated": "2026-10-16T13:10:22Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -380,6 +380,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-15T04:25:09Z",
     "issue": 19
+   }
+  },
+  "PPSA28180": {
+   "name": "Days Gone: Remastered",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Days Gone: Remastered",
+    "gameVersion": "",
+    "level": "1",
+    "source": "",
+    "firmware": "",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T13:10:12Z",
+    "issue": 43
    }
   },
   "PPSA28997": {
