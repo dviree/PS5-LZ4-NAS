@@ -3508,7 +3508,8 @@ def _recv_get(path: str, timeout: float = 3):
 
 
 def receiver_status() -> dict:
-    out = {"port": RECV_PORT, "repo": RECV_REPO, "path": RECV_PATH, "running": False}
+    out = {"port": RECV_PORT, "repo": RECV_REPO, "path": RECV_PATH, "running": False,
+           "auto": receiver_auto_on(), "cached": (ENGINE_DIR / "pkg-receiver.elf").is_file()}
     try:
         out["build"] = _recv_get("/api/version").get("build")
         out["running"] = True
@@ -3555,8 +3556,6 @@ def receiver_fetch() -> Path:
 def receiver_install() -> dict:
     """Put pkg-receiver in Payload Manager over FTP and start it."""
     import io
-    import socket
-    import urllib.request
     elf = receiver_fetch()
     f = ps5_ftp_connect()
     try:
@@ -3573,22 +3572,65 @@ def receiver_install() -> dict:
     st = receiver_status()
     if st["running"] and (not m or st.get("build") == m.group(1).decode()):
         return {"installed": RECV_PATH, "started": "already running"}
+    return {"installed": RECV_PATH, **receiver_launch(elf)}
+
+
+def receiver_launch(elf: Path | None) -> dict:
+    """Start the pkg-receiver already in Payload Manager on the PS5, else send
+    elf (the cached copy) to an ELF loader."""
+    import socket
+    import urllib.request
     host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
+    if not host:
+        raise ValueError("set the PS5 address first")
     try:
         with urllib.request.urlopen(f"http://{host}:{PLDMGR_PORT}/loadpayload:{RECV_PATH}", timeout=10) as r:
             if "Invalid payload name" not in r.read(65536).decode(errors="replace"):
-                return {"installed": RECV_PATH, "started": f"Payload Manager ({PLDMGR_PORT})"}
+                return {"started": f"Payload Manager ({PLDMGR_PORT})"}
     except Exception:
         pass
-    for port in ELFLDR_PORTS:
+    if elf and elf.is_file():
+        for port in ELFLDR_PORTS:
+            try:
+                with socket.create_connection((host, port), timeout=10) as sk:
+                    sk.sendall(elf.read_bytes())
+                return {"started": f"ELF loader ({port})"}
+            except OSError:
+                continue
+    return {"started": None,
+            "note": "start pkg-receiver from the Payload Manager on the PS5 (or press Install and start)"}
+
+
+def receiver_start() -> dict:
+    """Start pkg-receiver on the PS5 without downloading or copying it again."""
+    if receiver_status()["running"]:
+        return {"started": "already running"}
+    return receiver_launch(ENGINE_DIR / "pkg-receiver.elf")
+
+
+RECV_AUTO = ENGINE_DIR / "receiver-auto.json"  # {"on": bool}: start pkg-receiver when the PS5 is on
+
+
+def receiver_auto_on() -> bool:
+    return bool((read_json(RECV_AUTO, {}) or {}).get("on", True))
+
+
+def receiver_autostarter() -> None:
+    """Start pkg-receiver when the PS5 is on and it doesn't answer (after a
+    PS5 restart): checked every 30 s, retried at most every 5 minutes."""
+    tried = 0.0
+    while True:
         try:
-            with socket.create_connection((host, port), timeout=10) as sk:
-                sk.sendall(elf.read_bytes())
-            return {"installed": RECV_PATH, "started": f"ELF loader ({port})"}
-        except OSError:
-            continue
-    return {"installed": RECV_PATH, "started": None,
-            "note": "start pkg-receiver from the Payload Manager on the PS5"}
+            host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
+            if (host and receiver_auto_on() and time.time() - tried > 300
+                    and ps5_status(host) == "on" and not receiver_status()["running"]):
+                tried = time.time()
+                res = receiver_start()
+                if res.get("started"):
+                    print(f"[{now()}] pkg-receiver started by itself: {res['started']}", flush=True)
+        except Exception:
+            pass
+        time.sleep(30)
 
 
 
@@ -5022,6 +5064,15 @@ def cmd_ui(args) -> int:
                 ENGINE_DIR.mkdir(parents=True, exist_ok=True)
                 write_json(ENGINE_AUTO, {"on": bool(req.get("on"))})
                 return self.send(200, json.dumps({"auto": engine_auto_on()}).encode())
+            if req.get("action") in ("receiver_start", "receiver_auto"):
+                try:
+                    if req["action"] == "receiver_auto":
+                        ENGINE_DIR.mkdir(parents=True, exist_ok=True)
+                        write_json(RECV_AUTO, {"on": bool(req.get("on"))})
+                        return self.send(200, json.dumps({"auto": receiver_auto_on()}).encode())
+                    return self.send(200, json.dumps(receiver_start()).encode())
+                except Exception as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if req.get("action") == "receiver_install":
                 try:
                     return self.send(200, json.dumps(receiver_install()).encode())
@@ -5194,6 +5245,7 @@ def cmd_ui(args) -> int:
     __import__("threading").Thread(target=send_after_watcher, daemon=True).start()
     __import__("threading").Thread(target=transfer_queue_watcher, daemon=True).start()
     __import__("threading").Thread(target=rest_watcher, daemon=True).start()
+    __import__("threading").Thread(target=receiver_autostarter, daemon=True).start()
     if CATALOG_PORT > 0:
         __import__("threading").Thread(target=catalog_server, daemon=True).start()
         __import__("threading").Thread(target=catalog_announcer, daemon=True).start()

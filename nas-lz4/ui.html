@@ -191,7 +191,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
   <a class="storelink" href="/store" title="Open the store view, made for the PS5 browser and a controller">🛒 Store</a><span class="sp"></span>
   <div class="hacts">
   <button class="two" id="b-resume" hidden onclick="act('resume')">Continue queue<small>resume interrupted packing</small></button>
-  <button class="two" id="b-elf" onclick="rcvInstall(true)"><span id="b-elf-t">Install ELF on PS5</span><small id="b-elf-st">pkg-receiver: installs .pkg from this NAS</small></button>
+  <button class="two" id="b-elf" onclick="rcvHeader()"><span id="b-elf-t">Start ELF on PS5</span><small id="b-elf-st">pkg-receiver: installs .pkg from this NAS</small></button>
   <button class="two" onclick="act('check')">Check all<small>check every game, read-only; unchanged ones from the saved results</small></button>
   <button class="two ghost" onclick="act('check_full', 'Check every game again, ignoring earlier results?\n\nThis reads every LZ4 game in full and can take a while.')">Full re-check<small>check every game again from scratch</small></button>
   <button class="two pri" id="b-fix"
@@ -302,10 +302,14 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     from pkg-sender (MIT) in this project's Glass build, a payload on port 12800. It installs <code>.pkg</code> games, updates and DLC with the PS5's own
     installer, downloading them straight from this NAS, and its own page on the PS5 (the <i>pkg remote installer</i>
     shortcut on the home screen) lists this NAS's packages to install with the controller.
-    <b>Install and start</b> copies it into Payload Manager and starts it.</div>
+    <b>Install and start</b> copies it into Payload Manager and starts it (once, or for a new version);
+    <b>Start</b> starts the copy already on the PS5, and this page also starts it by itself when the PS5 is on
+    and it isn't running (after a restart).</div>
     <div class="filters"><span class="pill p-no" id="rcv-st" style="align-self:center">pkg-receiver: ?</span>
       <button class="sm" onclick="rcvCheck()">Check</button>
+      <button class="two" onclick="rcvStart()">Start<small>the one already on the PS5</small></button>
       <button class="two" onclick="rcvInstall()">Install and start<small>download from GitHub, copy over FTP, start it</small></button>
+      <label class="mut chk" style="align-self:center;display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="rcv-auto" style="width:18px;height:18px;accent-color:#7c5cff" onchange="rcvAuto(this.checked)"> Start by itself when the PS5 is on</label>
       <a class="sm" id="rcv-open" target="_blank" rel="noopener" style="align-self:center">Open its page</a></div>
     <div class="why" id="rcv-msg"></div>
   </div>
@@ -1597,14 +1601,39 @@ async function rcvCheck() {
     const open = document.getElementById('rcv-open');
     if (open) { open.hidden = !(j.running && host); if (host) open.href = `http://${host}:12800/`; }
     document.getElementById('b-elf').classList.toggle('pri', !j.running);
-    document.getElementById('b-elf-st').textContent = j.running ? `pkg-receiver running ✓${j.build ? ' · ' + j.build : ''}` : 'not running: install and start pkg-receiver';
+    rcvRunning = !!j.running;
+    document.getElementById('rcv-auto').checked = j.auto !== false;
+    document.getElementById('b-elf-t').textContent = j.running ? 'ELF on PS5' : 'Start ELF on PS5';
+    document.getElementById('b-elf-st').textContent = j.running ? `pkg-receiver running ✓${j.build ? ' · ' + j.build : ''}` : 'not running: press to start pkg-receiver';
     st.className = 'pill ' + (j.running ? 'p-LZ4' : 'p-no');
     st.textContent = j.running ? `pkg-receiver: running ✓ ${j.build ? '(' + j.build + ')' : ''}` : 'pkg-receiver: not running';
     const sp = j.space || {}, busy = j.status && j.status.busy;
     msg.className = 'why';
     msg.innerHTML = j.running ? `Internal SSD: <b>${gb(sp.free)}</b> free of ${gb(sp.total)}${busy ? ` · installing ${j.status.active}` : ''}`
-      : 'Not answering on port 12800. Press Install and start, or start pkg-receiver from the Payload Manager.';
+      : 'Not answering on port 12800. Press Start (or Install and start the first time).';
   } catch (e) { st.textContent = 'pkg-receiver: ?'; }
+}
+let rcvRunning = false;
+async function rcvHeader() {
+  if (rcvRunning) { tab('ps5'); return; }
+  const r = await rcvStart();
+  if (!r || !r.started) {
+    if (confirm('pkg-receiver could not be started from the PS5 (is it installed in Payload Manager?).\n\nInstall it now?')) rcvInstall();
+  }
+}
+async function rcvStart() {
+  const msg = document.getElementById('rcv-msg'), small = document.getElementById('b-elf-st');
+  msg.className = 'why'; msg.textContent = 'Starting pkg-receiver on the PS5…'; small.textContent = 'starting…';
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'receiver_start'})});
+  const j = await r.json().catch(() => ({}));
+  msg.className = 'why ' + (r.ok && j.started ? 'good' : 'bad');
+  msg.textContent = r.ok ? (j.started ? `Started (${j.started}).` : j.note || 'Not started.') : 'Failed: ' + (j.error || r.status);
+  setTimeout(rcvCheck, 3000);
+  return r.ok ? j : null;
+}
+async function rcvAuto(on) {
+  await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'receiver_auto', on})});
+  rcvCheck();
 }
 async function rcvInstall(fromHeader) {
   if (!confirm('Install the ELF on the PS5?\n\npkg-receiver.elf with the Glass theme (the pkg-receiver-glass release of this project, built from Loopayeh/pkg-sender) is downloaded, copied into Payload Manager on the PS5 and started. It replaces a running pkg-receiver.')) return;
