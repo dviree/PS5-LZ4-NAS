@@ -2944,6 +2944,12 @@ def drive_space(path: str) -> dict:
             return {"live_total": j["total"], "live_free": j["free"], "live_from": "LZ4 Compression engine"}
     except Exception:
         pass
+    try:
+        j = _recv_get(f"/api/df?path={urllib.parse.quote(path)}")
+        if j.get("ok") and j.get("total", -1) > 0:
+            return {"live_total": j["total"], "live_free": j["free"], "live_from": "pkg-receiver"}
+    except Exception:
+        pass
     if path == "/data":
         try:
             j = _recv_get("/api/space")
@@ -4474,6 +4480,14 @@ def push_one(game: str, force: bool = False) -> int:
         if dupes and not force:
             raise RuntimeError(f"{dest_root} on the PS5 already has {tid}: {', '.join(dupes)}. "
                                "Delete or move it first (ShadowMountPlus mounts one copy per title)")
+        # Room on the drive (idea from ps5upload): refuse a new transfer that
+        # can't fit; a resumed one (already partly there) is left to go on.
+        if out.name not in names and not force:
+            drive = re.match(r"^(/data|/mnt/[^/]+|/user)", dest_root)
+            room = drive_space(drive.group(1)) if drive else {}
+            if room.get("live_free") is not None and room["live_free"] < total + (1 << 30):
+                raise RuntimeError(f"not enough room on the PS5: {human(total)} to send, {human(room['live_free'])} free "
+                                   f"on {drive.group(1)} (1 GB kept free). Free some space or pick another drive")
         made = set()
 
         def mkdirs(path):

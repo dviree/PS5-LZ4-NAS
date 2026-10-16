@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-REV = "glass.4"  # build suffix; bump it on every change so the NAS restarts the receiver
+REV = "glass.5"  # build suffix; bump it on every change so the NAS restarts the receiver
 
 
 def c_lines(css: str) -> str:
@@ -76,7 +76,9 @@ def main() -> None:
     text = text.replace(version, '\t} else if (!strcmp(method, "GET") &&\n\t           !strncmp(path, "/api/keep-awake", 15)) {\n'
                         "\t\tawake_api(fd, path);\n"
                         '\t} else if (!strcmp(method, "GET") &&\n\t           !strncmp(path, "/api/installed", 14)) {\n'
-                        "\t\tinstalled_api(fd);\n" + version, 1)
+                        "\t\tinstalled_api(fd);\n"
+                        '\t} else if (!strcmp(method, "GET") &&\n\t           !strncmp(path, "/api/df", 7)) {\n'
+                        "\t\tdf_api(fd, path);\n" + version, 1)
     text = text.replace(started, started + "\tawake_start();\n", 1)
     mk = src.parent / "Makefile"
     mtext = mk.read_text()
