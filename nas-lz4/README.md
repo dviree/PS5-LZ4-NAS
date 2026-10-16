@@ -119,7 +119,13 @@ that container alone.
   of the same name, or the library folder): every file there with the same
   size, and the program files (eboot, PRX, ELF) byte for byte with SHA-256;
   it lists what is missing or different. Sending the game again sends just
-  those.
+  those. Large files (256 MB and up) get **spot checks**: four 1 MiB pieces
+  (start, end, two random) are read back and compared, during every
+  transfer and in Verify. A piece that differs sends that file again. It
+  reads back only 4 MiB per file, so the PS5's drive isn't read through.
+  **Delete** also takes the game's tile off the PS5 home screen (pkg-receiver
+  Glass build 6: `sceAppInstUtilAppUnInstall`), unless another copy with that
+  Title ID is still in a game folder; installed PS4 games get **Uninstall**.
 - **PS5 packages (`.pkg` with the `\x7fFIH` header)** in the package
   folders are read too (embedded CNT, `param.json`: name, Title ID,
   version, game / patch / DLC / app), next to PS4 packages; a package
