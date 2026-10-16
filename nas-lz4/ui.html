@@ -1083,8 +1083,8 @@ function gameHtml(g, det) {
   }
   if (g.verdict === 'LZ4' && g.output) {
     const busy = data.transfer && data.transfer.state === 'running';
-    acts.push(`<button class="pri" ${busy ? 'disabled title="a transfer is running"' : ''} data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}"
-      onclick="push(this.dataset.id, this.dataset.name)">${tr && tr.state === 'done' ? 'Send again' : 'Send to PS5'}</button>`);
+    acts.push(`<button class="pri" ${busy ? 'title="another game is being sent: this one is queued after it"' : ''} data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}"
+      onclick="push(this.dataset.id, this.dataset.name)">${tr && tr.state === 'done' ? 'Send again' : busy ? 'Send to PS5 (queue)' : 'Send to PS5'}</button>`);
   }
   // exFAT image of the LZ4 copy (some games only start from an image).
   if (g.verdict === 'LZ4' && g.output && !g.running) {
