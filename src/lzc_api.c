@@ -14571,6 +14571,29 @@ keep_awake_request(const http_request_t *req) {
   return websrv_send(req->fd, 200, "application/json", body, (size_t)n);
 }
 
+/* GET /api/lzc/df?path=/mnt/usb0: size and free space of the file system
+ * that holds path (statvfs), for a NAS that can't ask over FTP. Only paths
+ * under /data and /mnt. */
+static int
+df_request(const http_request_t *req) {
+  char path[256] = "";
+  char body[192];
+  struct statvfs sv;
+  websrv_get_query_arg(req, "path", path, sizeof(path));
+  if((strncmp(path, "/data", 5) != 0 && strncmp(path, "/mnt/", 5) != 0) || strstr(path, "..")) {
+    const char *bad = "{\"ok\":false,\"error\":\"path must be under /data or /mnt\"}";
+    return websrv_send(req->fd, 400, "application/json", bad, strlen(bad));
+  }
+  if(statvfs(path, &sv) != 0) {
+    int n = snprintf(body, sizeof(body), "{\"ok\":false,\"error\":\"statvfs failed errno=%d\"}", errno);
+    return websrv_send(req->fd, 404, "application/json", body, (size_t)n);
+  }
+  int n = snprintf(body, sizeof(body), "{\"ok\":true,\"total\":%llu,\"free\":%llu}",
+                   (unsigned long long)sv.f_blocks * sv.f_frsize,
+                   (unsigned long long)sv.f_bavail * sv.f_frsize);
+  return websrv_send(req->fd, 200, "application/json", body, (size_t)n);
+}
+
 /* GET /api/lzc/rest?confirm=1: put the PS5 in rest mode (for a NAS that woke
  * it to send games and has nothing left to do). Refused while a job runs. */
 static int
@@ -14605,6 +14628,7 @@ lzc_api_request(const http_request_t *req, const char *url) {
   if(!strcmp(req->path, "/api/lzc/games")) return games_request(req);
   if(!strcmp(req->path, "/api/lzc/keep-awake")) return keep_awake_request(req);
   if(!strcmp(req->path, "/api/lzc/rest")) return rest_request(req);
+  if(!strcmp(req->path, "/api/lzc/df")) return df_request(req);
   if(!strcmp(req->path, "/api/lzc/size-priority")) {
     return size_priority_request(req);
   }

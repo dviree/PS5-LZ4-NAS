@@ -2076,6 +2076,51 @@ def ps5_status(host: str, timeout: float = 1.5) -> str:
     return "unknown"
 
 
+def ps5_find(hint: str = "") -> list[dict]:
+    """PS5s on the local network: the discovery message (as Remote Play sends
+    it) to every address of the /24 the PS5 address or this page is on. Each
+    console answers, on (200) or in rest mode (620), with its name."""
+    import ipaddress
+    import socket
+    nets = []
+    for h in (hint, (get_settings().get("ps5_ftp") or "").partition(":")[0]):
+        h = (h or "").partition(":")[0]
+        try:
+            ip = ipaddress.ip_address(socket.gethostbyname(h)) if h else None
+        except (OSError, ValueError):
+            ip = None
+        if ip and ip.is_private:
+            net = ipaddress.ip_network(f"{ip}/24", strict=False)
+            if net not in nets:
+                nets.append(net)
+    if not nets:
+        raise ValueError("open this page by the NAS's IP address (e.g. http://192.168.1.10:5921) so the network is known")
+    msg = f"SRCH * HTTP/1.1\ndevice-discovery-protocol-version:{PS5_DISCOVERY_VERSION}\n".encode()
+    found = {}
+    with _discovery_socket() as sk:
+        sk.settimeout(0.2)
+        for _round in range(2):
+            for net in nets:
+                for host in net.hosts():
+                    try:
+                        sk.sendto(msg, (str(host), PS5_DISCOVERY_PORT))
+                    except OSError:
+                        pass
+            end = time.time() + 1.5
+            while time.time() < end:
+                try:
+                    data, (addr, _port) = sk.recvfrom(2048)
+                except OSError:
+                    continue
+                text = data.decode(errors="replace")
+                first = text.split("\n", 1)[0]
+                fields = dict(l.split(":", 1) for l in text.splitlines()[1:] if ":" in l)
+                found[addr] = {"ip": addr, "status": "on" if " 200 " in first else "standby" if " 620 " in first else "?",
+                               "name": fields.get("host-name", "").strip(), "type": fields.get("host-type", "").strip(),
+                               "id": fields.get("host-id", "").strip()}
+    return sorted(found.values(), key=lambda d: [int(x) for x in d["ip"].split(".")])
+
+
 def ps5_wake(host: str, key: str) -> None:
     import socket
     credential = int(key, 16)
@@ -2849,6 +2894,13 @@ def ps5_drives() -> dict:
         d["games"] = len(sent)
         d["game_bytes"] = sum(t.get("total") or 0 for t in sent)
         d.update((read_json(DRIVES_PATH, {}) or {}).get(d["path"], {}))
+    # Real size and free space: from our engine (any drive) or pkg-receiver
+    # (internal SSD); ftpsrv can't tell.
+    for d in drives:
+        try:
+            d.update(drive_space(d["path"]))
+        except Exception:
+            pass
     # Game folders on each drive, wherever they came from.
     try:
         f = ps5_ftp_connect()
@@ -2863,6 +2915,31 @@ def ps5_drives() -> dict:
     except Exception:
         pass
     return {"drives": drives}
+
+
+def drive_space(path: str) -> dict:
+    """{"live_total", "live_free", "live_from"} for a PS5 drive, or {}."""
+    import urllib.parse
+    import urllib.request
+    host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
+    if not host:
+        return {}
+    try:
+        with urllib.request.urlopen(f"http://{host}:{LZC_PORT}/api/lzc/df?path={urllib.parse.quote(path)}",
+                                    timeout=3) as r:
+            j = json.load(r)
+        if j.get("ok"):
+            return {"live_total": j["total"], "live_free": j["free"], "live_from": "LZ4 Compression engine"}
+    except Exception:
+        pass
+    if path == "/data":
+        try:
+            j = _recv_get("/api/space")
+            if j.get("total", -1) > 0:
+                return {"live_total": j["total"], "live_free": j["free"], "live_from": "pkg-receiver"}
+        except Exception:
+            pass
+    return {}
 
 
 GAME_SIZES = STATE / "ps5_game_sizes.json"  # measured sizes of game folders on the PS5
@@ -3491,6 +3568,157 @@ def receiver_install() -> dict:
             continue
     return {"installed": RECV_PATH, "started": None,
             "note": "start pkg-receiver from the Payload Manager on the PS5"}
+
+
+
+def serve_pkg(h, pid: str, head: bool = False) -> None:
+    """Send a library .pkg on HTTP handler h, with Range support (the PS5's
+    installer downloads in pieces)."""
+    try:
+        p = pkg_path(pid)
+    except SystemExit:
+        b = b'{"error":"no such package"}'
+        h.send_response(404)
+        h.send_header("Content-Length", str(len(b)))
+        h.end_headers()
+        if not head:
+            h.wfile.write(b)
+        return
+    size = p.stat().st_size
+    start, end = 0, size - 1
+    m = re.match(r"bytes=(\d*)-(\d*)$", h.headers.get("Range") or "")
+    if m and (m.group(1) or m.group(2)):
+        if m.group(1):
+            start = int(m.group(1))
+            end = min(int(m.group(2)), size - 1) if m.group(2) else size - 1
+        else:
+            start = max(0, size - int(m.group(2)))
+        if start > end or start >= size:
+            h.send_response(416)
+            h.send_header("Content-Range", f"bytes */{size}")
+            h.end_headers()
+            return
+        h.send_response(206)
+        h.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+    else:
+        h.send_response(200)
+    h.send_header("Content-Type", "application/octet-stream")
+    h.send_header("Accept-Ranges", "bytes")
+    h.send_header("Access-Control-Allow-Origin", "*")
+    h.send_header("Content-Length", str(end - start + 1))
+    h.end_headers()
+    if head:
+        return
+    left = end - start + 1
+    try:
+        with open(p, "rb") as f:
+            f.seek(start)
+            while left > 0:
+                chunk = f.read(min(left, 1 << 20))
+                if not chunk:
+                    break
+                h.wfile.write(chunk)
+                left -= len(chunk)
+    except (BrokenPipeError, ConnectionResetError):
+        pass
+
+
+# pkg-receiver's own page on the PS5 (the "pkg remote installer" shortcut)
+# shows a PC's catalog from port 9898 and finds the PC from a UDP message to
+# the PS5's port 12802. This page acts as that PC: the same catalog of the
+# NAS's packages, the files and their icons.
+CATALOG_PORT = int(os.environ.get("PS5LZ4_CATALOG_PORT", "9898"))
+PC_ANNOUNCE_PORT = 12802
+
+
+def pkg_catalog() -> list[dict]:
+    role = {"Game": "Game", "Update": "Patch", "DLC": "DLC"}
+    out = []
+    for p in scan_pkgs():
+        tid = p.get("title_id") or ""
+        out.append({"id": p["id"], "title": p.get("name") or p["file"], "titleId": tid,
+                    "version": p.get("version") or "", "size": p.get("size") or 0, "sizeText": human(p.get("size") or 0),
+                    "role": role.get(p.get("category") or "", p.get("category") or "Game"),
+                    "familyKey": tid or "FILE:" + p["file"],
+                    "platform": "PS5" if tid.upper().startswith("PPSA") else "PS4",
+                    "format": "pkg", "file": p["file"], "hasIcon": bool(p.get("icon"))})
+    return out
+
+
+def catalog_server() -> None:
+    """Web page container: the pkg-sender style catalog on CATALOG_PORT."""
+    import http.server
+    from urllib.parse import unquote
+
+    class C(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def _json(self, obj, code=200):
+            b = json.dumps(obj).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(b)))
+            self.end_headers()
+            self.wfile.write(b)
+
+        def do_HEAD(self):
+            path = self.path.split("?")[0]
+            if path.startswith("/pkg/"):
+                return serve_pkg(self, unquote(path[5:]), head=True)
+            self.send_response(404)
+            self.end_headers()
+
+        def do_GET(self):
+            path = self.path.split("?")[0]
+            if path == "/catalog":
+                return self._json(pkg_catalog())
+            if path.startswith("/pkg/"):
+                return serve_pkg(self, unquote(path[5:]))
+            if path.startswith("/icon/"):
+                data = pkg_icon(unquote(path[6:]))
+                if not data:
+                    return self._json({"error": "no icon"}, 404)
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                return self.wfile.write(data)
+            return self._json({"error": "unknown"}, 404)
+
+    try:
+        srv = http.server.ThreadingHTTPServer(("0.0.0.0", CATALOG_PORT), C)
+    except OSError as err:
+        print(f"[{now()}] catalog for the PS5: port {CATALOG_PORT}: {err}", flush=True)
+        return
+    print(f"[{now()}] catalog for pkg-receiver on port {CATALOG_PORT}", flush=True)
+    srv.serve_forever()
+
+
+def catalog_announcer() -> None:
+    """Tell pkg-receiver on the PS5 where the catalog is: it takes the
+    sender's address of this message (the NAS) and uses port 9898."""
+    import socket
+    sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    while True:
+        try:
+            host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
+            if host and scan_pkgs_cached():
+                sk.sendto(f"PKGSENDER-PC 0.0.0.0:{CATALOG_PORT}".encode(), (host, PC_ANNOUNCE_PORT))
+        except Exception:
+            pass
+        time.sleep(3)
+
+
+_pkgs_seen = {"at": 0.0, "n": 0}
+
+
+def scan_pkgs_cached() -> int:
+    if time.time() - _pkgs_seen["at"] > 300:
+        _pkgs_seen.update(at=time.time(), n=len(scan_pkgs()))
+    return _pkgs_seen["n"]
 
 
 def pkg_install(pid: str, via: str, page_host: str) -> dict:
@@ -4506,6 +4734,11 @@ def cmd_ui(args) -> int:
                 return
             if self.path.startswith("/pkgfile/"):
                 return self.send_pkgfile()
+            if self.path == "/api/ps5/find":
+                try:
+                    return self.send(200, json.dumps({"found": ps5_find(self.headers.get("Host") or "")}).encode())
+                except ValueError as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if self.path == "/api/receiver":
                 return self.send(200, json.dumps(receiver_status()).encode())
             if self.path.startswith("/api/pkg/icon?"):
@@ -4640,46 +4873,7 @@ def cmd_ui(args) -> int:
         def send_pkgfile(self, head: bool = False):
             """A library .pkg for pkg-receiver on the PS5 to download (Range supported)."""
             from urllib.parse import unquote
-            try:
-                p = pkg_path(unquote(self.path[len("/pkgfile/"):].split("?")[0]))
-            except SystemExit:
-                return self.send(404, b'{"error":"no such package"}')
-            size = p.stat().st_size
-            start, end = 0, size - 1
-            m = re.match(r"bytes=(\d*)-(\d*)$", self.headers.get("Range") or "")
-            if m and (m.group(1) or m.group(2)):
-                if m.group(1):
-                    start = int(m.group(1))
-                    end = min(int(m.group(2)), size - 1) if m.group(2) else size - 1
-                else:
-                    start = max(0, size - int(m.group(2)))
-                if start > end or start >= size:
-                    self.send_response(416)
-                    self.send_header("Content-Range", f"bytes */{size}")
-                    self.end_headers()
-                    return
-                self.send_response(206)
-                self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
-            else:
-                self.send_response(200)
-            self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Accept-Ranges", "bytes")
-            self.send_header("Content-Length", str(end - start + 1))
-            self.end_headers()
-            if head:
-                return
-            left = end - start + 1
-            try:
-                with open(p, "rb") as f:
-                    f.seek(start)
-                    while left > 0:
-                        chunk = f.read(min(left, 1 << 20))
-                        if not chunk:
-                            break
-                        self.wfile.write(chunk)
-                        left -= len(chunk)
-            except (BrokenPipeError, ConnectionResetError):
-                pass
+            return serve_pkg(self, unquote(self.path[len("/pkgfile/"):].split("?")[0]), head)
 
         def do_POST(self):
             if self.path.startswith("/api/ftp/put?"):
@@ -4883,6 +5077,9 @@ def cmd_ui(args) -> int:
     __import__("threading").Thread(target=send_after_watcher, daemon=True).start()
     __import__("threading").Thread(target=transfer_queue_watcher, daemon=True).start()
     __import__("threading").Thread(target=rest_watcher, daemon=True).start()
+    if CATALOG_PORT > 0:
+        __import__("threading").Thread(target=catalog_server, daemon=True).start()
+        __import__("threading").Thread(target=catalog_announcer, daemon=True).start()
     if FFPFSC_SHEET:
         __import__("threading").Thread(target=ffpfsc_refresher, daemon=True).start()
     if ENGINE_CHECK_EVERY > 0:

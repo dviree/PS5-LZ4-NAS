@@ -304,6 +304,24 @@ The PS5 reaches the page at the address the browser used (the request's
 host); set `PS5LZ4_NAS_URL` (e.g. `http://192.168.1.10:5921`) if that isn't
 an address the PS5 can reach.
 
+## Picking packages on the PS5, finding the PS5, free space
+
+- **pkg-receiver's own page on the PS5** (its *pkg remote installer*
+  home-screen shortcut, or `http://<PS5>:12800`) shows this NAS's packages
+  in its Games tab: the web page container serves the same catalog as
+  pkg-sender on port 9898 (`/catalog`, `/pkg/<id>`, `/icon/<id>`;
+  `CATALOG_PORT` in the install script) and tells the PS5 where it is with
+  pkg-sender's UDP message to port 12802 every 3 seconds. Pick a game with
+  the controller and install it.
+- **🔍 Find PS5** (Remote tab, next to the address) sends the PS5's own
+  discovery message to every address of the local /24 and lists each PS5
+  that answers, on or in rest mode, with its name; **Use this one** saves
+  it. Handy when the router gave the PS5 a new address.
+- **PS5 storage** shows each drive's real size and free space from the LZ4
+  Compression engine (`/api/lzc/df`, engine v1.5.0-nas.3 or newer), or the
+  internal SSD's from pkg-receiver; the manual size is only needed without
+  them.
+
 ## Rest mode when everything is sent
 
 When this page wakes the PS5 to send games (Remote Play wake-up), it puts it
