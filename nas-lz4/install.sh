@@ -21,6 +21,7 @@ CONTAINER="${CONTAINER:-ps5-lz4}"
 LEVEL="${LEVEL:-9}"
 FREE_MARGIN_GB="${FREE_MARGIN_GB:-20}"
 UI_PORT="${UI_PORT:-5921}"                         # web page: http://<NAS>:$UI_PORT
+CATALOG_PORT="${CATALOG_PORT:-9898}"               # package catalog for pkg-receiver's page on the PS5
 # yes: the web page can delete original games from the library (the packing
 # container then mounts the library writable; packing itself never writes there).
 DELETE_ORIGINALS="${DELETE_ORIGINALS:-no}"
@@ -122,6 +123,8 @@ elif command -v ss >/dev/null && ss -ltnH 2>/dev/null | awk '{print $4}' | grep 
   die "port $UI_PORT is already in use on the NAS; pick another with UI_PORT=..."
 fi
 ok "web page port $UI_PORT is free"
+cat_owner="$(docker ps --format '{{.Names}} {{.Ports}}' | grep -E ":$CATALOG_PORT->" | awk '{print $1}' | grep -vx "$CONTAINER-ui" || true)"
+[ -z "$cat_owner" ] || die "port $CATALOG_PORT is used by $cat_owner; pick another with CATALOG_PORT=... (pkg-receiver's page then can't find the catalog by itself)"
 ok "other containers: $(docker ps --format '{{.Names}}' | grep -vx "$CONTAINER" | tr '\n' ' ') (not touched)"
 
 if [ "$CHECK_ONLY" = 1 ]; then
@@ -207,6 +210,7 @@ services:
     network_mode: bridge
     ports:
       - "$UI_PORT:5921"
+      - "$CATALOG_PORT:9898"
     labels:
       com.centurylinklabs.watchtower.enable: "false"
     environment:
@@ -261,7 +265,7 @@ else
     -v "$BASE/logs:/state/logs" -v "$BASE/reports:/state/reports" \
     "$IMAGE" >/dev/null
   docker run -d --name "$CONTAINER-ui" --restart unless-stopped --init --user "$PUID:$PGID" \
-    -p "$UI_PORT:5921" --label com.centurylinklabs.watchtower.enable="$WATCHTOWER" \
+    -p "$UI_PORT:5921" -p "$CATALOG_PORT:9898" --label com.centurylinklabs.watchtower.enable="$WATCHTOWER" \
     -e PS5LZ4_HOST_LIBRARY="$LIBRARY" -e PS5LZ4_HOST_OUTPUT="$OUTPUT" -e PS5LZ4_LEVEL="$LEVEL" -e TZ="$TZ_NAME" \
     -v "$LIBRARY:/library:ro" -v "$OUTPUT:/output:ro" -v "$BASE/state:/state" \
     -v "$BASE/logs:/state/logs:ro" -v "$BASE/reports:/state/reports:ro" ${PS4_RUN[@]+"${PS4_RUN[@]}"} \

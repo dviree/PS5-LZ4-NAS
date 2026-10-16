@@ -335,9 +335,9 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     <div class="why" id="rcv-msg"></div>
   </div>
   <div class="card"><h2>PS5 storage</h2>
-    <div class="mut">ftpsrv can't tell a drive's size or free space, so: <b>Set size</b> once (as PS5 Settings › Storage
-    or the drive's label shows it), and <b>Measure</b> adds up the files on the drive. Free = size − measured.
-    Measurements are kept; measure again after big changes.</div>
+    <div class="mut">Size and free space come live from the LZ4 Compression engine on the PS5 (engine v1.5.0-nas.3 or newer;
+    pkg-receiver also tells the internal SSD's). Without them: <b>Set size</b> once (as PS5 Settings › Storage or the
+    drive's label shows it) and <b>Measure</b> adds up the files on the drive.</div>
     <div id="drives" style="margin-top:8px"><button class="sm" onclick="loadDrives()">Show drives</button></div>
   </div>
   <div class="card"><h2>1. Address</h2>
@@ -349,8 +349,10 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
       <input id="s-dest" placeholder="Folder on the PS5, e.g. /mnt/usb0/homebrew" onchange="saveAddress()">
       <input id="s-pkg" placeholder="PS4 packages on the PS5, e.g. /data/pkg" title="Where .pkg files are sent; install them from there with ItemzFlow or etaHEN" onchange="saveAddress()">
       <button onclick="saveAddress()">Save</button>
+      <button onclick="findPs5()" title="Search the network for PS5 consoles (also in rest mode)">🔍 Find PS5</button>
     </div>
     <div class="why good" id="s-saved"></div>
+    <div id="s-found"></div>
   </div>
   <div class="card"><h2>2. Pair for wake-up (Remote Play, like Chiaki)</h2>
     <div class="mut">Pairing lets this page wake the PS5 from rest mode, by itself before a transfer or with
@@ -585,6 +587,25 @@ async function saveSettings() {
 }
 let settingsFilled = false;
 // The address and folder are saved as soon as they are changed.
+// Find PS5 consoles on the network (the discovery message Remote Play uses),
+// e.g. after the router gave the PS5 a new address.
+async function findPs5() {
+  const el = document.getElementById('s-found');
+  el.innerHTML = '<div class="mut">Searching the network…</div>';
+  try {
+    const r = await fetch('/api/ps5/find', {cache: 'no-store'}), j = await r.json();
+    if (!r.ok) { el.innerHTML = `<div class="why bad">${esc(j.error || r.status)}</div>`; return; }
+    const cur = (document.getElementById('s-ftp').value || '').split(':')[0];
+    el.innerHTML = j.found.length ? j.found.map(p => `<div class="qrow"><span class="qname"><b>${esc(p.name || 'PS5')}</b> <span class="mut">${esc(p.ip)} · ${p.status === 'on' ? 'on' : p.status === 'standby' ? 'rest mode' : esc(p.status)}</span></span>
+        ${p.ip === cur ? '<span class="good">in use ✓</span>' : `<button class="sm pri" data-ip="${esc(p.ip)}" onclick="usePs5(this.dataset.ip)">Use this one</button>`}</div>`).join('')
+      : '<div class="why">No PS5 answered. Is it on or in rest mode with <i>Stay Connected to the Internet</i> on, and on the same network?</div>';
+  } catch (e) { el.innerHTML = `<div class="why bad">${esc(String(e))}</div>`; }
+}
+function usePs5(ip) {
+  const f = document.getElementById('s-ftp'), port = (f.value.split(':')[1] || '2121');
+  f.value = ip + ':' + port;
+  saveAddress().then(() => { document.getElementById('s-found').innerHTML = ''; });
+}
 async function saveAddress() {
   const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action: 'settings', ps5_ftp: document.getElementById('s-ftp').value.trim(),
@@ -1173,14 +1194,15 @@ async function loadDrives() {
     const r = await fetch('/api/ps5/drives', {cache: 'no-store'}), j = await r.json();
     if (!r.ok) { el.innerHTML = `<span class="bad">${esc(j.error || r.status)}</span> <button class="sm" onclick="loadDrives()">Try again</button>`; return; }
     el.innerHTML = j.drives.map((d, i) => {
-      const cap = d.capacity, used = d.used, pct = cap && used != null ? Math.min(100, 100 * used / cap) : null;
+      const live = d.live_total > 0, cap = live ? d.live_total : d.capacity, used = live ? d.live_total - d.live_free : d.used;
+      const pct = cap && used != null ? Math.min(100, 100 * used / cap) : null;
       const usage = used == null ? '<span class="mut">not measured yet</span>'
-        : cap ? `<b>${gbd(Math.max(0, cap - used))} free</b> of ${gbd(cap)} · ${gbd(used)} used (${pct.toFixed(0)} %)`
+        : cap ? `<b>${gbd(Math.max(0, cap - used))} free</b> of ${gbd(cap)} · ${gbd(used)} used (${pct.toFixed(0)} %)${live ? ` <span class="good">· live from the ${esc(d.live_from)}</span>` : ''}`
         : `<b>${gbd(used)} used</b> · <a href="#" data-p="${esc(d.path)}" onclick="driveSize(this.dataset.p);return false">enter the drive size</a> to see what is free`;
       return `<div class="drive">
         <div class="dhead"><b>${esc(d.label)}</b> <span class="mut">${esc(d.path)}</span><span class="sp"></span>
           <button class="sm" data-p="${esc(d.path)}" data-i="${i}" onclick="measure(this.dataset.p, document.getElementById('du-' + this.dataset.i), true)">Measure</button>
-          <button class="sm" data-p="${esc(d.path)}" onclick="driveSize(this.dataset.p)">${cap ? 'Size: ' + gbd(cap) : 'Set size'}</button>
+          ${live ? '' : `<button class="sm" data-p="${esc(d.path)}" onclick="driveSize(this.dataset.p)">${cap ? 'Size: ' + gbd(cap) : 'Set size'}</button>`}
           <button class="sm" data-p="${esc(d.path)}" onclick="tab('ftp');ftpGo(this.dataset.p)">Open</button></div>
         ${pct != null ? `<div class="bar dbar${pct > 90 ? ' full' : ''}"><i style="width:${pct}%"></i></div>` : ''}
         <div class="why" id="du-${i}">${usage}</div>
