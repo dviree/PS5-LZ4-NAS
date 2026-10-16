@@ -1,7 +1,26 @@
 {
  "version": 1,
- "updated": "2026-10-16T11:39:13Z",
+ "updated": "2026-10-16T11:55:11Z",
  "games": {
+  "PPSA01289": {
+   "name": "Sackboy™: A Big Adventure",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Sackboy™: A Big Adventure",
+    "gameVersion": "01.024.000",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.42",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T11:54:59Z",
+    "issue": 40
+   }
+  },
   "PPSA01473": {
    "name": "Ratchet & Clank - Rift Apart",
    "works": 1,
