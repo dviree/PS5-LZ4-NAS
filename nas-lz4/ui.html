@@ -210,6 +210,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
   <button id="t-pg" onclick="tab('pg')">PS5 games</button>
   <button id="t-smp" onclick="tab('smp')">ShadowMount</button>
   <button id="t-sav" onclick="tab('sav')">Saves</button>
+  <button id="t-up" onclick="tab('up')">PS5 Upload</button>
   <button id="t-comm" onclick="tab('comm')">Community</button>
   <button id="t-ps5" onclick="tab('ps5')">Remote</button>
   <button id="t-ftp" onclick="tab('ftp')">FTP</button>
@@ -450,6 +451,19 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     <div id="smp-job"></div>
     <div id="smp-log" hidden></div>
     <div id="smp-list" class="pg-grid"></div>
+  </div>
+</main>
+<main id="p-up" hidden>
+  <div class="card">
+    <div class="dhead"><h2 style="margin:0">PS5 Upload</h2><span class="sp"></span>
+      <a class="sm" id="up-open" target="_blank" rel="noopener">Open in a new tab ↗</a></div>
+    <div class="mut"><a href="https://github.com/phantomptr/ps5upload" target="_blank" rel="noopener">ps5upload</a> (GPL-3.0) by phantomptr,
+    its own engine and web UI, running in its own container on this NAS: uploads with resume, installs, collection, file browser,
+    cheats, fan curve and more. Address of its web UI:
+      <input id="up-url" placeholder="http://NAS:19113" style="font:inherit;padding:4px 8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--txt);min-width:240px" onchange="saveUp(this.value)">
+    </div>
+    <div id="up-msg" class="why"></div>
+    <iframe id="up-frame" title="PS5 Upload" style="width:100%;height:78vh;border:0;border-radius:14px;margin-top:10px;background:#111" hidden></iframe>
   </div>
 </main>
 <main id="p-sav" hidden>
@@ -1455,6 +1469,28 @@ async function pgUninstall(tid, name) {
   alert(r.ok ? `${name} uninstalled.` : 'Not uninstalled: ' + (j.error || r.status));
   if (r.ok) loadPg();
 }
+function upUrl() {
+  let u = '';
+  try { u = localStorage.getItem('ps5upload') || ''; } catch (e) {}
+  return u || `${location.protocol}//${location.hostname}:19113/`;
+}
+function saveUp(v) { try { localStorage.setItem('ps5upload', v.trim()); } catch (e) {} loadUp(); }
+async function loadUp() {
+  const u = upUrl(), fr = document.getElementById('up-frame'), msg = document.getElementById('up-msg');
+  document.getElementById('up-url').value = u;
+  document.getElementById('up-open').href = u;
+  msg.textContent = 'Looking for ps5upload at ' + u + ' …';
+  try {
+    await fetch(u, {mode: 'no-cors', cache: 'no-store'});
+    msg.innerHTML = '';
+    if (fr.src !== u) fr.src = u;
+    fr.hidden = false;
+  } catch (e) {
+    fr.hidden = true;
+    msg.innerHTML = `<span class="bad">No ps5upload answers at ${esc(u)}.</span> Start its container, or install it with this project's install
+      script (<code>PS5UPLOAD=yes</code>), or enter its address above.`;
+  }
+}
 let savTimer = null;
 async function loadSav() {
   let j;
@@ -1675,7 +1711,7 @@ async function ps5Copies(tid) {
 }
 let comm = null;
 function tab(t) {
-  for (const k of ['mine', 'act', 'pg', 'smp', 'sav', 'ps5', 'comm', 'ftp']) {
+  for (const k of ['mine', 'act', 'pg', 'smp', 'sav', 'up', 'ps5', 'comm', 'ftp']) {
     document.getElementById('p-' + k).hidden = t !== k;
     document.getElementById('t-' + k).classList.toggle('on', t === k);
   }
@@ -1683,6 +1719,7 @@ function tab(t) {
   if (t === 'comm') loadComm();
   if (t === 'smp') loadSmp();
   if (t === 'sav') loadSav();
+  if (t === 'up') loadUp();
   if (t === 'act') setTimeout(loadPkgAct, 0);
   if (t === 'pg' && !pgData) loadPg();
   if (t === 'ps5') rcvCheck();
