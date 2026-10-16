@@ -217,7 +217,7 @@ def workers() -> int:
 
 def parse_param_json(data: bytes) -> tuple[str, str]:
     try:
-        j = json.loads(data.decode("utf-8", "replace"))
+        j = json.loads(data.decode("utf-8-sig", "replace"))
     except ValueError:
         return "", ""
     title_id = str(j.get("titleId") or "")
@@ -244,7 +244,7 @@ def game_version(*folders: Path, name: str = "") -> dict:
         p = d / "sce_sys" / "param.json" if d else None
         try:
             if p and p.is_file() and p.stat().st_size < 1 << 20:
-                j = json.loads(p.read_bytes().decode("utf-8", "replace"))
+                j = json.loads(p.read_bytes().decode("utf-8-sig", "replace"))
                 v = {"version": str(j.get("contentVersion") or ""), "master": str(j.get("masterVersion") or "")}
                 fw = j.get("requiredSystemSoftwareVersion")
                 if isinstance(fw, str) and fw.startswith("0x") and len(fw) >= 6:
@@ -3030,7 +3030,7 @@ def ps5_games() -> dict:
                     try:
                         f.voidcmd("TYPE I")
                         f.retrbinary(f"RETR {path}/sce_sys/param.json", buf.extend)
-                        j = json.loads(bytes(buf).decode("utf-8", "replace"))
+                        j = json.loads(bytes(buf).decode("utf-8-sig", "replace"))
                         g["title_id"], g["name"] = parse_param_json(bytes(buf))
                         g["version"] = str(j.get("contentVersion") or "")
                     except (*ftplib.all_errors, ValueError):
@@ -3045,8 +3045,13 @@ def ps5_games() -> dict:
                             except ftplib.all_errors:
                                 pass
                         if "sce_sys" in names:
-                            g["issues"] = [{"code": "noparam", "fix": False,
-                                            "text": "sce_sys has no param.json: an incomplete copy?"}]
+                            try:
+                                has = "param.json" in {i["name"].lower() for i in ps5_ftp_list_conn(f, f"{path}/sce_sys")}
+                            except ftplib.all_errors:
+                                has = False
+                            g["issues"] = [{"code": "noparam", "fix": False, "text":
+                                            "sce_sys/param.json is there but could not be read (damaged copy, or FTP hiccup: Refresh)"
+                                            if has else "sce_sys has no param.json: an incomplete copy?"}]
                         elif len(inner) == 1:
                             g["issues"] = [{"code": "wrapper", "fix": True, "inner": inner[0],
                                             "text": f"the game is one folder deeper ({inner[0]}), where ShadowMountPlus doesn't look"}]
@@ -3599,7 +3604,7 @@ def pkg_info(path: Path) -> dict:
                 raw = fh.read(size)
                 tid, name = parse_param_json(raw)
                 try:
-                    j = json.loads(raw.decode("utf-8", "replace"))
+                    j = json.loads(raw.decode("utf-8-sig", "replace"))
                 except ValueError:
                     j = {}
                 info.update(name=name, title_id=tid, version=str(j.get("contentVersion") or ""), platform="PS5")
