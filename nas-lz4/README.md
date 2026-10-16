@@ -298,6 +298,12 @@ game is on the PS5. **Install** sends it (queued behind other installs, with
 speed and time left), **Uninstall** deletes it from the PS5, **Pause** and
 **Resume install** continue where it stopped.
 
+Ideas from Overdrive (no catalog, only your own library): **★ Favorites**
+(press ☆ on a game; kept in that browser) with their own filter, sorting
+(A–Z, newest packed, best rated by the community, biggest, smallest, most
+saved; remembered), and **spotlight rows** on top: newest packed and best
+rated.
+
 ## The ELF on the PS5: pkg-receiver
 
 The PS5 side is **pkg-receiver** from
