@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T21:37:05Z",
+ "updated": "2026-10-16T21:59:55Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -456,6 +456,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-16T12:46:36Z",
     "issue": 41
+   }
+  },
+  "PPSA25642": {
+   "name": "Clive Barker's Hellraiser: Revival",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Clive Barker's Hellraiser: Revival",
+    "gameVersion": "02.002.000",
+    "level": "7",
+    "source": "Folder",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T21:59:44Z",
+    "issue": 52
    }
   },
   "PPSA26344": {
