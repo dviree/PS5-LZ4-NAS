@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T23:12:29Z",
+ "updated": "2026-10-16T23:13:28Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -611,22 +611,22 @@
    }
   },
   "PPSA33286": {
-   "name": "Silent Hill Townfall",
-   "works": 1,
+   "name": "SILENT HILL: Townfall",
+   "works": 2,
    "issues": 0,
    "noStart": 0,
    "crash": 0,
-   "reports": 1,
+   "reports": 2,
    "lastReport": {
     "status": "works",
-    "game": "Silent Hill Townfall",
-    "gameVersion": "02.003.000",
-    "level": "9",
-    "source": "exFAT image",
-    "firmware": "13.60",
+    "game": "SILENT HILL: Townfall",
+    "gameVersion": "",
+    "level": "",
+    "source": "",
+    "firmware": "",
     "appVersion": "1.5.0",
-    "date": "2026-10-16T14:50:14Z",
-    "issue": 46
+    "date": "2026-10-16T23:13:18Z",
+    "issue": 59
    }
   },
   "PPSA35399": {
