@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-17T07:00:50Z",
+ "updated": "2026-10-17T08:39:32Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -19,6 +19,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-16T11:54:59Z",
     "issue": 40
+   }
+  },
+  "PPSA01317": {
+   "name": "Gran Turismo® 7",
+   "works": 0,
+   "issues": 0,
+   "noStart": 1,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "noStart",
+    "game": "Gran Turismo® 7",
+    "gameVersion": "",
+    "level": "",
+    "source": "Folder",
+    "firmware": "12.2",
+    "appVersion": "1.5.0-6-g779",
+    "date": "2026-10-17T08:39:22Z",
+    "issue": 67
    }
   },
   "PPSA01325": {
