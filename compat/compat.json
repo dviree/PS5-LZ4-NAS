@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T22:01:02Z",
+ "updated": "2026-10-16T23:17:28Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -80,21 +80,21 @@
   },
   "PPSA02530": {
    "name": "PRAGMATA",
-   "works": 1,
+   "works": 2,
    "issues": 0,
    "noStart": 0,
    "crash": 0,
-   "reports": 1,
+   "reports": 2,
    "lastReport": {
     "status": "works",
     "game": "PRAGMATA",
     "gameVersion": "",
-    "level": "7",
-    "source": "Folder",
-    "firmware": "13.60",
+    "level": "",
+    "source": "",
+    "firmware": "",
     "appVersion": "1.5.0",
-    "date": "2026-10-16T22:00:53Z",
-    "issue": 53
+    "date": "2026-10-16T23:10:41Z",
+    "issue": 57
    }
   },
   "PPSA03396": {
@@ -118,21 +118,21 @@
   },
   "PPSA03671": {
    "name": "Marvel's Wolverine",
-   "works": 2,
+   "works": 3,
    "issues": 0,
    "noStart": 0,
    "crash": 0,
-   "reports": 2,
+   "reports": 3,
    "lastReport": {
     "status": "works",
     "game": "Marvel's Wolverine",
-    "gameVersion": "01.001.004",
-    "level": "9",
-    "source": "exFAT image",
-    "firmware": "13.60",
+    "gameVersion": "",
+    "level": "",
+    "source": "",
+    "firmware": "",
     "appVersion": "1.5.0",
-    "date": "2026-10-15T13:57:06Z",
-    "issue": 25
+    "date": "2026-10-16T23:12:19Z",
+    "issue": 58
    }
   },
   "PPSA06960": {
@@ -420,6 +420,44 @@
     "issue": 26
    }
   },
+  "PPSA24913": {
+   "name": "ACE COMBAT 8",
+   "works": 0,
+   "issues": 0,
+   "noStart": 1,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "noStart",
+    "game": "ACE COMBAT 8",
+    "gameVersion": "",
+    "level": "",
+    "source": "exFAT image",
+    "firmware": "",
+    "appVersion": "",
+    "date": "2026-10-16T22:09:00Z",
+    "issue": 54
+   }
+  },
+  "PPSA25153": {
+   "name": "Jurassic World Evolution 3",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Jurassic World Evolution 3",
+    "gameVersion": "",
+    "level": "7",
+    "source": "Folder",
+    "firmware": "13.40",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T23:17:19Z",
+    "issue": 60
+   }
+  },
   "PPSA25286": {
    "name": "Crimson Desert",
    "works": 0,
@@ -475,6 +513,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-16T21:59:44Z",
     "issue": 52
+   }
+  },
+  "PPSA25991": {
+   "name": "Senua's Saga Hellblade II",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Senua's Saga Hellblade II",
+    "gameVersion": "01.002.000",
+    "level": "9",
+    "source": "exFAT image",
+    "firmware": "13.60",
+    "appVersion": "1.5.0",
+    "date": "2026-10-16T22:36:32Z",
+    "issue": 56
    }
   },
   "PPSA26344": {
@@ -573,22 +630,22 @@
    }
   },
   "PPSA33286": {
-   "name": "Silent Hill Townfall",
-   "works": 1,
+   "name": "SILENT HILL: Townfall",
+   "works": 2,
    "issues": 0,
    "noStart": 0,
    "crash": 0,
-   "reports": 1,
+   "reports": 2,
    "lastReport": {
     "status": "works",
-    "game": "Silent Hill Townfall",
-    "gameVersion": "02.003.000",
-    "level": "9",
-    "source": "exFAT image",
-    "firmware": "13.60",
+    "game": "SILENT HILL: Townfall",
+    "gameVersion": "",
+    "level": "",
+    "source": "",
+    "firmware": "",
     "appVersion": "1.5.0",
-    "date": "2026-10-16T14:50:14Z",
-    "issue": 46
+    "date": "2026-10-16T23:13:18Z",
+    "issue": 59
    }
   },
   "PPSA35399": {
