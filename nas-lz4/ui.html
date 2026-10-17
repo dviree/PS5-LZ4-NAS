@@ -959,7 +959,8 @@ function render() {
         : `<button class="sm pri" data-a="${esc(a.id)}" data-n="${esc(a.name)}" onclick="act('extract', 'Extract ' + this.dataset.n + ' and make a checked .exfat of it?\n\nIt needs about twice the game size free in the library for a while. The RAR files are not changed.', {game: this.dataset.a})">${st.state === 'failed' || st.state === 'stopped' ? '↻ Try again' : '📦 Extract to exFAT'}</button>`}</div>
       ${run ? `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div><div class="why">${gb(st.done)} of ${gb(st.total)}</div>` : ''}
       ${st.state === 'failed' ? `<div class="why bad">${esc(st.error || '')}</div>` : ''}
-      ${st.check_error ? `<div class="why bad">${esc(st.check_error)}</div>` : ''}</div>`;
+      ${st.check_error ? `<div class="why bad">${esc(st.check_error)}</div>` : ''}
+      ${(st.boot || []).map(b => `<div class="why" style="color:var(--warn)">⚠ to boot: ${esc(b)} (Verify Game Files in the PS5 app fixes it on the console)</div>`).join('')}</div>`;
   }).join('');
   const log = document.getElementById('log');
   const items = d.requests.recent;
