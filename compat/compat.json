@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-17T11:57:38Z",
+ "updated": "2026-10-17T16:12:24Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -688,21 +688,21 @@
   },
   "PPSA26344": {
    "name": "Ghost of Yōtei",
-   "works": 2,
+   "works": 3,
    "issues": 0,
    "noStart": 1,
    "crash": 0,
-   "reports": 3,
+   "reports": 4,
    "lastReport": {
     "status": "works",
     "game": "Ghost of Yōtei",
     "gameVersion": "",
-    "level": "12",
-    "source": "Folder",
+    "level": "",
+    "source": "",
     "firmware": "",
     "appVersion": "1.5.0",
-    "date": "2026-10-17T11:54:49Z",
-    "issue": 68
+    "date": "2026-10-17T16:12:15Z",
+    "issue": 70
    }
   },
   "PPSA28180": {
