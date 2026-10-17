@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T23:17:28Z",
+ "updated": "2026-10-17T04:46:51Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -19,6 +19,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-16T11:54:59Z",
     "issue": 40
+   }
+  },
+  "PPSA01325": {
+   "name": "ASTRO's PLAYROOM",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "ASTRO's PLAYROOM",
+    "gameVersion": "",
+    "level": "",
+    "source": "",
+    "firmware": "",
+    "appVersion": "1.5.0",
+    "date": "2026-10-17T01:57:16Z",
+    "issue": 64
    }
   },
   "PPSA01411": {
@@ -95,6 +114,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-16T23:10:41Z",
     "issue": 57
+   }
+  },
+  "PPSA03210": {
+   "name": "Ghost of Tsushima",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Ghost of Tsushima",
+    "gameVersion": "",
+    "level": "",
+    "source": "exFAT image",
+    "firmware": "",
+    "appVersion": "1.5.0",
+    "date": "2026-10-17T04:46:42Z",
+    "issue": 65
    }
   },
   "PPSA03396": {
@@ -247,6 +285,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-16T02:18:36Z",
     "issue": 35
+   }
+  },
+  "PPSA14501": {
+   "name": "Brothers: A Tale of Two Sons Remake",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Brothers: A Tale of Two Sons Remake",
+    "gameVersion": "",
+    "level": "",
+    "source": "Folder",
+    "firmware": "",
+    "appVersion": "1.5.0",
+    "date": "2026-10-17T01:44:53Z",
+    "issue": 63
    }
   },
   "PPSA14632": {
@@ -418,6 +475,44 @@
     "appVersion": "ps5-lz4 NAS",
     "date": "2026-10-15T14:19:58Z",
     "issue": 26
+   }
+  },
+  "PPSA24478": {
+   "name": "Like a Dragon: Pirate Yakuza in Hawaii",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Like a Dragon: Pirate Yakuza in Hawaii",
+    "gameVersion": "",
+    "level": "",
+    "source": "",
+    "firmware": "",
+    "appVersion": "1.5.0",
+    "date": "2026-10-17T01:16:51Z",
+    "issue": 61
+   }
+  },
+  "PPSA24884": {
+   "name": "Starfield",
+   "works": 0,
+   "issues": 0,
+   "noStart": 1,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "noStart",
+    "game": "Starfield",
+    "gameVersion": "",
+    "level": "",
+    "source": "Folder",
+    "firmware": "",
+    "appVersion": "1.5.0",
+    "date": "2026-10-17T01:24:01Z",
+    "issue": 62
    }
   },
   "PPSA24913": {
