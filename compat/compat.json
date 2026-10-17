@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-17T01:24:11Z",
+ "updated": "2026-10-17T01:45:04Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -247,6 +247,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-16T02:18:36Z",
     "issue": 35
+   }
+  },
+  "PPSA14501": {
+   "name": "Brothers: A Tale of Two Sons Remake",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Brothers: A Tale of Two Sons Remake",
+    "gameVersion": "",
+    "level": "",
+    "source": "Folder",
+    "firmware": "",
+    "appVersion": "1.5.0",
+    "date": "2026-10-17T01:44:53Z",
+    "issue": 63
    }
   },
   "PPSA14632": {
