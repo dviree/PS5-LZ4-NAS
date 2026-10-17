@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-17T01:17:00Z",
+ "updated": "2026-10-17T01:24:11Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -437,6 +437,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-17T01:16:51Z",
     "issue": 61
+   }
+  },
+  "PPSA24884": {
+   "name": "Starfield",
+   "works": 0,
+   "issues": 0,
+   "noStart": 1,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "noStart",
+    "game": "Starfield",
+    "gameVersion": "",
+    "level": "",
+    "source": "Folder",
+    "firmware": "",
+    "appVersion": "1.5.0",
+    "date": "2026-10-17T01:24:01Z",
+    "issue": 62
    }
   },
   "PPSA24913": {
