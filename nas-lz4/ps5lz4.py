@@ -1794,9 +1794,46 @@ def find_playgo_emu(root: Path) -> Path | None:
     return None
 
 
+def ampr_index_stale(root: Path) -> str | None:
+    """The first file a shipped ampr_emu.index (AMPRIDX3) lists that is not in root
+    with that size, or None. APR-EMU trusts the index for every /app0 lookup, so a
+    stale one (e.g. /app0/Runtime/... after Runtime/ became runtime/) crashes the
+    game at boot (from the original project's Verify)."""
+    import struct
+    p = root / "ampr_emu.index"
+    try:
+        size = p.stat().st_size
+        if size < 48 or size > 256 << 20:
+            return None
+        buf = p.read_bytes()
+    except OSError:
+        return None
+    if buf[:8] != b"AMPRIDX3" or struct.unpack_from("<II", buf, 8) != (3, 24):
+        return None
+    count, path_bytes = struct.unpack_from("<QQ", buf, 16)
+    blob = 48 + count * 24
+    if count > (size - 48) // 24 or path_bytes > size - blob:
+        return None
+    for i in range(count):
+        off, ln, want = struct.unpack_from("<IIQ", buf, 48 + i * 24)
+        if off + ln >= path_bytes or buf[blob + off + ln] != 0:
+            continue
+        name = buf[blob + off: blob + off + ln].decode("utf-8", "replace")
+        if not name.startswith("/app0/"):
+            continue
+        f = root / name[6:]
+        try:
+            if f.is_symlink() or not f.is_file() or f.stat().st_size != want:
+                return name[6:]
+        except OSError:
+            return name[6:]
+    return None
+
+
 def boot_files(root: Path, repair: bool) -> dict:
     """What root needs to boot: {"changed": [...], "needed": [...], "notes": [...]}.
-    With repair the runtime folder is renamed and a PlayGo emulator copied in."""
+    With repair the runtime folder is renamed, a PlayGo emulator copied in and,
+    on an unpacked folder, a stale ampr_emu.index moved aside."""
     r = {"changed": [], "needed": [], "notes": []}
     eboot = root / "eboot.bin"
     if not eboot.is_file():
@@ -1842,6 +1879,15 @@ def boot_files(root: Path, repair: bool) -> dict:
                 r["changed"].append(f"PlayGo emulator added to fakelib (from {src})")
             else:
                 r["needed"].append("a PlayGo emulator in fakelib")
+    # After the runtime rename. LZ4 packs list files that live inside the packs: skipped.
+    if not (root / "ampr_assets.index").is_file():
+        miss = ampr_index_stale(root)
+        if miss and repair:
+            os.replace(root / "ampr_emu.index", root / "ampr_emu.index.stale")
+            r["changed"].append(f"moved the out-of-date ampr_emu.index aside (lists {miss}); APR-EMU builds a new one")
+        elif miss:
+            r["needed"].append(f"ampr_emu.index is out of date (lists {miss}, which is not there): "
+                               "it must be moved aside or the game crashes at boot")
     return r
 
 
@@ -4243,6 +4289,9 @@ def cmd_extract(args) -> int:
         final = EXTRACTED / (f"{name} [{tid.upper()}].exfat" if tid else f"{name}.exfat")
         if final.exists():
             raise SystemExit(f"{final.name} already exists in {EXTRACTED}")
+        boot = _safe(lambda: boot_files(game, repair=False), {}) or {}
+        if boot.get("needed") or boot.get("notes"):
+            state(boot=boot.get("needed", []) + boot.get("notes", []))
         size = exfat_build(game, final, key, EXTRACTED / f".{key}.img", state=lambda **kw: state(
             **({**kw, "phase": "image: " + kw["phase"]} if "phase" in kw else kw)))
         shutil.rmtree(tmp)  # our own temp copy; the archive is untouched
