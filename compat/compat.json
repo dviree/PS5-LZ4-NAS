@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-16T23:17:28Z",
+ "updated": "2026-10-17T01:17:00Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -418,6 +418,25 @@
     "appVersion": "ps5-lz4 NAS",
     "date": "2026-10-15T14:19:58Z",
     "issue": 26
+   }
+  },
+  "PPSA24478": {
+   "name": "Like a Dragon: Pirate Yakuza in Hawaii",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Like a Dragon: Pirate Yakuza in Hawaii",
+    "gameVersion": "",
+    "level": "",
+    "source": "",
+    "firmware": "",
+    "appVersion": "1.5.0",
+    "date": "2026-10-17T01:16:51Z",
+    "issue": 61
    }
   },
   "PPSA24913": {
