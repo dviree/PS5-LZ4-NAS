@@ -20,8 +20,8 @@ Full guide: [nas-lz4/README.md](../nas-lz4/README.md).
   PackedStdio 0.4.2.1** runtime in `fakelib/libSceAmpr.sprx`.
 - **Sources:** game folders, `.exfat`, `.ffpfs` and `.ffpfsc` images, and
   **RAR archives**: extracted (CRC of every file checked) into a checked
-  `.exfat`; the RAR files go only on request, after the image is checked
-  against the archive again.
+  `.exfat` named after the game; the RAR files go only on request, after the
+  image is checked against the archive again.
 - **Checks before anything is published:** every chunk decoded and compared
   with the original, then a full unpack compared byte for byte. **Verify
   LZ4** re-checks a copy before sending; **Check all** / **Repair** check
@@ -29,6 +29,9 @@ Full guide: [nas-lz4/README.md](../nas-lz4/README.md).
 - **exFAT images** of LZ4 copies, built and compared file by file.
 - **Originals are never changed** unless you turn that on
   (`DELETE_ORIGINALS=yes`); the library is mounted read-only.
+- **Test first, delete later:** an original with an LZ4 copy, or the RAR
+  files of an extracted game, can only be deleted once the game is marked
+  *works* on the PS5 (a PS5 result for every game).
 
 **To the PS5**
 - **Send to PS5** over FTP (ftpsrv), resumable and queued: every file's size
@@ -40,11 +43,16 @@ Full guide: [nas-lz4/README.md](../nas-lz4/README.md).
   and Retry.
 - **PS5 games tab:** every game on every drive and the installed PS4 games,
   with **Needs attention** (what ShadowMountPlus won't pick up, with Fix),
-  Verify, Delete (also takes the tile off the home screen) and Uninstall.
+  Verify, Delete (also takes the tile off the home screen), Uninstall and
+  **⚡ Compress on PS5** (the console's LZ4 engine packs a game in place,
+  original kept).
 - **ShadowMount tab:** the games ShadowMountPlus shows, from its own API:
-  remove from the home screen, hide, unmount, rescan, its logs.
+  remove from the home screen, hide, **delete** (unmount, tile off, files
+  deleted), move between drives, unmount, rescan, its logs.
 - **Saves tab:** back up every PS5/PS4 save to the NAS, download as .zip,
   restore one game.
+- **PS5 Upload tab:** opens [ps5upload](https://github.com/phantomptr/ps5upload)
+  running in its own container (`PS5UPLOAD=yes` installs its official image).
 - **Wake from rest mode** (Remote Play pairing, like Chiaki), keep the PS5
   awake during work, and notifications on the PS5 and your phone (ntfy or a
   webhook).
@@ -58,7 +66,7 @@ keep-awake, ShadowMountPlus bridge): see [pkg-receiver/](../pkg-receiver/).
 
 **Also:** the original project's community game reports and the `.ffpfsc`
 compatibility sheet per title, a Store page for the PS5 browser, Glass /
-Light / Dark themes, Prometheus `/metrics`, an FPKGi feed.
+Light / Dark themes, a phone layout, Prometheus `/metrics`, an FPKGi feed.
 
 ## Install
 
@@ -99,8 +107,10 @@ is rebuilt after every change).
   [drakmor/ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus).
 - [streetpea/chiaki-ng](https://github.com/streetpea/chiaki-ng): Remote Play
   discovery, wake-up and registration (AGPL-3.0).
-- Ideas from game-library-manager-ps5, ps5upload, P5 Manager, ps5-exporter
-  and FPKGi (reimplemented, no code copied).
+- [phantomptr/ps5upload](https://github.com/phantomptr/ps5upload) (GPL-3.0):
+  run as its own official container, not copied in.
+- Ideas from game-library-manager-ps5, P5 Manager, ps5-exporter and FPKGi
+  (reimplemented, no code copied).
 - [MkPFS](https://pypi.org/project/mkpfs/) for exFAT and PFS images,
   [ps5-payload-dev/ftpsrv](https://github.com/ps5-payload-dev/ftpsrv) on the
   console, UnRAR (RARLAB freeware) for archives.
