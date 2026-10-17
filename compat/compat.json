@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-17T01:57:25Z",
+ "updated": "2026-10-17T04:46:51Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -114,6 +114,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-16T23:10:41Z",
     "issue": 57
+   }
+  },
+  "PPSA03210": {
+   "name": "Ghost of Tsushima",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "Ghost of Tsushima",
+    "gameVersion": "",
+    "level": "",
+    "source": "exFAT image",
+    "firmware": "",
+    "appVersion": "1.5.0",
+    "date": "2026-10-17T04:46:42Z",
+    "issue": 65
    }
   },
   "PPSA03396": {
