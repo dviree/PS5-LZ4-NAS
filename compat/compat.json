@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-17T01:45:04Z",
+ "updated": "2026-10-17T01:57:25Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -19,6 +19,25 @@
     "appVersion": "1.5.0",
     "date": "2026-10-16T11:54:59Z",
     "issue": 40
+   }
+  },
+  "PPSA01325": {
+   "name": "ASTRO's PLAYROOM",
+   "works": 1,
+   "issues": 0,
+   "noStart": 0,
+   "crash": 0,
+   "reports": 1,
+   "lastReport": {
+    "status": "works",
+    "game": "ASTRO's PLAYROOM",
+    "gameVersion": "",
+    "level": "",
+    "source": "",
+    "firmware": "",
+    "appVersion": "1.5.0",
+    "date": "2026-10-17T01:57:16Z",
+    "issue": 64
    }
   },
   "PPSA01411": {
