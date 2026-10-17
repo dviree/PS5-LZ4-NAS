@@ -1,6 +1,6 @@
 {
  "version": 1,
- "updated": "2026-10-17T11:57:00Z",
+ "updated": "2026-10-17T11:57:38Z",
  "games": {
   "PPSA01289": {
    "name": "Sackboy™: A Big Adventure",
@@ -222,7 +222,7 @@
     "status": "noStart",
     "game": "ELDEN RING™",
     "gameVersion": "1.017.000",
-    "level": "",
+    "level": "9",
     "source": "Folder",
     "firmware": "13.00",
     "appVersion": "1.5.0",
