@@ -93,6 +93,22 @@ def lz4c_version() -> str:
         except OSError:
             pass
     return ""
+# What is known about single games, shown in their sheet: what the packer already
+# does for them, and what is still open.
+KNOWN_GAMES = {
+    "PPSA26344": {"fixed": "PlayGo markers and its boot files under cache_ps5/ and "
+                           "sounds/scream/_generated/ stay loose (black screen when packed). Packed before "
+                           "2026-10-14? Repair writes them out of the packs."},
+    "PPSA34547": {"fixed": "Northlight engine: the *.rmdtoc pack tables stay loose; packed, the game stops with "
+                           "\"no pakfiles found, the pack files seem to be missing\". Packed before 2026-10-18? "
+                           "Repair writes them out of the packs.",
+                  "open": "Crashes after 2-7 minutes, around level loads and checkpoints, with APR-EMU 0.4.2.1 "
+                          "even unpacked (fw 12.40 and 13.60): an open APR-EMU bug (ampr_emu issue #7), not "
+                          "the packing."},
+    "PPSA11386": {"fixed": "The runtime folder is renamed to the case eboot.bin asks for and a "
+                           "PlayGo emulator is put in fakelib (Repair; RAR games report it when extracted)."},
+}
+
 PLAY_STATES = {  # ours -> (report form answer, label)
     "works": ("Works", "works"),
     "issues": ("Works with issues", "works with issues"),
@@ -1781,7 +1797,7 @@ def find_runtime(game: Path) -> Path | None:
 
 
 # --------------------------------------------------------------------------
-# boot files (upstream src/lzc_boot_files.c): HITMAN 3 and 007 First Light
+# boot files (upstream src/lzc_boot_files.c): some folder dumps (PPSA11386)
 # stop with SIGBUS a few seconds in when the folder named by RUNTIME_PATH= in
 # eboot.bin exists only in another case (Runtime/ for runtime/; the PS5 is
 # case-sensitive) or when they import libScePlayGo and fakelib/ has none.
@@ -5652,7 +5668,7 @@ def push_one(game: str, force: bool = False) -> int:
         boot = {"changed": [], "needed": [], "notes": []} if single else boot_files(out, repair=False)
         if any(n.startswith("runtime folder") for n in boot["needed"]):
             raise RuntimeError("the game's runtime folder has the wrong case for the PS5 "
-                               "(HITMAN 3, 007 First Light): press Check all, then Repair, and send again")
+                               "(e.g. PPSA11386): press Check all, then Repair, and send again")
         mkdirs(dest)
         for d in ([] if single else sorted(q for q in out.rglob("*") if q.is_dir())):
             mkdirs(f"{dest}/{d.relative_to(out).as_posix()}")  # empty folders too
@@ -6144,6 +6160,7 @@ def game_detail(game_id: str) -> dict:
     return {"id": game_id, "report": rep or None, "folder": folder, "work": work, "skipped": skipped,
             "title_id": tid, "community": compat_games().get(tid), "community_repo": COMPAT_REPO, "community_web": ORIGIN_WEB,
             "community_live": (read_json(COMPAT_LIVE, {}) or {}).get("source") == "live", "apr": apr,
+            "known": KNOWN_GAMES.get(tid.upper()) if tid else None,
             "version": version,
             "ffpfsc": {"rows": ffpfsc_lookup(tid, (src.name or Path(src.rel).name.removesuffix(src.path.suffix if src.kind != "folder" else ""))
                                              if src else game_id.removesuffix("-lz4")),

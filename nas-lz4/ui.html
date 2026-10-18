@@ -1114,6 +1114,9 @@ function gameHtml(g, det) {
     ['LZ4', gb(g.output_bytes)],
     ['Saved', g.saved_percent != null ? `${gb(g.source_bytes - g.output_bytes)} (${Math.round(g.saved_percent)} %)` : '–'],
   ];
+  const kn = det && det.known;
+  if (kn) rows.push(['Known for this game', (kn.fixed ? `<div><span class="good">✓ handled:</span> ${esc(kn.fixed)}</div>` : '') +
+    (kn.open ? `<div style="margin-top:4px"><span class="bad">⚠ still open:</span> ${esc(kn.open)}</div>` : '')]);
   const a = det && det.apr;
   if (a) rows.push(['APR-EMU', `${a.ok ? '<span class="good">' + esc(a.build) + ' ✓</span>' : '<span class="bad">' + esc(a.build) + '</span> · Check all, then Repair'}${a.path ? `<div class="why">${esc(a.path)}</div>` : ''}`]);
   const vv = g.output ? (data.verifies || {})[g.output.split('/').pop()] : null;

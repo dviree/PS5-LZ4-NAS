@@ -627,7 +627,7 @@ The page server works them out from the progress (no need to keep the page
 open first); the steps still to come use the speed earlier games had
 (`state/rates.json`), so the whole-game time shows from the second game on.
 6. **Boot files** (at the start of Publish; the original project's Verify check): some games
-   stop with SIGBUS a few seconds after starting (HITMAN 3, 007 First Light).
+   stop with SIGBUS a few seconds after starting (e.g. PPSA11386).
    - The folder named by `RUNTIME_PATH=` in `eboot.bin` exists only in
      another case (`Runtime/` for `runtime/`); the PS5 is case-sensitive, so
      it is renamed.
@@ -672,10 +672,10 @@ The tool checks before every step and keeps a 20 GB margin
 Some games read files straight from disk, outside APR-EMU, so the packer
 always leaves these loose (and **Repair** writes them back out of packs made
 before): empty files and PlayGo's `cache_ps5/pgc_*_dummy_file` and
-`playgo.pgm`, the Ghost of Yōtei boot files under `cache_ps5/` and
+`playgo.pgm`, the boot files PPSA26344 needs under `cache_ps5/` and
 `sounds/scream/_generated/`, and Remedy Northlight's `*.rmdtoc` pack tables
-(CONTROL Resonant: packed, it stops with "no pakfiles found, the pack files
-seem to be missing"). CONTROL Resonant also crashes after a few minutes with
+(PPSA34547: packed, it stops with "no pakfiles found, the pack files
+seem to be missing"). PPSA34547 also crashes after a few minutes with
 APR-EMU 0.4.2.1 even unpacked; that is an open APR-EMU bug, not the packing.
 
 ## Verified on the NAS is not tested on the PS5

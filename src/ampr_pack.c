@@ -1416,7 +1416,7 @@ static const char *const k_keep_on_disk[] = {
   "sounds/scream/_generated/buss_config.bus",
   "sounds/scream/_generated/distance_model.dml",
   "sounds/scream/_generated/group_mix.gmx",
-  /* Remedy's Northlight engine (CONTROL Resonant, PPSA34547) reads its pack
+  /* Remedy's Northlight engine (PPSA34547) reads its pack
    * tables of contents from disk at startup; packed, it stops with "no pakfiles
    * found, the pack files seem to be missing" (found by jack7277, ampr_emu #7). */
   "*.rmdtoc",
