@@ -3326,6 +3326,32 @@ SAMPLE_MIN = 256 << 20   # files from this size get spot checks
 SAMPLE_COUNT = 4         # 1 MiB pieces read back per file (start, end, two random)
 
 
+def ampr_log(path: str, limit: int = 256 << 10) -> dict:
+    """The end of APR-EMU's own log in a game folder on the PS5 (/app0/ampr_emu.log),
+    plus the problem lines (aborts and missing paths) picked out of it."""
+    import ftplib
+    path = ps5_ftp_path(path)
+    if not FTP_DELETE_ROOTS.match(path):
+        raise ValueError("only game folders inside /data, /mnt/usbN or /mnt/extN")
+    f = ps5_ftp_connect()
+    try:
+        remote = f"{path}/ampr_emu.log"
+        try:
+            size = f.size(remote) or 0
+        except ftplib.all_errors:
+            return {"exists": False, "path": remote}
+        data = ftp_read_at(f, remote, max(0, size - limit), limit)
+    finally:
+        try:
+            f.quit()
+        except Exception:
+            pass
+    text = data.decode("utf-8", "replace")
+    lines = text.splitlines()[1 if size > limit else 0:]
+    hits = [ln for ln in lines if re.search(r"abort|missing|not found|fail|error|ENOENT", ln, re.I)]
+    return {"exists": True, "path": remote, "size": size, "lines": lines[-400:], "problems": hits[-60:]}
+
+
 def ftp_read_at(f, remote: str, offset: int, n: int) -> bytes:
     """n bytes of a file on the PS5 from offset (REST + RETR, stopped early)."""
     import ftplib
@@ -6434,6 +6460,12 @@ def cmd_ui(args) -> int:
                 return self.send(200, json.dumps(_verify.get(key) or {"state": "none"}).encode())
             if self.path == "/metrics":
                 return self.send(200, metrics_text().encode(), "text/plain; version=0.0.4")
+            if self.path.startswith("/api/ps5/amprlog?"):
+                from urllib.parse import parse_qs, urlparse
+                try:
+                    return self.send(200, json.dumps(ampr_log((parse_qs(urlparse(self.path).query).get("path") or [""])[0])).encode())
+                except Exception as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if self.path == "/api/ps5/lz4job":
                 try:
                     return self.send(200, json.dumps(lzc_call("GET", "/api/lzc/job", timeout=4)).encode())

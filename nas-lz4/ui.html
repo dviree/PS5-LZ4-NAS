@@ -1472,6 +1472,7 @@ function renderPg() {
           ${!g.ps4 && !g.image && !(g.issues || []).some(x => x.code === 'archive' || x.code === 'hidden') ? `<button class="sm" data-p="${esc(g.path)}" data-i="${i}" onclick="pgVerify(this.dataset.p, this.dataset.i)">Verify</button>` : ''}
           ${!g.ps4 && !g.lz4 && /^PPSA/i.test(g.title_id || '') && !(g.issues || []).length ? `<button class="sm pri" data-p="${esc(g.path)}" data-t="${esc(g.title_id)}" data-n="${esc(g.name)}" onclick="pgCompress(this.dataset.p, this.dataset.t, this.dataset.n)">⚡ Compress on PS5</button>` : ''}
           ${g.lz4 ? `<button class="sm" data-p="${esc(g.path)}" data-i="${i}" onclick="aprCheck(this.dataset.p, document.getElementById('pg-m-' + this.dataset.i))">APR-EMU</button>` : ''}
+          ${g.lz4 && !g.image ? `<button class="sm" data-p="${esc(g.path)}" data-i="${i}" onclick="amprLog(this.dataset.p, document.getElementById('pg-m-' + this.dataset.i))" title="APR-EMU's own log (ampr_emu.log in the game folder): why a packed game stopped">APR-EMU log</button>` : ''}
           <span class="sp"></span>
           ${g.ps4 ? `<button class="sm danger" data-t="${esc(g.title_id)}" data-n="${esc(g.name)}" onclick="pgUninstall(this.dataset.t, this.dataset.n)">🗑 Uninstall</button>` : `<button class="sm danger" data-p="${esc(g.path)}" data-n="${esc(g.name)}" onclick="deletePg(this.dataset.p, this.dataset.n)">🗑 Delete</button>`}
         </div>
@@ -1693,6 +1694,18 @@ async function smpAct(action, tid, path, question, extra) {
   if (action === 'smp_cancel') { smpJob(); return; }
   if (j.scan_deferred) alert('Done. ShadowMountPlus will scan when it can (' + (j.scan_deferred_reason || 'later') + ').');
   setTimeout(loadSmp, 1500);
+}
+async function amprLog(path, el) {
+  el.innerHTML = '<span class="mut">Reading ampr_emu.log…</span>';
+  let j;
+  try { const r = await fetch('/api/ps5/amprlog?path=' + encodeURIComponent(path), {cache: 'no-store'}); j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); }
+  catch (e) { el.innerHTML = `<span class="bad">Log not read: ${esc(e.message)}</span>`; return; }
+  if (!j.exists) { el.innerHTML = '<span class="mut">No ampr_emu.log in this folder yet: start the game once, then read it again.</span>'; return; }
+  const kb = (j.size / 1024).toFixed(0);
+  el.innerHTML = `<div>${j.problems.length ? `<b class="bad">${j.problems.length} problem line(s)</b>` : '<span class="good">no aborts or missing paths</span>'} · ${kb} KB log</div>` +
+    (j.problems.length ? `<pre class="log" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto">${esc(j.problems.join('\n'))}</pre>` : '') +
+    `<details><summary>Whole log (end)</summary><pre class="log" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto">${esc(j.lines.join('\n'))}</pre></details>` +
+    `<button class="sm" onclick="copyText(this.parentElement.querySelector('details pre').textContent, this)">Copy</button>`;
 }
 async function pgCompress(path, tid, name) {
   if (!confirm(`LZ4-pack ${name} on the PS5?\n\nThe PS5's LZ4 Compression engine does it (it is started, or installed and started, if needed). ` +
