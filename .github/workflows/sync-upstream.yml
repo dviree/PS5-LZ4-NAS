@@ -74,8 +74,24 @@ jobs:
               # The repository on theghostonline.dev starts a new history. Put its
               # files on top of the last commit synced from GitHub, so the pull
               # request shows only what changed since then.
-              src=$(git commit-tree "upstream/main^{tree}" -p "$LAST_GITHUB" \
-                    -m "The original project as on theghostonline.dev ($(git rev-parse --short upstream/main))")
+              # Its workflows are left as they were (the token can't push workflow changes).
+              export GIT_INDEX_FILE="$RUNNER_TEMP/bridge.index"
+              git read-tree upstream/main
+              git rm -r -q --cached --ignore-unmatch -- .github/workflows
+              git ls-tree -r "$LAST_GITHUB" -- .github/workflows | git update-index --index-info
+              tree=$(git write-tree)
+              unset GIT_INDEX_FILE
+              # upstream-raw: its files as they are, one commit per change, on top
+              # of the last GitHub commit (for review by hand when a merge conflicts).
+              parent=$LAST_GITHUB
+              if git show-ref --verify --quiet refs/remotes/origin/upstream-raw; then parent=origin/upstream-raw; fi
+              if [ "$(git rev-parse "$parent^{tree}")" = "$tree" ]; then
+                src=$(git rev-parse "$parent")
+              else
+                src=$(git commit-tree "$tree" -p "$parent" \
+                      -m "The original project as on theghostonline.dev ($(git rev-parse --short upstream/main))")
+                git push -q origin "$src:refs/heads/upstream-raw"
+              fi
               echo "new history upstream: comparing its files with $LAST_GITHUB"
             fi
             if git merge-base --is-ancestor "$src" origin/main || \
