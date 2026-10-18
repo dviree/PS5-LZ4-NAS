@@ -26,6 +26,12 @@ Full guide: [nas-lz4/README.md](../nas-lz4/README.md).
   with the original, then a full unpack compared byte for byte. **Verify
   LZ4** re-checks a copy before sending; **Check all** / **Repair** check
   every game. Games that don't use AMPR are skipped with the reason.
+- **Game-specific fixes:** files some engines read straight from disk stay
+  loose (PlayGo markers, PPSA26344's boot files, Northlight `*.rmdtoc` pack
+  tables for PPSA34547), boot fixes for folder dumps (runtime folder case,
+  PlayGo emulator, a stale `ampr_emu.index`), and **Repair** applies them to
+  copies packed before. A game's sheet says what is handled and what is still
+  open (an APR-EMU bug, say), and **APR-EMU log** reads `ampr_emu.log` from the PS5.
 - **exFAT images** of LZ4 copies, built and compared file by file.
 - **Originals are never changed** unless you turn that on
   (`DELETE_ORIGINALS=yes`); the library is mounted read-only.
