@@ -150,6 +150,9 @@ that container alone.
   the NAS stays); **Unmount**; **Rescan**. Delete on the PS5 games tab also
   uses it to take a tile off. A name that is only a Title ID is replaced by
   the game's name from the NAS library, the PS5 list or the folder name.
+- **APR-EMU log (PS5 games tab, LZ4 folders):** reads `ampr_emu.log`, which
+  APR-EMU writes in the game folder on every start, and picks out the aborts
+  and missing paths: why a packed game stopped at boot.
 - **🔍 Verify LZ4 (game sheet):** checks a finished LZ4 copy before you send
   it: every LZ4 block decoded and its CRC checked, the file list, and the
   APR-EMU runtime; read-only, in the background. The button turns green
