@@ -98,8 +98,14 @@ that container alone.
   left, the transfer queue (move up, remove, start), failed jobs and recent
   actions. My games shows a one-line summary while something runs.
 - **Community tab** (latest report first; or most reports, or name): every game reported by other players, fetched live from
-  the GitHub reports every 5 minutes (or **Refresh now**), with search,
-  filters and sorting.
+  the original project's site every 5 minutes (or **Refresh now**), with search,
+  filters and sorting. The original left GitHub on 2026-10-17 for
+  [theghostonline.dev](https://theghostonline.dev/theghostonline/PS5-LZ4-Compression):
+  reports are read from its issues, **Report how it runs** opens a filled-in
+  issue there (an account on that site is needed to submit), and the
+  LZ4 Compression app (PPSA99420) comes from its releases, checked against
+  their `SHA256SUMS`. When the site doesn't answer, this fork's copy of the
+  reports is used, then the one in the image.
 - **PS5 games tab:** every game folder on the PS5 (`homebrew` and
   `etaHEN/games` on the internal SSD, USB and extended storage) with its
   icon, name, Title ID, version, drive, LZ4 or not, size (Measure), and a

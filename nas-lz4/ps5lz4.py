@@ -72,6 +72,11 @@ RUNTIME_FILE = Path(os.environ.get("PS5LZ4_RUNTIME", "/opt/ps5lz4/libSceAmpr.spr
 # refreshed by the fork sync and baked into each image).
 COMPAT_FILE = Path(os.environ.get("PS5LZ4_COMPAT", "/opt/ps5lz4/compat.json"))
 COMPAT_REPO = "theghostonline/PS5-LZ4-Compression"
+# The original project left GitHub on 2026-10-17 for its own Gitea/Forgejo site:
+# reports (issues), releases and the report form are there now.
+ORIGIN_HOST = os.environ.get("PS5LZ4_ORIGIN_HOST", "https://theghostonline.dev").rstrip("/")
+ORIGIN_WEB = f"{ORIGIN_HOST}/{COMPAT_REPO}"
+ORIGIN_API = f"{ORIGIN_HOST}/api/v1/repos/{COMPAT_REPO}"
 COMPAT_MIRROR = os.environ.get("PS5LZ4_COMPAT_MIRROR", "dviree/PS5-LZ4-NAS")
 COMPAT_BUNDLED = Path(os.environ.get("PS5LZ4_COMPAT_BUNDLED", "/opt/ps5lz4/compat.json"))
 LZC_PORT = int(os.environ.get("PS5LZ4_LZC_PORT", "5920"))  # LZ4 Compression engine on the PS5
@@ -1462,7 +1467,8 @@ COMPAT_FIELDS = {"title id": "titleId", "game": "game", "how does it run?": "sta
 
 
 def compat_aggregate(issues: list[dict]) -> dict:
-    """GitHub REST issues (label compat) -> compat.json. One vote per user per game."""
+    """Issues (GitHub or Gitea REST) labelled compat or titled "[Game report] ..." -> compat.json.
+    One vote per user per game (the original author for issues moved from GitHub)."""
     def clean(v, n):
         return re.sub(r"\s+", " ", str(v or "")).strip()[:n]
     latest = {}
@@ -1471,6 +1477,8 @@ def compat_aggregate(issues: list[dict]) -> dict:
             continue
         labels = {(lb.get("name") or "").lower() for lb in issue.get("labels") or []}
         if labels & {"invalid", "duplicate", "spam"}:
+            continue
+        if "compat" not in labels and not str(issue.get("title") or "").startswith("[Game report]"):
             continue
         fields = {}
         parts = re.split(r"(?m)^### +(.+?)\s*$", issue.get("body") or "")
@@ -1483,7 +1491,8 @@ def compat_aggregate(issues: list[dict]) -> dict:
         status = COMPAT_STATUS.get(clean(fields.get("status"), 80).lower())
         if not re.fullmatch(r"[A-Z]{4}\d{5}", tid) or not status:
             continue
-        author = ((issue.get("user") or {}).get("login") or f"#{issue.get('number')}").lower()
+        author = (issue.get("original_author") or (issue.get("user") or {}).get("login")
+                  or f"#{issue.get('number')}").lower()
         rep = {"status": status, "game": clean(fields.get("game"), 80),
                "gameVersion": clean(fields.get("gameVersion"), 20), "level": clean(fields.get("level"), 4),
                "source": clean(fields.get("source"), 40), "firmware": clean(fields.get("firmware"), 12),
@@ -1506,8 +1515,8 @@ def compat_aggregate(issues: list[dict]) -> dict:
 
 
 def compat_refresh() -> dict:
-    """Fetch every compat issue from GitHub (no token: 60 requests an hour) and save the
-    counts. If the API refuses, take the original project's compat.json instead."""
+    """Fetch every report from the original's site and save the counts. If that fails,
+    take a compat.json: the original's, this fork's copy, or the one in the image."""
     import urllib.request
     try:
         return compat_refresh_issues()
@@ -1537,17 +1546,19 @@ def compat_refresh() -> dict:
 
 
 def compat_refresh_issues() -> dict:
+    """Every report issue from the original's site (Gitea API, no token)."""
     import urllib.request
     issues, page = [], 1
-    while page <= 20:
-        url = (f"https://api.github.com/repos/{COMPAT_REPO}/issues?labels=compat&state=all"
-               f"&per_page=100&page={page}")
-        req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json",
+    while page <= 40:
+        url = f"{ORIGIN_API}/issues?state=all&type=issues&limit=50&page={page}"
+        req = urllib.request.Request(url, headers={"Accept": "application/json",
                                                    "User-Agent": f"ps5-lz4/{VERSION}"})
         with urllib.request.urlopen(req, timeout=20) as r:
             batch = json.load(r)
+        if not isinstance(batch, list):
+            raise ValueError("unexpected answer from the issues API")
         issues += batch
-        if len(batch) < 100:
+        if len(batch) < 50:
             break
         page += 1
     data = compat_aggregate(issues)
@@ -1590,6 +1601,19 @@ def ps5_text(rep: dict) -> str:
     return f"PS5 {PLAY_STATES[st][1]}" if st in PLAY_STATES else "PS5 untested"
 
 
+def report_url(tid: str, name: str, form: str, version: str = "", level: str = "", source: str = "",
+               firmware: str = "", app_version: str = "") -> str:
+    """A new-issue link on the original's site, filled in like its old GitHub report
+    form (the same "### Field" sections, so compat_aggregate reads it)."""
+    from urllib.parse import quote
+    rows = [("Title ID", tid), ("Game", name), ("How does it run?", form), ("Game version", version),
+            ("LZ4 level", level), ("Packed from", source), ("Firmware", firmware),
+            ("LZ4 Compression version", app_version), ("Notes", "")]
+    body = "\n\n".join(f"### {k}\n\n{v or '_No response_'}" for k, v in rows)
+    return (f"{ORIGIN_WEB}/issues/new?title={quote(f'[Game report] {name}: {form}')}"
+            f"&body={quote(body)}")
+
+
 def cmd_community(args) -> int:
     """Community reports for the library, or record and share your own result."""
     ensure_dirs()
@@ -1626,16 +1650,11 @@ def cmd_community(args) -> int:
     print(f"saved: {e.id}: PS5 {label}")
     source = {"folder": "Folder", "exfat": "exFAT image", "ffpfsc": "Uncompressed .ffpfsc"}.get(e.kind, "")
     name = (rep.get("title_name") or e.id)[:60]
-    params = [("template", "compat.yml"), ("title", f"[Game report] {name}: {form}"),
-              ("title_id", rep.get("title_id") or e.title_id), ("game", name), ("status", form),
-              ("game_version", game_version(e.output, *([e.path] if e.kind == "folder" else []),
-                                            name=e.rel).get("version", "")),
-              ("level", ((rep.get("codec") or "").split() or [""])[-1]), ("source", source),
-              ("firmware", os.environ.get("PS5LZ4_FIRMWARE", "")),
-              ("app_version", lz4c_version() or f"ps5-lz4 NAS {VERSION}")]
-    from urllib.parse import quote
-    url = f"https://github.com/{COMPAT_REPO}/issues/new?" + "&".join(
-        f"{k}={quote(v)}" for k, v in params if v)
+    url = report_url(rep.get("title_id") or e.title_id, name, form,
+                     game_version(e.output, *([e.path] if e.kind == "folder" else []),
+                                  name=e.rel).get("version", ""),
+                     ((rep.get("codec") or "").split() or [""])[-1], source,
+                     os.environ.get("PS5LZ4_FIRMWARE", ""), lz4c_version() or f"ps5-lz4 NAS {VERSION}")
     print("share it with the community (open on your phone or computer, add firmware, submit):")
     print(url)
     return 0
@@ -2831,17 +2850,19 @@ def engine_updater() -> None:
 # from the original project's releases; ShadowMount+ adds the tile for the
 # folder in /data/homebrew. It talks to the engine on 127.0.0.1:5920.
 APP_REPO = os.environ.get("PS5LZ4_APP_REPO", "theghostonline/PS5-LZ4-Compression")
+APP_API = os.environ.get("PS5LZ4_APP_API", ORIGIN_API)  # a Gitea/Forgejo or GitHub releases API
 APP_TITLE = "PPSA99420"
 APP_ASSET = f"LZ4-Compression-{APP_TITLE}.zip"
 APP_PATH = f"/data/homebrew/{APP_TITLE}"
 
 
 def app_fetch() -> tuple[Path, str]:
-    """The app zip of APP_REPO's latest release, cached in state/engine, SHA-256 checked."""
+    """The app zip of the original's latest release, cached in state/engine, SHA-256
+    checked (the digest GitHub lists, or the release's SHA256SUMS on Gitea)."""
     import hashlib
     import urllib.request
-    hdr = {"User-Agent": "ps5-lz4", "Accept": "application/vnd.github+json"}
-    req = urllib.request.Request(f"https://api.github.com/repos/{APP_REPO}/releases/latest", headers=hdr)
+    hdr = {"User-Agent": "ps5-lz4", "Accept": "application/json"}
+    req = urllib.request.Request(f"{APP_API}/releases/latest", headers=hdr)
     with urllib.request.urlopen(req, timeout=20) as r:
         rel = json.load(r)
     tag = rel.get("tag_name") or "?"
@@ -2849,6 +2870,16 @@ def app_fetch() -> tuple[Path, str]:
     if not asset:
         raise ValueError(f"release {tag} of {APP_REPO} has no {APP_ASSET}")
     want = str(asset.get("digest") or "").removeprefix("sha256:").lower()
+    sums = next((a for a in rel.get("assets", []) if a.get("name") == "SHA256SUMS"), None)
+    if not want and sums:
+        with urllib.request.urlopen(urllib.request.Request(sums["browser_download_url"],
+                                                           headers={"User-Agent": "ps5-lz4"}), timeout=20) as r:
+            for line in r.read().decode("utf-8", "replace").splitlines():
+                parts = line.split()
+                if len(parts) == 2 and parts[1].lstrip("*") == APP_ASSET:
+                    want = parts[0].lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", want or ""):
+        raise ValueError(f"release {tag} lists no SHA-256 for {APP_ASSET}; not installed unchecked")
     ENGINE_DIR.mkdir(parents=True, exist_ok=True)
     zp = ENGINE_DIR / APP_ASSET
     known = read_json(ENGINE_DIR / "app.json", {}) or {}
@@ -2858,8 +2889,8 @@ def app_fetch() -> tuple[Path, str]:
                                                        headers={"User-Agent": "ps5-lz4"}), timeout=120) as r:
         data = r.read()
     got = hashlib.sha256(data).hexdigest()
-    if want and want != got:
-        raise ValueError(f"the downloaded {APP_ASSET} does not match the SHA-256 GitHub lists")
+    if want != got:
+        raise ValueError(f"the downloaded {APP_ASSET} does not match the release's SHA-256")
     tmp = zp.with_suffix(".part")
     tmp.write_bytes(data)
     tmp.replace(zp)
@@ -6057,7 +6088,8 @@ def game_detail(game_id: str) -> dict:
     version = game_version(*(x for x in (out, src.path if src and src.kind == "folder" else None) if x),
                            name=(src.rel if src else "") or (out.name if out else game_id))
     return {"id": game_id, "report": rep or None, "folder": folder, "work": work, "skipped": skipped,
-            "title_id": tid, "community": compat_games().get(tid), "community_repo": COMPAT_REPO, "apr": apr,
+            "title_id": tid, "community": compat_games().get(tid), "community_repo": COMPAT_REPO, "community_web": ORIGIN_WEB,
+            "community_live": (read_json(COMPAT_LIVE, {}) or {}).get("source") == "live", "apr": apr,
             "version": version,
             "ffpfsc": {"rows": ffpfsc_lookup(tid, (src.name or Path(src.rel).name.removesuffix(src.path.suffix if src.kind != "folder" else ""))
                                              if src else game_id.removesuffix("-lz4")),
@@ -6540,7 +6572,7 @@ def cmd_ui(args) -> int:
                     except Exception as err:
                         print(f"[{now()}] community reports not refreshed: {err}", flush=True)
                 data = compat_data()
-                body = {"repo": COMPAT_REPO, "updated": data.get("updated"), "source": data.get("source") or "image",
+                body = {"repo": COMPAT_REPO, "web": ORIGIN_WEB, "updated": data.get("updated"), "source": data.get("source") or "image",
                         "games": data.get("games") or {}}
                 return self.send(200, json.dumps(body, ensure_ascii=False).encode())
             if self.path == "/api/dashboard":

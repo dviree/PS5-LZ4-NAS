@@ -1009,14 +1009,19 @@ async function compress(id, send, image) {
   if (send) await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'send_after', game: id, image: !!image})});
   act('start', null, {game: id});
 }
-function reportLink(repo, tid, name, status, extra = {}) {
+// The original project's site (it left GitHub on 2026-10-17): a new issue filled in
+// like its old report form, so the NAS can count it.
+const ORIGIN_WEB = 'https://theghostonline.dev/theghostonline/PS5-LZ4-Compression';
+function reportLink(web, tid, name, status, extra = {}) {
   const forms = {works: 'Works', issues: 'Works with issues', nostart: "Won't start (black screen or crash on launch)", crash: 'Crashes in game'};
-  const fw = (localStorage.getItem('fw') || '').trim();
-  const p = [['template', 'compat.yml'], ['title', `[Game report] ${name}${status ? ': ' + forms[status] : ''}`],
-    ['title_id', tid], ['game', name], ['status', forms[status] || ''], ['game_version', extra.version || ''],
-    ['level', extra.level || ''], ['source', extra.source || ''], ['firmware', fw], ['app_version', (data && data.lz4c_version) || 'ps5-lz4 NAS']]
-    .filter(([, v]) => v);
-  return `https://github.com/${repo}/issues/new?` + p.map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&');
+  let fw = '';
+  try { fw = (localStorage.getItem('fw') || '').trim(); } catch (e) {}
+  const rows = [['Title ID', tid], ['Game', name], ['How does it run?', forms[status] || ''], ['Game version', extra.version || ''],
+    ['LZ4 level', extra.level || ''], ['Packed from', extra.source || ''], ['Firmware', fw],
+    ['LZ4 Compression version', (data && data.lz4c_version) || 'ps5-lz4 NAS'], ['Notes', '']];
+  const body = rows.map(([k, v]) => `### ${k}\n\n${v || '_No response_'}`).join('\n\n');
+  return `${web || ORIGIN_WEB}/issues/new?title=` + encodeURIComponent(`[Game report] ${name}${status ? ': ' + forms[status] : ''}`) +
+    '&body=' + encodeURIComponent(body);
 }
 // The community's .ffpfsc compatibility sheet: the matching row, with the
 // sheet's own column names.
@@ -1034,19 +1039,19 @@ function ffpfscHtml(g, det) {
 }
 function communityHtml(g, det) {
   if (!det) return '<div class="csec mut">Loading community reports…</div>';
-  const c = det.community, repo = det.community_repo, tid = det.title_id || g.title_id || '';
-  const all = tid ? `<a href="https://github.com/${esc(repo)}/issues?q=label%3Acompat+${encodeURIComponent(tid)}" target="_blank" rel="noopener">All reports</a>` : '';
+  const c = det.community, web = det.community_web || ORIGIN_WEB, tid = det.title_id || g.title_id || '';
+  const all = tid ? `<a href="${esc(web)}/issues?state=all&q=${encodeURIComponent(tid)}" target="_blank" rel="noopener">All reports</a>` : '';
   const mine = g.ps5 || (det.report || {}).ps5_result || 'works';
   const extra = {version: (det.version || {}).version || '',
     level: (((det.report || {}).codec || '').match(/(\d+)$/) || [])[1] || '',
     source: {folder: 'Folder', exfat: 'exFAT image', ffpfsc: 'Uncompressed .ffpfsc', ffpfs: 'Uncompressed .ffpfsc'}[g.kind] || ''};
-  const report = tid ? `<a href="${esc(reportLink(repo, tid, g.name || tid, mine, extra))}" target="_blank" rel="noopener">Report how it runs</a>` : '';
+  const report = tid ? `<a href="${esc(reportLink(web, tid, g.name || tid, mine, extra))}" target="_blank" rel="noopener">Report how it runs</a>` : '';
   if (!c || !c.reports)
     return `<div class="csec"><h4>LZ4 <span class="mut" style="font-weight:500">· community reports</span></h4><div class="mut">Nobody has reported ${esc(g.name || tid)} yet.</div>
       <div class="acts">${report}</div></div>`;
   const n = c.reports, seg = (k, col) => c[k] ? `<i style="width:${100 * c[k] / n}%;background:${col}"></i>` : '';
   const l = c.lastReport || {};
-  const link = l.issue ? ` · <a href="https://github.com/${esc(repo)}/issues/${esc(l.issue)}" target="_blank" rel="noopener">#${esc(l.issue)}</a>` : '';
+  const link = l.issue && det.community_live ? ` · <a href="${esc(web)}/issues/${esc(l.issue)}" target="_blank" rel="noopener">#${esc(l.issue)}</a>` : '';
   return `<div class="csec"><h4>LZ4 <span class="mut" style="font-weight:500">· ${n} community report${n === 1 ? '' : 's'}</span></h4>
     <div>${community(c)}</div>
     <div class="cbar">${seg('works', 'var(--ok)')}${seg('issues', 'var(--warn)')}${seg('noStart', 'var(--bad)')}${seg('crash', 'var(--bad)')}</div>
@@ -1816,8 +1821,8 @@ function renderComm() {
   let rows = Object.entries(comm.games || {}).map(([tid, g]) => ({tid, ...g}));
   const total = rows.reduce((n, r) => n + (r.reports || 0), 0);
   document.getElementById('c-sub').innerHTML =
-    `${rows.length} games, ${total} reports from <a href="https://github.com/${esc(comm.repo)}/issues?q=label%3Acompat" target="_blank" rel="noopener">${esc(comm.repo)}</a>` +
-    ` · ${{live: 'live from the GitHub reports', repo: "from the original project's list", image: 'from this image'}[comm.source] || ''}` +
+    `${rows.length} games, ${total} reports from <a href="${esc(comm.web || ORIGIN_WEB)}/issues?state=all&labels=" target="_blank" rel="noopener">${esc(comm.repo)}</a>` +
+    ` · ${{live: 'live from theghostonline.dev', repo: "from the original project's list", mirror: "from this fork's copy", bundled: 'from this image', image: 'from this image'}[comm.source] || ''}` +
     (comm.updated ? `, updated ${esc(ago(comm.updated))}` : '') +
     ` · <button class="sm" onclick="loadComm(true)">Refresh now</button>`;
   if (q) rows = rows.filter(r => (r.name || '').toLowerCase().includes(q) || r.tid.toLowerCase().includes(q));
@@ -1832,7 +1837,8 @@ function renderComm() {
     '<tr><th>Game</th><th>Result</th><th>Latest report</th><th>Packed from</th><th>Firmware</th><th>Version</th></tr>' +
     (rows.length ? rows.map(r => {
       const l = r.lastReport || {};
-      const link = l.issue ? `https://github.com/${comm.repo}/issues/${l.issue}` : '';
+      // Issue numbers changed with the move: link them only when counted from the new site.
+      const link = l.issue && comm.source === 'live' ? `${comm.web || ORIGIN_WEB}/issues/${l.issue}` : '';
       return `<tr><td>${esc(r.name || r.tid)}${mine.has(r.tid) ? '<span class="mine">IN YOUR LIBRARY</span>' : ''}<div class="why">${esc(r.tid)}</div></td>
         <td>${community(r)}</td>
         <td>${l.status ? `<span class="${l.status === 'works' ? 'good' : (l.status === 'noStart' || l.status === 'crash') ? 'bad' : ''}">${esc(ST_EN[l.status] || l.status)}</span>` : '–'}
