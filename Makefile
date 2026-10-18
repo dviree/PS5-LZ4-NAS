@@ -28,6 +28,7 @@ C_SRCS += src/lzc_shadowmount.c
 C_SRCS += src/lzc_size_cache.c
 C_SRCS += src/lzc_icon_thumb.c
 C_SRCS += src/lzc_image_mount.c
+C_SRCS += src/lzc_boot_files.c
 C_SRCS += src/ampr_index.c
 C_SRCS += src/asset.c
 C_SRCS += src/pfs_compress.c

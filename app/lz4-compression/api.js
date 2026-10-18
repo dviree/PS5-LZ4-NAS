@@ -1,9 +1,22 @@
 // Client for the LZ4 Compression payload (the engine) on the console.
-import {Http} from '@ps5-react/core';
+import {FileSystem, Http} from '@ps5-react/core';
 
 export const ENGINE = 'http://127.0.0.1:5920';
 const PAYLOAD_MANAGER = 'http://127.0.0.1:8084';
-export const ENGINE_ELF = '/data/pldmgr/payloads/lz4-compression/lz4-compression.elf';
+// Where Payload Manager keeps the engine: 0.6 puts uploads under local/,
+// older versions in their own folder.
+const ENGINE_ELFS = [
+  '/data/pldmgr/payloads/local/lz4-compression/lz4-compression.elf',
+  '/data/pldmgr/payloads/lz4-compression/lz4-compression.elf',
+];
+
+export function engineElf() {
+  try {
+    return ENGINE_ELFS.find(path => FileSystem.exists(path)) || null;
+  } catch (err) {
+    return null;
+  }
+}
 
 // An abort signal that fires after ms (the transport retries a refused
 // connection for minutes, which is too long while an engine restarts).
@@ -87,7 +100,7 @@ export const api = {
   run(action, game) {
     const routes = {
       'validate-only': 'validate-only', 'validate-repair': 'validate-repair',
-      'lz4-verify': 'lz4-verify', 'build-ampr-index': 'build-ampr-index',
+      'lz4-verify': 'lz4-verify', 'verify-game': 'lz4-verify', 'build-ampr-index': 'build-ampr-index',
       'set-read-only': 'set-read-only', 'extract-image': 'extract-image',
       'refresh-mount': 'refresh-mount', 'read-speed-test': 'read-speed-test',
       'restore-ampr-original': 'restore-ampr-original',
@@ -165,7 +178,13 @@ export async function relaunchAfterClose(titleId) {
   }
 }
 
+// Payload Manager 0.6 only loads on a POST with its request marker (and no
+// foreign Origin); older versions take a GET.
 export async function startEngine() {
-  const response = await Http.request(`${PAYLOAD_MANAGER}/loadpayload:${ENGINE_ELF}`, {method: 'GET', maxBytes: 65536});
+  const elf = engineElf();
+  if (!elf) return false;
+  const url = `${PAYLOAD_MANAGER}/loadpayload:${elf}`;
+  let response = await Http.request(url, {method: 'POST', headers: {'X-PLDMGR-Request': '1'}, body: '', maxBytes: 65536});
+  if (response.status === 404 || response.status === 405) response = await Http.request(url, {method: 'GET', maxBytes: 65536});
   return response.ok && (await response.text()).trim() !== 'Invalid payload name';
 }

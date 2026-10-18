@@ -1,19 +1,22 @@
 // Full-screen action pages, history, about, and the splash / done overlays.
 import {useEffect, useRef, useState} from 'react';
-import {View, Text, Image, ScrollView, FocusScope, BackHandler} from '@ps5-react/core';
+import {View, Text, Image, ScrollView, FocusScope, BackHandler, motion, transitions} from '@ps5-react/core';
 import {api, ENGINE, iconUrl, relaunchAfterClose, restartEngine} from './api.js';
 import {autoUpdateForTest, installUpdate, skipVersion} from './update.js';
 import {APP_VERSION} from './version.js';
 import {REPORT_CHOICES, reportUrl} from './compat.js';
 import {ACTION_LABEL, formatBytes, kindLabel, readableError, opSummary, opTime, opTone, resultText, storageLabel} from './model.js';
-import {ActionRow, Choice, Dot, LevelScale, LOGO, PrimaryButton, ProgressBar, SectionLabel} from './ui.jsx';
+import {ActionRow, Choice, Dot, Glow, Icon, LevelScale, LOGO, PrimaryButton, ProgressBar, PX, SectionLabel} from './ui.jsx';
 import donateQr from './assets/donate-qr.png';
+import splashFrame from './assets/splash-frame.png';
+import splashLetters from './assets/splash-letters.png';
 
 export function Page({title, depth, covered, hide, onBack, children}) {
   return (
     <FocusScope autoFocus restoreFocus focusKey={'screen-' + depth} inert={covered}
       onBack={() => { onBack(); return true; }}>
       <View className={hide ? 'hidden' : 'absolute inset-0 bg-ink'}>
+        <Glow left={-420} top={-560} size={1200} />
         <View className="px-[48px] pt-[36px] pb-2">
           <Text className="font-heavy text-[28px] text-snow" numberOfLines={1}>{title}</Text>
         </View>
@@ -401,7 +404,7 @@ export function AboutPage({version, depth, covered, hide, onBack}) {
           <View className="flex-1 gap-2">
             <Text className="font-heavy text-[20px] text-snow">Buy Me a Coffee</Text>
             <Text className="font-inter text-[14px] text-soft">
-              If LZ4 Compression saved you space, scan this with your phone. A star on GitHub helps too.
+              If LZ4 Compression saved you space, scan this with your phone. A star on the project page helps too.
             </Text>
             <Text className="font-semi text-[13px] text-muted">buymeacoffee.com/theghostonline</Text>
           </View>
@@ -425,15 +428,63 @@ export function PowerPage({depth, covered, hide, onBack, onStop}) {
 
 // ---------------------------------------------------------------- splash, offline, done, toast
 
+// The logo's clamp tightens on "LZ4". Same drawing as tools/art/make_logo.py:
+// a 256-unit tile; the press starts 13 units up with the letters unsquashed.
+const TILE = 240;
+const U = TILE / 256;
+const RISE = 13;
+const TALL = 59;
+const FLAT = 46;
+const PRESS = {delay: 0.7, duration: 0.62, ease: [0.55, 0, 0.3, 1.25]};
+
+function ClampLogo() {
+  const [hit, setHit] = useState(false);
+  // Styles take render px, motion takes layout px.
+  const R = U * PX;
+  const box = (left, top, width, height) => ({position: 'absolute', left: left * R, top: top * R, width: width * R, height: height * R});
+  return (
+    <motion.View className="w-[240px] h-[240px]" initial={{opacity: 0, scale: 0.9}} animate={{opacity: 1, scale: 1}}
+      transition={{duration: 0.4, ease: 'easeOut'}}>
+      {hit ? (
+        <motion.View className="absolute inset-0 rounded-[53px] border-[3px] border-accent"
+          initial={{opacity: 0.9, scale: 1}} animate={{opacity: 0, scale: 1.28}} transition={{duration: 0.7, ease: 'easeOut'}} />
+      ) : null}
+      <View className="absolute inset-0 rounded-[53px] bg-brand overflow-hidden">
+        <motion.View className="absolute inset-0" initial={{y: -RISE * U}} animate={{y: 0}} transition={PRESS}
+          onAnimationComplete={() => setHit(true)}>
+          <View className="bg-snow" style={{...box(106, 62, 12, 67), borderRadius: 2 * R}} />
+          <motion.View style={box(74, 52.5, 76, 16)} initial={{scaleX: 1}} animate={{scaleX: 0.12}}
+            transition={{delay: PRESS.delay, duration: PRESS.duration / 4, ease: 'easeInOut', repeat: 3, repeatType: 'reverse'}}>
+            <View className="bg-snow" style={{...box(8, 3.5, 60, 9), borderRadius: 4 * R}} />
+            <View className="bg-snow rounded-full" style={box(0, 0, 16, 16)} />
+            <View className="bg-snow rounded-full" style={box(60, 0, 16, 16)} />
+          </motion.View>
+          <View className="bg-snow" style={{...box(98, 121, 28, 8), borderRadius: 3 * R}} />
+          <View className="bg-snow" style={{...box(32, 128, 160, 12), borderRadius: 4 * R}} />
+        </motion.View>
+        <Image source={splashFrame} className="absolute inset-0 w-[240px] h-[240px]" />
+        <motion.Image source={splashLetters} style={box(36, 144 - RISE, 152, TALL)}
+          initial={{opacity: 0, scaleY: 1, y: 0}} animate={{opacity: 1, scaleY: FLAT / TALL, y: (TALL - FLAT) / 2 * U}}
+          transition={{opacity: {delay: 0.3, duration: 0.3}, scaleY: PRESS, y: PRESS}} />
+      </View>
+    </motion.View>
+  );
+}
+
 export function Splash({status}) {
   return (
-    <View className="w-screen h-screen bg-ink items-center justify-center gap-6">
-      <Image source={LOGO} className="w-[132px] h-[132px] rounded-[30px] animate-in zoom-in-95 fade-in duration-500" />
-      <Text className="font-heavy text-[34px] text-snow">LZ4 Compression</Text>
-      <View className="w-[200px] h-[4px] rounded-full bg-line overflow-hidden">
-        <View className="w-[40%] h-[4px] rounded-full bg-snow animate-pulse" />
-      </View>
-      <Text className="font-inter text-[13px] text-muted">{status}</Text>
+    <View className="w-screen h-screen bg-ink items-center justify-center">
+      <Glow left={140} top={-140} size={1000} strength={0.3} />
+      <ClampLogo />
+      <motion.View className="items-center gap-5 mt-8" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}}
+        transition={{delay: 1.15, duration: 0.35, ease: 'easeOut'}}>
+        <Text className="font-heavy text-[34px] text-snow">LZ4 Compression</Text>
+        <View className="w-[200px] h-[4px] rounded-full bg-line overflow-hidden">
+          <motion.View className="w-[70px] h-[4px] rounded-full bg-accent" initial={{x: -70}} animate={{x: 200}}
+            transition={{type: 'tween', duration: 1.2, ease: 'easeInOut', repeat: Infinity}} />
+        </View>
+        <Text className="font-inter text-[13px] text-muted">{status}</Text>
+      </motion.View>
     </View>
   );
 }
@@ -461,8 +512,17 @@ export function DoneOverlay({op, game, onClose}) {
     <FocusScope autoFocus trap onBack={() => { onClose(); return true; }}>
       <View className="absolute inset-0 bg-ink/90 items-center justify-center">
         <View className="w-[560px] items-center gap-3 p-8 rounded-[28px] bg-panel border border-line animate-in zoom-in-95 fade-in duration-300">
-          {icon ? <Image source={{uri: icon}} className="w-[112px] h-[112px] rounded-[26px] bg-raised" />
-            : <Image source={LOGO} className="w-[112px] h-[112px] rounded-[26px]" />}
+          <View className="w-[112px] h-[112px]">
+            {icon ? <Image source={{uri: icon}} className="w-[112px] h-[112px] rounded-[26px] bg-raised" />
+              : <Image source={LOGO} className="w-[112px] h-[112px] rounded-[26px]" />}
+            {ok ? (
+              <motion.View className="absolute right-[-12px] bottom-[-12px] w-[40px] h-[40px] rounded-full bg-brand
+                border-[3px] border-panel items-center justify-center"
+                initial={{scale: 0.3, opacity: 0}} animate={{scale: 1, opacity: 1}} transition={{...transitions.pop, delay: 0.2}}>
+                <Icon name="check" />
+              </motion.View>
+            ) : null}
+          </View>
           <Text className="font-heavy text-[30px] text-snow">{ok ? 'Done' : 'Something went wrong'}</Text>
           <Text className="font-inter text-[15px] text-soft text-center" numberOfLines={2}>{op.displayName || op.titleId}</Text>
           <Text className="font-inter text-[14px] text-soft text-center" numberOfLines={2}>{opSummary(op)}</Text>
@@ -485,7 +545,8 @@ export function Toast({toast}) {
     );
   }
   return (
-    <View className="absolute right-[48px] top-[90px] w-[440px] p-4 rounded-[16px] bg-raised border border-line animate-in fade-in slide-in-from-right-4">
+    <View className="absolute right-[48px] top-[90px] w-[440px] p-4 pl-6 rounded-[16px] bg-raised border border-line overflow-hidden animate-in fade-in slide-in-from-right-4">
+      <View className="absolute left-0 top-0 bottom-0 w-[5px] bg-accent" />
       <Text className="font-semi text-[14px] text-snow">{toast.title}</Text>
       {toast.text ? <Text className="font-inter text-[12px] text-soft mt-1" numberOfLines={3}>{toast.text}</Text> : null}
     </View>
@@ -594,7 +655,7 @@ export function UpdateOverlay({update, jobBusy, onClose}) {
 
 // ---------------------------------------------------------------- game reports
 
-// How a game runs after packing, sent as a GitHub "Game report" from a phone.
+// How a game runs after packing, sent as a "Game report" issue from a phone.
 export function ReportPage({game, reported, depth, covered, hide, onBack, onReported}) {
   const [status, setStatus] = useState(reported || '');
   const [qr, setQr] = useState('');
@@ -622,7 +683,7 @@ export function ReportPage({game, reported, depth, covered, hide, onBack, onRepo
             </View>
             <Text className="font-semi text-[15px] text-snow">Scan with your phone to send it</Text>
             <Text className="font-inter text-[13px] text-muted w-[340px] text-center">
-              It opens a prefilled report on GitHub. Reports show up on every game's page in the app.
+              It opens a prefilled report on theghostonline.dev. Reports show up on every game's page in the app.
             </Text>
             <PrimaryButton label="Done" onPress={done} />
           </View>

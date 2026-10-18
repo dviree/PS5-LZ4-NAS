@@ -65,9 +65,9 @@ Tested on 13.60 with kstuff-lite 1.11 and ShadowMountPlus 1.7.
 
 1. Download `lz4-compression.elf` and `LZ4-Compression-PPSA99420.zip` from the
    [latest release](https://theghostonline.dev/theghostonline/PS5-LZ4-Compression/releases/latest).
-2. Add `lz4-compression.elf` to Payload Manager, so it sits at
-   `/data/pldmgr/payloads/lz4-compression/lz4-compression.elf`. The app starts
-   it from there.
+2. Upload `lz4-compression.elf` in Payload Manager. Version 0.6 keeps it in
+   `/data/pldmgr/payloads/local/lz4-compression/`, older ones in
+   `/data/pldmgr/payloads/lz4-compression/`. The app starts it from either.
 3. Unzip the app and copy the `PPSA99420` folder to `/data/homebrew/PPSA99420`
    over FTP. ShadowMount+ adds the `LZ4 Compression` tile. It doesn't scan while
    a game's running, so close any game if the tile doesn't show up.
@@ -76,9 +76,9 @@ Tested on 13.60 with kstuff-lite 1.11 and ShadowMountPlus 1.7.
 You can skip the app too: load the ELF and open `http://<PS5 IP>:5920` in any
 browser.
 
-**Updating from 1.5.0:** its built-in updater still checks the old GitHub page,
-so it won't see new versions. Update by hand this once (same steps as above,
-replacing both files).
+**Updating:** the app checks for a new version when it opens and updates
+itself, engine included. 1.5.0's updater still checks the old GitHub page, so
+from 1.5.0 update by hand this once (same steps as above, replacing both files).
 
 ## Using it
 
@@ -88,9 +88,12 @@ replacing both files).
    - Other games show `Compress` (`.ffpfsc`)
    - Compressed games show `Validate and Repair`
    - LZ4 packed games show `Verify LZ4 Packs`
+   - Folders that won't boot can use `Verify Game Files` under Check
 2. Everything else is under Options, grouped as Compress, Check, Restore,
    APR-EMU, Copy and move, and Delete.
 3. History in the top bar shows every job. The home screen shows the latest.
+4. Packed games show how they run for other people. `Report how it runs` gives
+   you a QR code for your phone that opens a filled-in game report here.
 
 **LZ4 settings**
 - **Level:** 1 to 12, the same scale as Lazy_AMPR. 1 to 4 are fast, 5 to 12 are
@@ -141,6 +144,9 @@ cancelled once it starts, and only works for folders on the same drive.
 - **Results vary by game.** A trace-based profile is more reliable than the
   automatic one. Keep a backup and launch the game before you delete the
   original.
+- **A game won't boot from a plain folder.** Open it and use `Verify Game
+  Files`. It fixes the APR-EMU runtime name, the PlayGo stub, an out-of-date
+  `ampr_emu.index` and file permissions.
 - **Something went wrong.** [Open an issue](https://theghostonline.dev/theghostonline/PS5-LZ4-Compression/issues)
   with the game, its title ID and your firmware.
 

@@ -1,6 +1,6 @@
 // Shared building blocks. Layout units are logical px of a 1280x720 screen.
 import {memo} from 'react';
-import {View, Text, Image, useIsFocused} from '@ps5-react/core';
+import {View, Text, Image, motion, useIsFocused} from '@ps5-react/core';
 import logo from './assets/lz4-logo.png';
 import iconArrowRight from './assets/icons/arrowRight.png';
 import iconBolt from './assets/icons/bolt.png';
@@ -27,6 +27,9 @@ import iconUndo from './assets/icons/undo.png';
 import {TONE_COLOR} from './model.js';
 
 export const LOGO = logo;
+// Inline style lengths are render px; class lengths are layout px (1280 wide,
+// rendered at app.json's 1920).
+export const PX = 1920 / 1280;
 
 const ICONS = {
   arrowRight: iconArrowRight, bolt: iconBolt, check: iconCheck, close: iconClose, compress: iconCompress,
@@ -51,20 +54,12 @@ export function FocusText({children, kind = 'body'}) {
     return <Text className={focused ? 'font-semi text-[15px] text-ink' : 'font-semi text-[15px] text-snow'}
       numberOfLines={1}>{children}</Text>;
   }
-  if (kind === 'button') {
-    return <Text className={focused ? 'font-heavy text-[16px] text-ink' : 'font-heavy text-[16px] text-snow'}>{children}</Text>;
-  }
   if (kind === 'small') {
-    return <Text className={focused ? 'font-inter text-[12px] text-[#3a3a42]' : 'font-inter text-[12px] text-muted'}
+    return <Text className={focused ? 'font-inter text-[12px] text-[#3a423c]' : 'font-inter text-[12px] text-muted'}
       numberOfLines={2}>{children}</Text>;
   }
-  return <Text className={focused ? 'font-inter text-[13px] text-[#3a3a42]' : 'font-inter text-[13px] text-muted'}
+  return <Text className={focused ? 'font-inter text-[13px] text-[#3a423c]' : 'font-inter text-[13px] text-muted'}
     numberOfLines={2}>{children}</Text>;
-}
-
-function FocusIcon({name}) {
-  const focused = useIsFocused();
-  return <Icon name={name} dark={focused} />;
 }
 
 export function Dot({tone}) {
@@ -91,8 +86,8 @@ export function RoundButton({icon, onPress, focusKey}) {
   return (
     <View onPress={onPress} focusKey={focusKey}
       className="w-[40px] h-[40px] rounded-full items-center justify-center bg-raised border border-line
-        transition focused:bg-snow focused:border-snow focused:scale-110">
-      <FocusIcon name={icon} />
+        transition focused:bg-brand focused:border-accent focused:scale-110">
+      <Icon name={icon} />
     </View>
   );
 }
@@ -111,8 +106,8 @@ export function PrimaryButton({label, onPress, autoFocus, focusKey, danger}) {
   return (
     <View onPress={onPress} autoFocus={autoFocus} focusKey={focusKey}
       className="h-[52px] min-w-[240px] px-8 rounded-full items-center justify-center bg-raised border-2
-        border-line transition focused:bg-snow focused:border-snow focused:scale-105">
-      <FocusText kind="button">{label}</FocusText>
+        border-line transition focused:bg-brand focused:border-accent focused:scale-105">
+      <Text className="font-heavy text-[16px] text-snow">{label}</Text>
     </View>
   );
 }
@@ -151,7 +146,7 @@ export const OptionCard = memo(function OptionCard({id, title, desc, icon, dange
 function OptionIconBox({icon}) {
   const focused = useIsFocused();
   return (
-    <View className={focused ? 'w-[40px] h-[40px] rounded-[12px] items-center justify-center bg-ink'
+    <View className={focused ? 'w-[40px] h-[40px] rounded-[12px] items-center justify-center bg-brand'
       : 'w-[40px] h-[40px] rounded-[12px] items-center justify-center bg-raised'}>
       <Icon name={icon} />
     </View>
@@ -176,7 +171,7 @@ export function Choice({title, desc, selected, disabled, onPress, autoFocus, wid
         {desc ? <Text className="font-inter text-[12px] text-muted mt-[2px]" numberOfLines={2}>{desc}</Text> : null}
       </View>
       {selected ? (
-        <View className="w-[24px] h-[24px] rounded-full bg-accent items-center justify-center ml-3">
+        <View className="w-[24px] h-[24px] rounded-full bg-brand items-center justify-center ml-3">
           <Icon name="check" size="sm" />
         </View>
       ) : <View className="w-[24px] h-[24px] rounded-full border-2 border-line ml-3" />}
@@ -229,8 +224,8 @@ function LevelStep({level, selected, onPress, autoFocus}) {
   return (
     <View onPress={onPress} autoFocus={autoFocus} selected={selected} focusKey={'level-' + level}
       className="w-[56px] h-[56px] rounded-[14px] bg-panel border-2 border-line items-center justify-center
-        transition selected:bg-snow selected:border-snow focused:border-accent focused:scale-110">
-      <Text className={selected ? 'font-heavy text-[16px] text-ink' : 'font-heavy text-[16px] text-snow'}>{String(level)}</Text>
+        transition selected:bg-brand selected:border-accent focused:border-snow focused:scale-110">
+      <Text className="font-heavy text-[16px] text-snow">{String(level)}</Text>
     </View>
   );
 }
@@ -255,20 +250,21 @@ export function LevelScale({value, onChange, autoFocus}) {
 }
 
 export function SectionLabel({children}) {
-  return <Text className="font-semi text-[11px] text-muted tracking-[2px] mt-6 mb-3">{String(children).toUpperCase()}</Text>;
+  return <Text className="font-semi text-[11px] text-accent tracking-[2px] mt-6 mb-3">{String(children).toUpperCase()}</Text>;
 }
 
 export function ProgressBar({percent}) {
   if (percent === null || percent === undefined) {
     return (
       <View className="h-[6px] rounded-full bg-line overflow-hidden">
-        <View className="w-[30%] h-[6px] rounded-full bg-accent animate-pulse" />
+        <motion.View className="w-[160px] h-[6px] rounded-full bg-accent"
+          initial={{x: -160}} animate={{x: 1040}} transition={{type: 'tween', duration: 1.6, ease: 'easeInOut', repeat: Infinity}} />
       </View>
     );
   }
   return (
     <View className="h-[6px] rounded-full bg-line overflow-hidden">
-      <View className="h-[6px] rounded-full bg-accent" style={{width: `${Math.max(1, percent)}%`}} />
+      <View className="h-[6px] rounded-full bg-gradient-to-r from-brand to-accent" style={{width: `${Math.max(1, percent)}%`}} />
     </View>
   );
 }
@@ -288,4 +284,17 @@ export function Spec({label, value, tone}) {
 
 export function Hint({children}) {
   return <Text className="font-inter text-[12px] text-muted">{children}</Text>;
+}
+
+// A soft round glow of the logo's green (a radial gradient that fades out
+// before the box's edge, so the box never shows).
+export function Glow({left, top, size, strength = 0.22}) {
+  return (
+    <View pointerEvents="none" style={{position: 'absolute', left: left * PX, top: top * PX, width: size * PX, height: size * PX, backgroundGradient: {
+      type: 'radial', stops: [
+        {color: `rgba(3,136,61,${strength})`, offset: 0},
+        {color: `rgba(3,136,61,${strength * 0.35})`, offset: 0.35},
+        {color: 'rgba(3,136,61,0)', offset: 0.7},
+      ]}}} />
+  );
 }

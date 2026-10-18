@@ -1,13 +1,14 @@
-// In-app updates from the GitHub releases: the app zip replaces the app's
+// In-app updates from the releases on theghostonline.dev: the app zip replaces the app's
 // folder and lz4-compression.elf replaces the engine in Payload Manager.
 import {Archives, Downloads, FileSystem, Http, Platform} from '@ps5-react/core';
-import {ENGINE_ELF} from './api.js';
+import {engineElf} from './api.js';
 import {APP_VERSION} from './version.js';
 
-const FEED = 'https://api.github.com/repos/theghostonline/PS5-LZ4-Compression/releases/latest';
+const FEED = 'https://theghostonline.dev/api/v1/repos/theghostonline/PS5-LZ4-Compression/releases/latest';
 const TITLE = 'PPSA99420';
 const APP_ASSET = `LZ4-Compression-${TITLE}.zip`;
 const ENGINE_ASSET = 'lz4-compression.elf';
+const SUMS_ASSET = 'SHA256SUMS';
 const onPs5 = Platform.OS === 'ps5';
 const DATA = onPs5 ? '/data/LZ4Compression' : `${FileSystem.dataDir}/LZ4Compression`;
 const WORK = `${DATA}/app-update`;
@@ -46,16 +47,35 @@ function readText(path) {
   }
 }
 
-function assetOf(release, name) {
+// Forgejo lists no digests, so each file's SHA-256 comes from the release's
+// SHA256SUMS ("<hash>  <name>" lines).
+function parseSums(text) {
+  const sums = {};
+  for (const line of String(text || '').split('\n')) {
+    const match = /^([0-9a-f]{64})\s+\*?(\S+)\s*$/i.exec(line.trim());
+    if (match) sums[match[2]] = match[1].toLowerCase();
+  }
+  return sums;
+}
+
+function assetOf(release, name, sums) {
   const file = (release.assets || []).find(item => item.name === name);
-  const sha256 = /^sha256:([0-9a-f]{64})$/i.exec((file && file.digest) || '');
-  return file && sha256 ? {url: file.browser_download_url, size: file.size, sha256: sha256[1]} : null;
+  const sha256 = file && sums[name];
+  return file && sha256 ? {url: file.browser_download_url, size: file.size, sha256} : null;
+}
+
+async function sumsOf(release) {
+  const file = (release.assets || []).find(item => item.name === SUMS_ASSET);
+  if (!file) return {};
+  const response = await Http.request(file.browser_download_url, {maxBytes: 64 * 1024});
+  if (!response.ok) throw new Error(`${SUMS_ASSET} answered HTTP ${response.status}`);
+  return parseSums(await response.text());
 }
 
 export async function checkForUpdate() {
   const feed = readText(FEED_OVERRIDE) || FEED;
   const response = await Http.request(feed, {
-    headers: {Accept: 'application/vnd.github+json', 'User-Agent': 'LZ4-Compression'},
+    headers: {Accept: 'application/json', 'User-Agent': 'LZ4-Compression'},
     maxBytes: 1024 * 1024,
   });
   if (!response.ok) throw new Error(`Update check answered HTTP ${response.status}`);
@@ -63,9 +83,10 @@ export async function checkForUpdate() {
   const version = String(release.tag_name || '').replace(/^v/i, '');
   if (!version || !isNewer(version, APP_VERSION)) return null;
   if (readText(SKIP_FILE) === version) return null;
-  const app = assetOf(release, APP_ASSET);
+  const sums = await sumsOf(release);
+  const app = assetOf(release, APP_ASSET, sums);
   if (!app) return null;
-  return {version, app, engine: assetOf(release, ENGINE_ASSET)};
+  return {version, app, engine: assetOf(release, ENGINE_ASSET, sums)};
 }
 
 export function skipVersion(version) {
@@ -153,8 +174,8 @@ export function cleanupUpdate() {
 // Returns whether the engine was replaced too.
 export async function installUpdate(update, onProgress = () => {}) {
   const target = installDir();
-  const engineDir = ENGINE_ELF.slice(0, ENGINE_ELF.lastIndexOf('/'));
-  const withEngine = !!update.engine && onPs5 && FileSystem.exists(engineDir);
+  const engine = onPs5 ? engineElf() : null;
+  const withEngine = !!update.engine && !!engine;
   const total = update.app.size + (withEngine ? update.engine.size : 0);
   cleanupUpdate();
   FileSystem.mkdir(WORK, {recursive: true});
@@ -183,10 +204,10 @@ export async function installUpdate(update, onProgress = () => {}) {
     try {
       FileSystem.chmod(elf, 0o777);
       FileSystem.mkdir(`${WORK}/previous-engine`, {recursive: true});
-      if (FileSystem.exists(ENGINE_ELF)) FileSystem.rename(ENGINE_ELF, `${WORK}/previous-engine/${ENGINE_ASSET}`);
-      FileSystem.rename(elf, ENGINE_ELF);
+      FileSystem.rename(engine, `${WORK}/previous-engine/${ENGINE_ASSET}`);
+      FileSystem.rename(elf, engine);
     } catch (err) {
-      throw new Error(`App updated, but the engine couldn't be replaced at ${ENGINE_ELF}: ${reason(err)}`);
+      throw new Error(`App updated, but the engine couldn't be replaced at ${engine}: ${reason(err)}`);
     }
   }
   return withEngine;
