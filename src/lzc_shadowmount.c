@@ -1400,17 +1400,18 @@ lzc_shadowmount_request_unmount(const char *title_id) {
   return shadowmount_api_title_post("/api/v1/games/unmount", title_id);
 }
 
+// One loadpayload request; returns the HTTP status, or -1 with detail set.
 static int
-payload_manager_launch(const char *elf_path, char *detail, size_t detail_size) {
+payload_manager_request(const char *method, const char *elf_path,
+                        char *response, size_t response_size,
+                        char *detail, size_t detail_size) {
   int fd;
   struct timeval timeout;
   struct sockaddr_in addr;
   char request[1536];
-  char response[4096];
   size_t used = 0;
   int status = 0;
   int n;
-  if(detail && detail_size) detail[0] = 0;
   fd = socket(AF_INET, SOCK_STREAM, 0);
   if(fd < 0) {
     set_detail_errno(detail, detail_size, "Payload Manager socket");
@@ -1429,12 +1430,15 @@ payload_manager_launch(const char *elf_path, char *detail, size_t detail_size) {
     close(fd);
     return -1;
   }
+  // Payload Manager 0.6 takes POST with its request marker; older ones GET.
   n = snprintf(request, sizeof(request),
-               "GET /loadpayload:%s HTTP/1.1\r\n"
+               "%s /loadpayload:%s HTTP/1.1\r\n"
                "Host: 127.0.0.1:%d\r\n"
+               "X-PLDMGR-Request: 1\r\n"
+               "Content-Length: 0\r\n"
                "Connection: close\r\n"
                "\r\n",
-               elf_path ? elf_path : "", PAYLOAD_MANAGER_PORT);
+               method, elf_path ? elf_path : "", PAYLOAD_MANAGER_PORT);
   if(n < 0 || (size_t)n >= sizeof(request)) {
     set_detail(detail, detail_size, "Payload Manager request too long");
     close(fd);
@@ -1445,8 +1449,8 @@ payload_manager_launch(const char *elf_path, char *detail, size_t detail_size) {
     close(fd);
     return -1;
   }
-  while(used + 1 < sizeof(response)) {
-    ssize_t got = recv(fd, response + used, sizeof(response) - 1 - used, 0);
+  while(used + 1 < response_size) {
+    ssize_t got = recv(fd, response + used, response_size - 1 - used, 0);
     if(got < 0 && errno == EINTR) continue;
     if(got <= 0) break;
     used += (size_t)got;
@@ -1458,6 +1462,21 @@ payload_manager_launch(const char *elf_path, char *detail, size_t detail_size) {
              response);
     return -1;
   }
+  return status;
+}
+
+static int
+payload_manager_launch(const char *elf_path, char *detail, size_t detail_size) {
+  char response[4096];
+  int status;
+  if(detail && detail_size) detail[0] = 0;
+  status = payload_manager_request("POST", elf_path, response, sizeof(response),
+                                   detail, detail_size);
+  if(status == 404 || status == 405) {
+    status = payload_manager_request("GET", elf_path, response, sizeof(response),
+                                     detail, detail_size);
+  }
+  if(status < 0) return -1;
   if(status >= 400) {
     snprintf(detail, detail_size, "Payload Manager launch failed HTTP %d: %.120s",
              status, response);
