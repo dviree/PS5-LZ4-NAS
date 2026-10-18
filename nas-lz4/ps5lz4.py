@@ -2604,7 +2604,7 @@ def ps5_ftp_put(path: str, stream, length: int) -> dict:
 # whether it is this fork's build (which answers keep-awake), and install that
 # build into the Payload Manager over FTP (overwriting the file there).
 ENGINE_REPO = os.environ.get("PS5LZ4_ENGINE_REPO", "dviree/PS5-LZ4-NAS")
-ENGINE_PATH = "/data/pldmgr/payloads/lz4-compression/lz4-compression.elf"
+ENGINE_PATH = "/data/pldmgr/payloads/lz4-compression/lz4-compression.elf"  # Payload Manager before 0.6
 ENGINE_DIR = STATE / "engine"
 # ELF loaders: elfldr / etaHEN on 9021, the exploit stage's loader on 9020.
 PLDMGR_PORT = int(os.environ.get("PS5LZ4_PLDMGR_PORT", "8084"))  # Payload Manager's loadpayload
@@ -2614,12 +2614,63 @@ APP_FEED_PATH = "/data/LZ4Compression/update-feed"
 ELFLDR_PORTS = [int(p) for p in os.environ.get("PS5LZ4_ELFLDR_PORTS", "9021,9020").split(",") if p.strip()]
 
 
+# Payload Manager 0.6 keeps uploaded payloads in payloads/local/<name>/ and takes
+# loadpayload as a POST with its request marker; older ones use payloads/<name>/
+# and GET (the original project's 1.6 does the same).
+_PM_PATHS: dict = {}
+
+
+def pm_path(old_path: str, f=None) -> str:
+    """Where Payload Manager keeps this payload: the copy that exists (0.6's local/
+    first), else local/ when that folder exists, else the old place."""
+    import ftplib
+    name = old_path.rsplit("/", 2)[-2]
+    new_path = f"/data/pldmgr/payloads/local/{name}/{old_path.rsplit('/', 1)[1]}"
+    own = f is None
+    try:
+        if own:
+            f = ps5_ftp_connect()
+        payloads = set(ps5_ftp_names(f, "/data/pldmgr/payloads") or [])
+        if "local" in payloads:
+            local = set(ps5_ftp_names(f, "/data/pldmgr/payloads/local") or [])
+            if name in local or name not in payloads:
+                _PM_PATHS[old_path] = new_path
+                return new_path
+        _PM_PATHS[old_path] = old_path
+        return old_path
+    except (OSError, ValueError, *ftplib.all_errors):
+        return _PM_PATHS.get(old_path, old_path)
+    finally:
+        if own and f is not None:
+            try:
+                f.quit()
+            except Exception:
+                pass
+
+
+def pm_load(host: str, path: str) -> str:
+    """Ask Payload Manager to load a payload: POST with X-PLDMGR-Request (0.6),
+    GET for older ones. The answer's text."""
+    import urllib.error
+    import urllib.request
+    url = f"http://{host}:{PLDMGR_PORT}/loadpayload:{path}"
+    try:
+        req = urllib.request.Request(url, data=b"", method="POST", headers={"X-PLDMGR-Request": "1"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.read(65536).decode(errors="replace").strip()
+    except urllib.error.HTTPError as err:
+        if err.code not in (404, 405):
+            raise
+    with urllib.request.urlopen(url, timeout=10) as r:
+        return r.read(65536).decode(errors="replace").strip()
+
+
 def engine_status() -> dict:
     import urllib.error
     import urllib.request
     cfg = get_settings()
     host = (cfg.get("ps5_ftp") or "").partition(":")[0]
-    out = {"host": host, "port": LZC_PORT, "repo": ENGINE_REPO, "path": ENGINE_PATH,
+    out = {"host": host, "port": LZC_PORT, "repo": ENGINE_REPO, "path": _PM_PATHS.get(ENGINE_PATH, ENGINE_PATH),
            "state": "unknown", "keep_awake": False, "elfldr_ports": ELFLDR_PORTS,
            "cached": (read_json(ENGINE_DIR / "release.json", {}) or {}).get("tag"),
            "installed": read_json(ENGINE_DIR / "installed.json", None), "auto": engine_auto_on(),
@@ -2702,9 +2753,10 @@ def engine_install() -> dict:
     size = elf.stat().st_size
     f = ps5_ftp_connect()
     try:
-        ps5_ftp_mkdirs(f, ENGINE_PATH.rsplit("/", 1)[0])
+        path = pm_path(ENGINE_PATH, f)
+        ps5_ftp_mkdirs(f, path.rsplit("/", 1)[0])
         with elf.open("rb") as src:
-            f.storbinary(f"STOR {ENGINE_PATH}", src, blocksize=1 << 20)
+            f.storbinary(f"STOR {path}", src, blocksize=1 << 20)
         try:
             import io
             ps5_ftp_mkdirs(f, APP_FEED_PATH.rsplit("/", 1)[0])
@@ -2713,7 +2765,7 @@ def engine_install() -> dict:
         except ftplib.all_errors as err:
             print(f"[{now()}] could not point the app's updater at {ENGINE_REPO}: {err}", flush=True)
         try:
-            got = f.size(ENGINE_PATH)
+            got = f.size(path)
         except ftplib.all_errors:
             got = None
         if got is not None and got != size:
@@ -2727,20 +2779,21 @@ def engine_install() -> dict:
         engine_read()
     except Exception:
         pass
-    print(f"[{now()}] engine {tag} installed on the PS5 at {ENGINE_PATH}", flush=True)
-    return {"tag": tag, "path": ENGINE_PATH, "bytes": size}
+    print(f"[{now()}] engine {tag} installed on the PS5 at {path}", flush=True)
+    return {"tag": tag, "path": path, "bytes": size}
 
 
 def engine_restore() -> dict:
     """Put the .orig engine back."""
     f = ps5_ftp_connect()
     try:
-        names = ps5_ftp_names(f, ENGINE_PATH.rsplit("/", 1)[0]) or []
+        path = pm_path(ENGINE_PATH, f)
+        names = ps5_ftp_names(f, path.rsplit("/", 1)[0]) or []
         if "lz4-compression.elf.orig" not in names:
             raise ValueError("there is no saved original engine (.orig) on the PS5")
         if "lz4-compression.elf" in names:
-            f.sendcmd(f"DELE {ENGINE_PATH}")
-        f.rename(ENGINE_PATH + ".orig", ENGINE_PATH)
+            f.sendcmd(f"DELE {path}")
+        f.rename(path + ".orig", path)
     finally:
         try:
             f.quit()
@@ -2751,7 +2804,7 @@ def engine_restore() -> dict:
     except Exception:
         pass
     print(f"[{now()}] original engine restored on the PS5", flush=True)
-    return {"restored": ENGINE_PATH}
+    return {"restored": path}
 
 
 def engine_start() -> dict:
@@ -2765,11 +2818,11 @@ def engine_start() -> dict:
         raise ValueError("set the PS5 address first")
     before = engine_status()
     tried = []
+    path = pm_path(ENGINE_PATH)
     try:
-        with urllib.request.urlopen(f"http://{host}:{PLDMGR_PORT}/loadpayload:{ENGINE_PATH}", timeout=10) as r:
-            body = r.read(65536).decode(errors="replace").strip()
+        body = pm_load(host, path)
         if "Invalid payload name" in body:
-            tried.append(f"Payload Manager ({PLDMGR_PORT}): it doesn't know {ENGINE_PATH}")
+            tried.append(f"Payload Manager ({PLDMGR_PORT}): it doesn't know {path}")
         else:
             print(f"[{now()}] engine loaded through Payload Manager on {host}:{PLDMGR_PORT}", flush=True)
             return {"sent": True, "via": f"Payload Manager ({PLDMGR_PORT})", "before_pid": before.get("pid")}
@@ -2831,8 +2884,9 @@ def engine_read() -> dict:
     import hashlib
     f = ps5_ftp_connect()
     try:
-        names = ps5_ftp_names(f, ENGINE_PATH.rsplit("/", 1)[0]) or []
-        info = {"at": time.time(), "orig": "lz4-compression.elf.orig" in names}
+        path = pm_path(ENGINE_PATH, f)
+        names = ps5_ftp_names(f, path.rsplit("/", 1)[0]) or []
+        info = {"at": time.time(), "orig": "lz4-compression.elf.orig" in names, "path": path}
         if "lz4-compression.elf" not in names:
             info["state"] = "missing"
         else:
@@ -2841,7 +2895,7 @@ def engine_read() -> dict:
             def take(b):
                 h.update(b)
                 n[0] += len(b)
-            f.retrbinary(f"RETR {ENGINE_PATH}", take, blocksize=1 << 20)
+            f.retrbinary(f"RETR {path}", take, blocksize=1 << 20)
             info.update(sha256=h.hexdigest(), bytes=n[0])
     finally:
         try:
@@ -4879,8 +4933,9 @@ def receiver_install() -> dict:
     elf = receiver_fetch()
     f = ps5_ftp_connect()
     try:
-        ps5_ftp_mkdirs(f, RECV_PATH.rsplit("/", 1)[0])
-        f.storbinary(f"STOR {RECV_PATH}", io.BytesIO(elf.read_bytes()), blocksize=1 << 20)
+        path = pm_path(RECV_PATH, f)
+        ps5_ftp_mkdirs(f, path.rsplit("/", 1)[0])
+        f.storbinary(f"STOR {path}", io.BytesIO(elf.read_bytes()), blocksize=1 << 20)
     finally:
         try:
             f.quit()
@@ -4891,8 +4946,8 @@ def receiver_install() -> dict:
     m = re.search(rb'\{"build":"([^"]+)"\}', elf.read_bytes())
     st = receiver_status()
     if st["running"] and (not m or st.get("build") == m.group(1).decode()):
-        return {"installed": RECV_PATH, "started": "already running"}
-    return {"installed": RECV_PATH, **receiver_launch(elf)}
+        return {"installed": path, "started": "already running"}
+    return {"installed": path, **receiver_launch(elf)}
 
 
 def receiver_launch(elf: Path | None) -> dict:
@@ -4904,9 +4959,8 @@ def receiver_launch(elf: Path | None) -> dict:
     if not host:
         raise ValueError("set the PS5 address first")
     try:
-        with urllib.request.urlopen(f"http://{host}:{PLDMGR_PORT}/loadpayload:{RECV_PATH}", timeout=10) as r:
-            if "Invalid payload name" not in r.read(65536).decode(errors="replace"):
-                return {"started": f"Payload Manager ({PLDMGR_PORT})"}
+        if "Invalid payload name" not in pm_load(host, pm_path(RECV_PATH)):
+            return {"started": f"Payload Manager ({PLDMGR_PORT})"}
     except Exception:
         pass
     if elf and elf.is_file():
