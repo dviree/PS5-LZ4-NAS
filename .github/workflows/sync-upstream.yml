@@ -74,11 +74,11 @@ jobs:
               # The repository on theghostonline.dev starts a new history. Put its
               # files on top of the last commit synced from GitHub, so the pull
               # request shows only what changed since then.
-              # Its workflows are left as they were (the token can't push workflow changes).
+              # This fork's workflows, not its own (the token can't push workflow changes).
               export GIT_INDEX_FILE="$RUNNER_TEMP/bridge.index"
               git read-tree upstream/main
               git rm -r -q --cached --ignore-unmatch -- .github/workflows
-              git ls-tree -r "$LAST_GITHUB" -- .github/workflows | git update-index --index-info
+              git ls-tree -r origin/main -- .github/workflows | git update-index --index-info
               tree=$(git write-tree)
               unset GIT_INDEX_FILE
               # upstream-raw: its files as they are, one commit per change, on top
