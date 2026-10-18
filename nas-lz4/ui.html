@@ -900,7 +900,7 @@ function render() {
           ${Object.entries(PS5_EN).map(([k, s]) => `<option value="${k}">${s}</option>`).join('')}</select>` : '<span class="mut">–</span>';
       const waiting = pendingFor(g.id), sendNext = (d.send_after || []).includes(g.id);
       const txr = g.output ? (data.transfers || {})[g.output.split('/').pop()] : null;
-      const action = waiting ? '<span class="pill p-run">waiting</span>' : g.can_queue && !g.running && !g.queued
+      const action = waiting ? `<span class="pill p-run" title="${esc(waitWhy())}">waiting</span>` : g.can_queue && !g.running && !g.queued
         ? `<button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game, !!(data.settings || {}).ps5_ftp)" title="Compress with LZ4, then send it to the PS5 by itself">Compress &amp; send</button>`
         : txr && txr.state === 'failed' && !d.transfer
         ? `<button class="sm pri" data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}" onclick="event.stopPropagation();push(this.dataset.id, this.dataset.name)">▶ Resume transfer</button>` : '';
@@ -979,6 +979,16 @@ function render() {
   }).join('') : (pending ? '' : '<span class="mut">None yet.</span>'));
 }
 
+// Why a Compress request has not started: another game is being packed, or the
+// packing container (ps5-lz4) is not picking requests up.
+function waitWhy() {
+  if (!data) return '';
+  if (data.running && data.job) return `after ${data.job.id}, which is being packed now`;
+  const age = (data.requests || {}).agent_age;
+  if (age == null || age > 30)
+    return 'not picked up: the packing container (ps5-lz4) is not running. On the NAS: docker start ps5-lz4, or ./lz4-ps5.sh update; docker logs ps5-lz4 shows why it stopped';
+  return 'starting…';
+}
 function pendingFor(id) {
   return data && (data.requests.pending_list || []).some(r => r.action === 'start' && r.game === id);
 }
@@ -1130,7 +1140,7 @@ function gameHtml(g, det) {
   if (w && w.error) rows.push(['Last error', `<span class="bad">${esc(w.error)}</span><div class="why">step ${esc(w.step || '')}</div>`]);
 
   const acts = [];
-  if (pendingFor(g.id)) acts.push('<span class="pill p-run">waiting to start</span>');
+  if (pendingFor(g.id)) acts.push(`<span class="pill p-run">waiting to start</span><div class="why" style="flex-basis:100%">${esc(waitWhy())}</div>`);
   else if (g.can_queue && !g.running && !g.queued)
     acts.push(`<button class="pri" data-game="${esc(g.id)}" onclick="compress(this.dataset.game, true)" title="Compress with LZ4, check it, then send it to the PS5 by itself">⚡ Compress &amp; send to PS5</button>`,
       `<button class="ghost" data-game="${esc(g.id)}" onclick="compress(this.dataset.game)">Compress only</button>`,

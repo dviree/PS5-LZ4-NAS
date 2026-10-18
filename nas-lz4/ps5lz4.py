@@ -540,6 +540,30 @@ def scan_library() -> list[Entry]:
     return entries
 
 
+def nice_folder_name(e: "Entry", games: dict | None = None) -> str:
+    """A name for a game whose param.json gave none: from inside an image, else the
+    folder name unless it is only a Title ID ("PPSA12345-app0"), else the
+    community list's name, else the parent folder without release tags."""
+    if e.kind != "folder":
+        name = _safe(lambda: image_meta(e.path).get("title"), None) or e.path.stem
+    else:
+        name = e.path.name
+    if not BARE_TID_RE.fullmatch(re.sub(r"(?i)[-_ ]?app0$", "", name)):
+        return name
+    g = (games if games is not None else compat_games()).get((e.title_id or "").upper()) or {}
+    if g.get("name"):
+        return g["name"]
+    parent = e.path.parent
+    if parent != LIBRARY:
+        clean = re.sub(r"\[[^\]]*\]|\([^)]*\)", " ", parent.name)
+        clean = re.sub(r"(?i)\b(PPSA|CUSA)\d{5}\b|[-_.]+", " ", clean)
+        clean = re.sub(r"(?i)\b(duplex|app0?|ps5|fpkg|v?\d+\.\d+)\b", " ", clean)
+        clean = re.sub(r"\s+", " ", clean).strip()
+        if len(clean) > 2:
+            return clean
+    return name
+
+
 def resolve_targets(args_targets: list[str], entries: list[Entry]) -> list[Entry]:
     out: list[Entry] = []
     for t in args_targets:
@@ -5896,8 +5920,7 @@ def dashboard_data() -> dict:
         g = games.get((e.title_id or "").upper()) or {}
         row = {"id": e.id, "rel": e.rel, "source_path": str(Path(HOST_LIBRARY) / e.rel), "kind": e.kind,
                "source_size": src_size, "title_id": e.title_id,
-               "name": rep.get("title_name") or e.name or (e.path.name if e.kind == "folder"
-                        else _safe(lambda: image_meta(e.path).get("title"), None) or e.path.stem),
+               "name": rep.get("title_name") or e.name or nice_folder_name(e, games),
                "verdict": verdict, "why": why,
                "can_queue": can, "running": e.id == current,
                "queued": e.id in (queue.get("remaining") or []) and running,
@@ -5961,6 +5984,10 @@ def dashboard_data() -> dict:
             done_req.append(read_json(f, {}))
     pending_list = [read_json(f, {}) or {} for f in sorted(REQUESTS.glob("*.req.json"))] if REQUESTS.is_dir() else []
     pending = len(pending_list)
+    try:
+        agent_age = int(time.time() - (REQUESTS / ".agent-alive").stat().st_mtime)
+    except OSError:
+        agent_age = None
     return {"running": running, "job": job, "queue": queue.get("remaining") or [] if running else [],
             "interrupted": (not running) and bool(queue.get("remaining")),
             "free_bytes": free_bytes(OUTPUT), "games": rows, "totals": totals, "failed": failed,
@@ -5975,7 +6002,8 @@ def dashboard_data() -> dict:
             "pkgs": scan_pkgs(),
             "level": int(os.environ.get("PS5LZ4_LEVEL", "9")), "runtime": RUNTIME_NAME.removeprefix("APR-EMU "),
             "compat_updated": compat_data().get("updated"),
-            "requests": {"pending": pending, "pending_list": pending_list, "recent": done_req[::-1]}, "version": VERSION,
+            "requests": {"pending": pending, "pending_list": pending_list, "recent": done_req[::-1],
+                         "agent_age": agent_age}, "version": VERSION,
             "settings": {**get_settings(), "ps5_wake_key": "set" if get_settings()["ps5_wake_key"] else "",
                          "paired": {k: (read_json(SETTINGS_PATH, {}) or {}).get(k) for k in ("ps5_nickname", "ps5_paired")}},
             "transfer": transfer_running(),
@@ -6144,7 +6172,9 @@ def cmd_agent(_args) -> int:
     ensure_dirs()
     REQUESTS.mkdir(exist_ok=True)
     print(f"[{now()}] agent: watching {REQUESTS}", flush=True)
+    alive = REQUESTS / ".agent-alive"
     while True:
+        alive.touch()  # the page tells "not picked up" from "waiting for a job"
         for f in sorted(REQUESTS.glob("*.req.json")):
             req = read_json(f, {}) or {}
             if req.get("action") in ("start", "fix", "resume") and job_running()[0]:
