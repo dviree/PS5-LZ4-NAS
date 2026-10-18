@@ -27,6 +27,8 @@ jobs:
       - name: Original project into upstream-sync (for review), main into nas-build
         env:
           UPSTREAM: https://theghostonline.dev/theghostonline/PS5-LZ4-Compression.git
+          # The original's last commit synced from GitHub, before it moved.
+          LAST_GITHUB: 3496d9c738e99849305c0a86821c6d6111da9aa7
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -67,11 +69,21 @@ jobs:
           git remote add upstream "$UPSTREAM"
           if git ls-remote --exit-code upstream refs/heads/main >/dev/null 2>&1; then
             git fetch --no-tags upstream main
-            if git merge-base --is-ancestor upstream/main origin/main; then
+            src=upstream/main
+            if ! git merge-base origin/main upstream/main >/dev/null; then
+              # The repository on theghostonline.dev starts a new history. Put its
+              # files on top of the last commit synced from GitHub, so the pull
+              # request shows only what changed since then.
+              src=$(git commit-tree "upstream/main^{tree}" -p "$LAST_GITHUB" \
+                    -m "The original project as on theghostonline.dev ($(git rev-parse --short upstream/main))")
+              echo "new history upstream: comparing its files with $LAST_GITHUB"
+            fi
+            if git merge-base --is-ancestor "$src" origin/main || \
+               [ -z "$(git diff "$(git merge-base "$src" origin/main)" "$src" --stat -- . ':!.github/workflows' ':!.gitea')" ]; then
               echo "main already has everything from the original project"
-            elif merge_into upstream-sync origin/main upstream/main "the original project"; then
+            elif merge_into upstream-sync origin/main "$src" "the original project"; then
               if [ -z "$(gh pr list --head upstream-sync --base main --state open --json number --jq '.[].number')" ]; then
-                new=$(git log --oneline --no-merges origin/main..upstream/main | head -40)
+                new=$(git log --oneline --no-merges origin/main.."$src" | head -40; echo; git diff --stat "$(git merge-base "$src" origin/main)" "$src" | tail -30)
                 printf 'Changes from the original project (%s), merged into this branch by the sync.\n\nReview them before merging: merging this into main rebuilds the NAS image.\n\n```\n%s\n```\n' \
                   "$UPSTREAM" "$new" > "$RUNNER_TEMP/body.md"
                 gh pr create --base main --head upstream-sync \
