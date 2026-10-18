@@ -15,6 +15,7 @@ const JOB_POLL_MS = 1000;
 const LIST_POLL_MS = 6000;
 const UPDATE_CHECK_DELAY_MS = 4000;
 const COMPAT_REFRESH_MS = 10 * 60 * 1000;
+const SPLASH_MS = 1900;
 
 // A light tick on every focus move, a firmer one on presses, like Overdrive.
 function useHaptics() {
@@ -127,7 +128,8 @@ function App() {
       setPhase('offline');
       return;
     }
-    const wait = Math.max(0, 900 - (Date.now() - started));
+    // Long enough for the splash's clamp to close.
+    const wait = Math.max(0, SPLASH_MS - (Date.now() - started));
     setTimeout(() => setPhase('ready'), wait);
   }, [refreshAll]);
 
@@ -143,7 +145,7 @@ function App() {
         console.log(`lz4: update check: ${found ? 'v' + found.version : 'up to date'}`);
         setUpdate(found);
       } catch (err) {
-        // No network, or GitHub is unreachable: try again next launch.
+        // No network, or the release page is unreachable: try again next launch.
         console.log(`lz4: update check failed: ${err.message}`);
       }
     }, UPDATE_CHECK_DELAY_MS);

@@ -4,11 +4,12 @@ import {View, Text, Image, ScrollView, FocusScope, useIsFocused} from '@ps5-reac
 import {iconUrl} from './api.js';
 import {REPORT_CHOICES, compatSummary} from './compat.js';
 import donateQr from './assets/donate-qr.png';
+import homeMark from './assets/home-mark.png';
 import {
   ACTION_DESC, ACTION_ICON, ACTION_LABEL, GROUPS, badgeText, gameId, gameSize, kindLabel, opSummary,
   opTone, primaryAction, profileText, progressFor, resultText, secondaryActions, statusOf, storageLabel, formatBytes,
 } from './model.js';
-import {Dot, OptionCard, PrimaryButton, ProgressBar, SectionLabel, Spec, TopBar} from './ui.jsx';
+import {Dot, Glow, OptionCard, PrimaryButton, ProgressBar, SectionLabel, Spec, TopBar} from './ui.jsx';
 
 // ---------------------------------------------------------------- home
 
@@ -17,7 +18,7 @@ function TileArt({children}) {
   const focused = useIsFocused();
   return (
     <View focused={focused} className="w-[132px] h-[132px] rounded-[20px] border-[3px] border-transparent
-      overflow-hidden bg-raised transition focused:border-snow focused:scale-110">
+      overflow-hidden bg-raised transition focused:border-accent focused:scale-110">
       {children}
     </View>
   );
@@ -87,7 +88,7 @@ const RecentCard = memo(function RecentCard({op, game, onOpen}) {
   return (
     <View onPress={() => onOpen(game ? gameId(game) : '')} focusKey={'recent-' + op.id}
       className="flex-row items-center gap-3 w-[280px] h-[64px] px-3 rounded-[16px] bg-panel border border-line
-        transition focused:border-snow focused:scale-[1.03]">
+        transition focused:border-accent focused:scale-[1.03]">
       {icon ? <Image source={{uri: icon}} className="w-[44px] h-[44px] rounded-[10px] bg-raised" />
         : <View className="w-[44px] h-[44px] rounded-[10px] bg-raised" />}
       <View className="flex-1 gap-[2px]">
@@ -112,9 +113,11 @@ export function Home({games, history, job, version, freeText, covered, hide, sta
   return (
     <FocusScope autoFocus restoreFocus focusKey="screen-home" inert={covered} onBack={() => true}>
       <View className={hide ? 'hidden' : 'absolute inset-0 bg-ink'}>
+        <Glow left={-420} top={-560} size={1200} />
+        <Image source={homeMark} className="absolute right-[210px] top-[240px] w-[440px] h-[440px]" />
         <TopBar version={version} freeText={freeText} onHistory={onHistory} onAbout={onAbout} onPower={onPower} />
         <View className="flex-row items-center gap-3 px-[48px] mt-4">
-          <Text className="font-semi text-[11px] text-soft tracking-[3px]">LIBRARY</Text>
+          <Text className="font-semi text-[11px] text-accent tracking-[3px]">LIBRARY</Text>
           <Text className="font-inter text-[12px] text-muted">{`${games.length} ${games.length === 1 ? 'game' : 'games'}`}</Text>
         </View>
         {/* Embedded React scrolls the axis that overflows: the row goes on the ScrollView itself.
@@ -134,7 +137,7 @@ export function Home({games, history, job, version, freeText, covered, hide, sta
         <View className="flex-1" />
         {recent.length ? (
           <View className="px-[48px] pb-[36px]">
-            <Text className="font-semi text-[11px] text-soft tracking-[3px] mb-3">RECENT ACTIVITY</Text>
+            <Text className="font-semi text-[11px] text-accent tracking-[3px] mb-3">RECENT ACTIVITY</Text>
             <View className="flex-row gap-4">
               {recent.map(op => <RecentCard key={op.id} op={op} game={byTitle.get(op.titleId)} onOpen={onOpen} />)}
             </View>
@@ -144,7 +147,7 @@ export function Home({games, history, job, version, freeText, covered, hide, sta
             in the corner for buymeacoffee.com/theghostonline. */}
         <View className="absolute right-[48px] bottom-[36px] items-center gap-[10px]">
           <Image source={donateQr} className="w-[88px] h-[88px]" />
-          <Text className="font-semi text-[16px] text-[#78849b]">Support LZ4 Compression</Text>
+          <Text className="font-semi text-[16px] text-[#7f8c82]">Support LZ4 Compression</Text>
         </View>
       </View>
     </FocusScope>
@@ -198,6 +201,7 @@ export function GamePage({game, job, covered, hide, depth, onBack, onAction, onC
   return (
     <FocusScope autoFocus restoreFocus focusKey={'screen-' + depth} inert={covered} onBack={() => { onBack(); return true; }}>
       <View className={hide ? 'hidden' : 'absolute inset-0 bg-ink'}>
+        <Glow left={-420} top={-560} size={1200} />
         <TopBar version={version} trail={`/   ${game.name || game.titleId}`} />
         <ScrollView className="flex-1">
           <View className="px-[48px] pt-4 pb-[60px] gap-8">

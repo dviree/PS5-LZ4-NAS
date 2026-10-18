@@ -1420,7 +1420,7 @@
     }
 
     .progress-box.is-compressing .progress-fill {
-      background: linear-gradient(90deg, var(--accent), #78a3ff);
+      background: linear-gradient(90deg, var(--accent-2), var(--accent));
     }
 
     .progress-box.is-closing .progress-fill {
@@ -1564,7 +1564,7 @@
       display: block;
       height: 100%;
       width: 0%;
-      background: linear-gradient(90deg, var(--accent), #78a3ff);
+      background: linear-gradient(90deg, var(--accent-2), var(--accent));
       transition: width .35s cubic-bezier(.2, .8, .2, 1);
     }
 
@@ -1600,7 +1600,7 @@
     a.report-chip {
       text-decoration: none;
       color: inherit;
-      border-color: #3d8bff;
+      border-color: var(--accent);
       cursor: pointer;
     }
 
@@ -1608,7 +1608,7 @@
       align-self: center;
       padding: 6px 12px;
       border-radius: 999px;
-      background: #3d8bff;
+      background: #03883d;
       color: #fff;
       font-size: 13px;
       font-weight: 600;
@@ -2798,9 +2798,9 @@
       --line: rgba(255, 255, 255, .08);
       --line-strong: rgba(255, 255, 255, .16);
       --text: #f5f5f7;
-      --muted: #8f8f98;
-      --accent: #3d8bff;
-      --accent-2: #1f63e0;
+      --muted: #8a958c;
+      --accent: #12cc62;
+      --accent-2: #03883d;
       --danger: #ff5c70;
       --focus: #ffffff;
       --shadow: rgba(0, 0, 0, .7);
@@ -6818,8 +6818,11 @@
 	      })) + '</span>';
 	    }
 
-	    // Community game reports (GitHub "Game report" issues counted into compat.json).
+	    // Community game reports: "[Game report]" issues on theghostonline.dev,
+	    // one vote per person per game (their newest report), as in the app.
+	    const LZC_SITE = 'https://theghostonline.dev';
 	    const LZC_REPO = 'theghostonline/PS5-LZ4-Compression';
+	    const LZC_API = LZC_SITE + '/api/v1/repos/' + LZC_REPO;
 	    function communityChip(g) {
 	      if (!g || (!g.lz4Packed && !g.lz4Supported)) return '';
 	      const entry = (state.compat || {})[g.titleId];
@@ -6840,25 +6843,73 @@
 	        escapeHtml(compatReportUrl(g)) + '">' + escapeHtml(t('community.report')) + '</a>';
 	    }
 
+	    // "How does it run?" takes one of: Works, Works with issues,
+	    // Won't start (black screen or crash on launch), Crashes in game.
 	    function compatReportUrl(g) {
 	      const name = String(g.name || '').slice(0, 60);
-	      const params = [
-	        ['template', 'compat.yml'],
-	        ['title', '[Game report] ' + (name || g.titleId)],
-	        ['title_id', g.titleId],
-	        ['game', name],
-	        ['app_version', String(state.appVersion || '').replace(/^v/i, '')]
-	      ].filter((pair) => pair[1]);
-	      return 'https://github.com/' + LZC_REPO + '/issues/new?' +
-	        params.map((pair) => pair[0] + '=' + encodeURIComponent(pair[1])).join('&');
+	      const fields = [
+	        ['Title ID', g.titleId],
+	        ['Game', name],
+	        ['How does it run?', ''],
+	        ['Game version', g.version || g.contentVersion || ''],
+	        ['LZ4 Compression version', String(state.appVersion || '').replace(/^v/i, '')],
+	        ['Firmware', ''],
+	        ['Notes', '']
+	      ];
+	      const body = fields.map((pair) => '### ' + pair[0] + '\n\n' + pair[1]).join('\n\n');
+	      return LZC_SITE + '/' + LZC_REPO + '/issues/new?title=' +
+	        encodeURIComponent('[Game report] ' + (name || g.titleId)) + '&body=' + encodeURIComponent(body);
+	    }
+
+	    const COMPAT_STATUS = {
+	      'works': 'works', 'works with issues': 'issues',
+	      "won't start (black screen or crash on launch)": 'noStart', 'crashes in game': 'crash'
+	    };
+
+	    function countReports(issues) {
+	      const latest = new Map();
+	      for (const issue of issues) {
+	        const labels = (issue.labels || []).map((label) => String(label.name || '').toLowerCase());
+	        if (labels.some((label) => label === 'invalid' || label === 'duplicate' || label === 'spam')) continue;
+	        const fields = {};
+	        const parts = String(issue.body || '').split(/^### +(.+?)\s*$/m);
+	        for (let i = 1; i < parts.length - 1; i += 2) {
+	          const value = parts[i + 1].trim();
+	          if (value && value !== '_No response_') fields[parts[i].trim().toLowerCase()] = value.replace(/\s+/g, ' ');
+	        }
+	        const titleId = String(fields['title id'] || '').toUpperCase();
+	        const status = COMPAT_STATUS[String(fields['how does it run?'] || '').toLowerCase()];
+	        if (!/^[A-Z]{4}\d{5}$/.test(titleId) || !status) continue;
+	        // Reports moved over from GitHub start with their original issue, author (when known) and date.
+	        const moved = /^_Moved from GitHub #(\d+), opened (?:by @([\w-]+) )?on (\d{4}-\d{2}-\d{2})/.exec(issue.body || '');
+	        const author = String(moved ? moved[2] || ('github#' + moved[1]) : (issue.user && issue.user.login) || ('#' + issue.number)).toLowerCase();
+	        const date = moved ? moved[3] : issue.created_at || '';
+	        const key = titleId + ' ' + author;
+	        const seen = latest.get(key);
+	        if (!seen || date >= seen.date) latest.set(key, { titleId: titleId, status: status, game: fields.game || '', date: date });
+	      }
+	      const games = {};
+	      for (const report of latest.values()) {
+	        const game = games[report.titleId] || (games[report.titleId] = { name: '', works: 0, issues: 0, noStart: 0, crash: 0, reports: 0 });
+	        game[report.status]++;
+	        game.reports++;
+	        if (report.game && !game.name) game.name = report.game.slice(0, 80);
+	      }
+	      return games;
 	    }
 
 	    async function loadCommunity() {
 	      try {
-	        const response = await fetch('https://raw.githubusercontent.com/' + LZC_REPO + '/main/compat/compat.json', { cache: 'no-store' });
-	        if (!response.ok) return;
-	        const data = await response.json();
-	        state.compat = (data && data.games) || {};
+	        const issues = [];
+	        for (let page = 1; page <= 20; page++) {
+	          const response = await fetch(LZC_API + '/issues?state=all&type=issues&limit=50&page=' + page, { cache: 'no-store' });
+	          if (!response.ok) return;
+	          const batch = await response.json();
+	          if (!Array.isArray(batch)) return;
+	          issues.push(...batch);
+	          if (batch.length < 50) break;
+	        }
+	        state.compat = countReports(issues);
 	        renderDetail(true);
 	      } catch (err) {
 	        // No internet on this device; the chips say "no reports yet".
@@ -6878,13 +6929,11 @@
 	      return false;
 	    }
 
-	    // A small notice in the top bar when a newer release is on GitHub.
+	    // A small notice in the top bar when a newer release is out.
 	    async function checkWebUpdate() {
 	      try {
 	        if (!state.appVersion) return;
-	        const response = await fetch('https://api.github.com/repos/' + LZC_REPO + '/releases/latest', {
-	          headers: { Accept: 'application/vnd.github+json' }
-	        });
+	        const response = await fetch(LZC_API + '/releases/latest', { cache: 'no-store' });
 	        if (!response.ok) return;
 	        const release = await response.json();
 	        const version = String(release.tag_name || '').replace(/^v/i, '');
@@ -6894,7 +6943,7 @@
 	        const link = document.createElement('a');
 	        link.id = 'update-pill';
 	        link.className = 'update-pill';
-	        link.href = release.html_url || ('https://github.com/' + LZC_REPO + '/releases/latest');
+	        link.href = release.html_url || (LZC_SITE + '/' + LZC_REPO + '/releases/latest');
 	        link.target = '_blank';
 	        link.rel = 'noopener';
 	        link.textContent = t('update.available', { version: version });
