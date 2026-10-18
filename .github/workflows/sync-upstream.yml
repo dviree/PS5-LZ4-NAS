@@ -1,0 +1,124 @@
+# Brings changes from the original project, theghostonline/PS5-LZ4-Compression
+# (on theghostonline.dev since it left GitHub on 2026-10-17), up for review:
+# they are merged into the branch upstream-sync and a pull request to main is
+# opened. Nothing from the original reaches main (and the NAS image) until
+# someone merges that pull request. main is still merged into nas-build.
+name: Sync with upstream
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency: sync-upstream
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Original project into upstream-sync (for review), main into nas-build
+        env:
+          UPSTREAM: https://theghostonline.dev/theghostonline/PS5-LZ4-Compression.git
+          # The original's last commit synced from GitHub, before it moved.
+          LAST_GITHUB: 3496d9c738e99849305c0a86821c6d6111da9aa7
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --no-tags origin
+
+          # merge_into <branch> <base> <source> <label>: merge source into branch
+          # (made from base when it doesn't exist yet) and push it. Never forced.
+          merge_into() {
+            local branch=$1 base=$2 source=$3 label=$4
+            if git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+              git checkout -q -B "$branch" "origin/$branch"
+              [ "$base" = "origin/$branch" ] || git merge -q --no-edit "$base" || { git merge --abort; echo "::warning::$branch: conflict with $base"; return 1; }
+            else
+              git checkout -q -B "$branch" "$base"
+            fi
+            if git merge-base --is-ancestor "$source" HEAD; then
+              echo "$branch is up to date with $label"
+              git push -q origin "$branch" 2>/dev/null || true
+              return 0
+            fi
+            if ! git merge --no-commit --no-ff "$source"; then
+              git merge --abort
+              echo "::warning::merge conflict between $label and $branch: merge it by hand"
+              return 1
+            fi
+            # Keep this fork's own workflows: the token can't push workflow
+            # changes, and the original's workflows are for the original.
+            added=$(git diff --cached --name-only --diff-filter=A -- .github/workflows)
+            if [ -n "$added" ]; then git rm -q -f -- $added; fi
+            git checkout HEAD -- .github/workflows
+            git commit -q --no-edit -m "Merge $label into $branch"
+            git push -q origin "$branch"
+          }
+
+          # 1. The original project, for review only.
+          git remote add upstream "$UPSTREAM"
+          if git ls-remote --exit-code upstream refs/heads/main >/dev/null 2>&1; then
+            git fetch --no-tags upstream main
+            src=upstream/main
+            if ! git merge-base origin/main upstream/main >/dev/null; then
+              # The repository on theghostonline.dev starts a new history. Put its
+              # files on top of the last commit synced from GitHub, so the pull
+              # request shows only what changed since then.
+              # This fork's workflows, not its own (the token can't push workflow changes).
+              export GIT_INDEX_FILE="$RUNNER_TEMP/bridge.index"
+              git read-tree upstream/main
+              git rm -r -q --cached --ignore-unmatch -- .github/workflows
+              git ls-tree -r origin/main -- .github/workflows | git update-index --index-info
+              tree=$(git write-tree)
+              unset GIT_INDEX_FILE
+              # upstream-raw: its files as they are, one commit per change, on top
+              # of the last GitHub commit (for review by hand when a merge conflicts).
+              parent=$LAST_GITHUB
+              if git show-ref --verify --quiet refs/remotes/origin/upstream-raw; then parent=origin/upstream-raw; fi
+              if [ "$(git rev-parse "$parent^{tree}")" = "$tree" ]; then
+                src=$(git rev-parse "$parent")
+              else
+                src=$(git commit-tree "$tree" -p "$parent" \
+                      -m "The original project as on theghostonline.dev ($(git rev-parse --short upstream/main))")
+                git push -q origin "$src:refs/heads/upstream-raw"
+              fi
+              echo "new history upstream: comparing its files with $LAST_GITHUB"
+            fi
+            if git merge-base --is-ancestor "$src" origin/main || \
+               [ -z "$(git diff "$(git merge-base "$src" origin/main)" "$src" --stat -- . ':!.github/workflows' ':!.gitea')" ]; then
+              echo "main already has everything from the original project"
+            elif merge_into upstream-sync origin/main "$src" "the original project"; then
+              if [ -z "$(gh pr list --head upstream-sync --base main --state open --json number --jq '.[].number')" ]; then
+                new=$(git log --oneline --no-merges origin/main.."$src" | head -40; echo; git diff --stat "$(git merge-base "$src" origin/main)" "$src" | tail -30)
+                printf 'Changes from the original project (%s), merged into this branch by the sync.\n\nReview them before merging: merging this into main rebuilds the NAS image.\n\n```\n%s\n```\n' \
+                  "$UPSTREAM" "$new" > "$RUNNER_TEMP/body.md"
+                gh pr create --base main --head upstream-sync \
+                  --title "Changes from the original project" --body-file "$RUNNER_TEMP/body.md" \
+                  || echo "::warning::could not open the pull request (allow Actions to create pull requests in Settings > Actions); the branch upstream-sync has the changes"
+              fi
+            fi
+          else
+            echo "::notice::$UPSTREAM is not reachable; nothing new from the original project"
+          fi
+
+          # 2. This fork's own main into nas-build, as before.
+          git fetch --no-tags origin
+          if git show-ref --verify --quiet refs/remotes/origin/nas-build; then
+            git checkout -q -B nas-build origin/nas-build
+            if ! git merge-base --is-ancestor origin/main HEAD; then
+              git merge -q --no-edit -m "Merge main into nas-build" origin/main || { git merge --abort; echo "::error::merge conflict between main and nas-build"; exit 1; }
+              git push -q origin nas-build
+            else
+              echo "nas-build is up to date with main"
+            fi
+          fi

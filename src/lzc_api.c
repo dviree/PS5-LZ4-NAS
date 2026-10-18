@@ -37,7 +37,6 @@
 #include "lzc_paths.h"
 #include "lzc_profiles.h"
 #include "lzc_image_mount.h"
-#include "lzc_boot_files.h"
 
 #define LZC_APP_BASE "/user/app"
 #define LZC_APPMETA_BASE "/user/appmeta"
@@ -11111,100 +11110,6 @@ lzc_lz4_prepare_copy_target(lzc_operation_t *op, const lzc_game_t *game,
   return 0;
 }
 
-/* Joins the parts of a repair summary with ", ". */
-static void
-summary_add_lzc(char *out, size_t size, const char *part) {
-  size_t len = strlen(out);
-  if(!part[0] || len >= size - 1) return;
-  snprintf(out + len, size - len, "%s%s", len ? ", " : "", part);
-}
-
-/* Files the game needs to boot from a folder, for any format: the runtime
- * folder name the eboot asks for, a PlayGo emulator (HITMAN 3, 007 First
- * Light) and an ampr_emu.index that matches the files. Fills changed/notes;
- * -1 with op->error when a repair failed or a read-only image needs a
- * change. */
-static int
-lzc_boot_files_fix(lzc_operation_t *op, const char *root, int repair,
-                   int packed, char *changed, size_t changed_size, char *notes,
-                   size_t notes_size, const char *log_name) {
-  lzc_boot_report_t br;
-  char err[256] = {0};
-  char part[320];
-  lzc_checkpoint("boot files");
-  if(lzc_boot_files_check(root, repair, packed, NULL, &br, err, sizeof(err)) != 0) {
-    snprintf(op->error, sizeof(op->error), "%s", err);
-    lzc_log("%s boot files failed title=%s err=%s", log_name, op->title_id,
-           op->error);
-    return -1;
-  }
-  if(br.runtime_renamed) {
-    snprintf(part, sizeof(part), "renamed %s/ to %s/", br.runtime_found,
-             br.runtime_expected);
-    summary_add_lzc(changed, changed_size, part);
-    lzc_log("%s renamed runtime title=%s from=%s to=%s", log_name,
-           op->title_id, br.runtime_found, br.runtime_expected);
-  }
-  if(br.playgo_added) {
-    summary_add_lzc(changed, changed_size, "PlayGo emulator added to fakelib");
-    lzc_log("%s added playgo emu title=%s source=%s", log_name, op->title_id,
-           br.playgo_source);
-  }
-  if(br.ampr_index_removed) {
-    summary_add_lzc(changed, changed_size,
-                    "out-of-date ampr_emu.index moved aside (APR-EMU rebuilds "
-                    "it on the next launch)");
-    lzc_log("%s stale ampr index title=%s missing=%s", log_name, op->title_id,
-           br.ampr_index_missing);
-  }
-  if(!repair && (br.runtime_case_wrong || br.playgo_missing ||
-                 br.ampr_index_stale)) {
-    char need[256] = "";
-    if(br.runtime_case_wrong) summary_add_lzc(need, sizeof(need), "its runtime folder renamed");
-    if(br.playgo_missing) summary_add_lzc(need, sizeof(need), "a PlayGo emulator in fakelib");
-    if(br.ampr_index_stale) summary_add_lzc(need, sizeof(need), "its out-of-date ampr_emu.index removed");
-    snprintf(op->error, sizeof(op->error),
-             "this image needs %s, and images are read-only here. Make a "
-             "folder copy and verify that", need);
-    lzc_log("%s boot files needed title=%s runtime=%d playgo=%d index=%d",
-           log_name, op->title_id, br.runtime_case_wrong, br.playgo_missing,
-           br.ampr_index_stale);
-    return -1;
-  }
-  if(br.playgo_missing && !br.playgo_added) {
-    summary_add_lzc(notes, notes_size,
-                    "needs a PlayGo emulator but none was found on the "
-                    "console: put libScePlayGo.sprx in "
-                    LZC_APP_DATA_DIR "/import/libs and verify again");
-    lzc_log("%s playgo emu unavailable title=%s", log_name, op->title_id);
-  }
-  if(br.eboot_plain_elf) {
-    summary_add_lzc(notes, notes_size,
-                    "eboot.bin is a plain ELF; if the game won't start, "
-                    "convert it to FSELF");
-  }
-  return 0;
-}
-
-/* After packing: what the boot-files check changed goes into the summary.
- * A failed repair doesn't undo a finished pack; Verify can retry it. */
-static void
-lzc_lz4_pack_boot_files(lzc_operation_t *op, const char *root) {
-  char changed[512] = "", notes[512] = "";
-  if(lzc_boot_files_fix(op, root, 1, 1, changed, sizeof(changed), notes,
-                        sizeof(notes), "lz4-pack") != 0) {
-    char part[320];
-    snprintf(part, sizeof(part), "boot files not fixed (%s), run Verify",
-             op->error);
-    op->error[0] = 0;
-    summary_add_lzc(notes, sizeof(notes), part);
-  }
-  if(changed[0] || notes[0]) {
-    snprintf(op->repair_summary, sizeof(op->repair_summary), "%s%s%s", changed,
-             changed[0] && notes[0] ? ". " : "", notes);
-  }
-}
-
 static int
 run_lz4_pack_op(lzc_operation_t *op) {
   lzc_game_t game = {0};
@@ -11322,7 +11227,6 @@ run_lz4_pack_op(lzc_operation_t *op) {
         lzc_log("lz4-pack fixed modes title=%s count=%u", op->title_id, fixed);
       }
     }
-    lzc_lz4_pack_boot_files(op, game.source_path);
     uint64_t after = source_size_bytes_exact(game.source_path, LZC_SOURCE_FOLDER);
     lzc_size_cache_store(game.source_path, after);
     lzc_lz4_store_sizes(op, game.source_size, after);
@@ -11355,7 +11259,6 @@ run_lz4_pack_op(lzc_operation_t *op) {
         lzc_log("lz4-pack fixed modes title=%s count=%u", op->title_id, fixed);
       }
     }
-    lzc_lz4_pack_boot_files(op, target);
     uint64_t after = source_size_bytes_exact(target, LZC_SOURCE_FOLDER);
     lzc_size_cache_store(target, after);
     lzc_lz4_store_sizes(op, game.source_size, after);
@@ -11492,35 +11395,35 @@ run_lz4_verify_op(lzc_operation_t *op) {
   lzc_game_t game = {0};
   char err[256] = {0};
   char root[1024] = {0};
-  char changed[512] = "", notes[512] = "";
   ampr_pack_stats_t st;
   ampr_pack_callbacks_t cb;
   lzc_lz4_job_t job = { op };
-  int repair;
+  int runtime_fixed = 0;
   uint32_t disk_missing = 0, disk_restored = 0, modes_fixed = 0;
 
   memset(&st, 0, sizeof(st));
   cb = lzc_lz4_callbacks(&job);
   lzc_checkpoint("lz4-verify find game");
   if(lzc_lz4_resolve(op, &game, root, sizeof(root), "lz4-verify") != 0) return -1;
-  snprintf(op->output_path, sizeof(op->output_path), "%s", game.source_path);
-  /* Folders get repaired; images are mounted read-only here. */
-  repair = game.source_kind == LZC_SOURCE_FOLDER;
-  if(game.lz4_packed) {
-    if(ampr_pack_verify(root, NULL, &cb, &st, err, sizeof(err)) != 0) {
-      snprintf(op->error, sizeof(op->error), "%s",
-               err[0] ? err : "LZ4 pack verification failed");
-      lzc_log("lz4-verify failed title=%s err=%s", op->title_id, op->error);
-      return -1;
-    }
-    lzc_lz4_store_stats(op, &st);
-    lzc_lz4_store_sizes(op, st.logical_bytes + st.loose_bytes, game.source_size);
+  if(!game.lz4_packed) {
+    snprintf(op->error, sizeof(op->error), "%s", "this game is not LZ4 packed");
+    return -1;
   }
-  if(game.lz4_packed) {
+  snprintf(op->output_path, sizeof(op->output_path), "%s", game.source_path);
+  if(ampr_pack_verify(root, NULL, &cb, &st, err, sizeof(err)) != 0) {
+    snprintf(op->error, sizeof(op->error), "%s",
+             err[0] ? err : "LZ4 pack verification failed");
+    lzc_log("lz4-verify failed title=%s err=%s", op->title_id, op->error);
+    return -1;
+  }
+  lzc_lz4_store_stats(op, &st);
+  lzc_lz4_store_sizes(op, st.logical_bytes + st.loose_bytes, game.source_size);
+  {
     /* Good packs are useless without the runtime that reads them. Folders
      * get it put back (an atomic rename, so a running game keeps its copy
-     * until the next launch). */
+     * until the next launch); images are mounted read-only here. */
     char old_sha[65] = {0};
+    int repair = game.source_kind == LZC_SOURCE_FOLDER;
     int rc;
     lzc_checkpoint("lz4-verify runtime");
     rc = ampr_pack_check_runtime(root, repair, old_sha, err, sizeof(err));
@@ -11542,13 +11445,14 @@ run_lz4_verify_op(lzc_operation_t *op) {
       lzc_log("lz4-verify restored runtime title=%s old=%s new=%s",
              op->title_id, old_sha[0] ? old_sha : "(missing)",
              ampr_pack_runtime_sha256());
-      summary_add_lzc(changed, sizeof(changed), "PackedStdio APR-EMU restored");
     }
+    runtime_fixed = rc > 0;
   }
-  if(game.lz4_packed) {
+  {
     /* Files the PS5 has to find on disk (PlayGo markers, empty language
      * placeholders, Ghost of Yotei's boot files) but that older packs hold
      * only inside the packs. */
+    int repair = game.source_kind == LZC_SOURCE_FOLDER;
     lzc_checkpoint("lz4-verify disk files");
     if(ampr_pack_restore_disk_files(root, repair, &disk_missing, &disk_restored,
                                     err, sizeof(err)) != 0) {
@@ -11568,41 +11472,35 @@ run_lz4_verify_op(lzc_operation_t *op) {
       return -1;
     }
     if(disk_restored) {
-      char part[96];
       lzc_log("lz4-verify restored disk files title=%s count=%u", op->title_id,
              disk_restored);
-      snprintf(part, sizeof(part), "%u file%s put back on disk", disk_restored,
-               disk_restored == 1 ? "" : "s");
-      summary_add_lzc(changed, sizeof(changed), part);
+    }
+    if(repair && fix_tree_modes_lzc(game.source_path, &modes_fixed) == 0 &&
+       modes_fixed) {
+      lzc_log("lz4-verify fixed modes title=%s count=%u", op->title_id,
+             modes_fixed);
     }
   }
-  if(lzc_boot_files_fix(op, root, repair, game.lz4_packed, changed,
-                        sizeof(changed), notes,
-                        sizeof(notes), "lz4-verify") != 0) {
-    return -1;
-  }
-  if(repair && fix_tree_modes_lzc(game.source_path, &modes_fixed) == 0 &&
-     modes_fixed) {
-    char part[96];
-    lzc_log("lz4-verify fixed modes title=%s count=%u", op->title_id,
-           modes_fixed);
-    snprintf(part, sizeof(part), "permissions fixed on %u item%s", modes_fixed,
-             modes_fixed == 1 ? "" : "s");
-    summary_add_lzc(changed, sizeof(changed), part);
-  }
-  if(changed[0] || notes[0]) {
-    snprintf(op->repair_summary, sizeof(op->repair_summary), "%s%s%s", changed,
-             changed[0] && notes[0] ? ". " : "", notes);
-  }
-  if(changed[0]) {
+  if(runtime_fixed || disk_restored || modes_fixed) {
+    char files[96] = "", modes[96] = "";
+    if(disk_restored) {
+      snprintf(files, sizeof(files), "%u file%s put back on disk", disk_restored,
+               disk_restored == 1 ? "" : "s");
+    }
+    if(modes_fixed) {
+      snprintf(modes, sizeof(modes), "permissions fixed on %u item%s", modes_fixed,
+               modes_fixed == 1 ? "" : "s");
+    }
+    snprintf(op->repair_summary, sizeof(op->repair_summary), "%s%s%s%s%s",
+             runtime_fixed ? "PackedStdio APR-EMU restored" : "",
+             runtime_fixed && (disk_restored || modes_fixed) ? ", " : "", files,
+             disk_restored && modes_fixed ? ", " : "", modes);
     snprintf(op->result, sizeof(op->result), "%s", "repaired");
-    lzc_log("lz4-verify repaired title=%s summary=%s", op->title_id,
-           op->repair_summary);
     return 0;
   }
   snprintf(op->result, sizeof(op->result), "%s", "success");
-  lzc_log("lz4-verify complete title=%s packed=%d files=%llu bytes=%llu packs=%u",
-         op->title_id, game.lz4_packed, (unsigned long long)st.files_packed,
+  lzc_log("lz4-verify complete title=%s files=%llu bytes=%llu packs=%u",
+         op->title_id, (unsigned long long)st.files_packed,
          (unsigned long long)st.logical_bytes, st.pack_count);
   return 0;
 }
@@ -12698,8 +12596,7 @@ enqueue_lz4_action(const http_request_t *req, lzc_action_t action) {
         return serve_error(req, 400, "bad LZ4 profile");
       }
     }
-  } else if(!game.lz4_packed && action != LZC_ACTION_LZ4_VERIFY) {
-    /* Verify also checks a game's boot files when it has no packs. */
+  } else if(!game.lz4_packed) {
     return serve_error(req, 400, "this game is not LZ4 packed");
   }
   if(action == LZC_ACTION_LZ4_VERIFY) {

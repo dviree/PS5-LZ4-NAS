@@ -9,7 +9,6 @@ export const ACTION_LABEL = {
   'lz4-pack': 'Compress with LZ4',
   'lz4-unpack': 'Uncompress LZ4',
   'lz4-verify': 'Verify LZ4 Packs',
-  'verify-game': 'Verify Game Files',
   'build-ampr-index': 'Build AMPR Index',
   'set-read-only': 'Set Read Only',
   'extract-image': 'Extract to Folder',
@@ -33,8 +32,7 @@ export const ACTION_DESC = {
   'make-image': 'Build a plain .exfat or .ffpfs image from this folder.',
   'validate-only': 'Read every block and report problems without changing anything.',
   'validate-repair': 'Read every block and repair what it can.',
-  'lz4-verify': 'Check every LZ4 pack block and put back files the game needs to boot.',
-  'verify-game': 'Fix what stops a folder from booting: PlayGo, runtime name, file index, permissions.',
+  'lz4-verify': 'Check every LZ4 pack block and put back files the game needs on disk.',
   'read-speed-test': 'Read the game for a minute and measure the speed.',
   'uncompress': 'Turn the compressed image back into an image or a folder.',
   'lz4-unpack': 'Put the normal loose files back from the LZ4 packs.',
@@ -52,7 +50,7 @@ export const ACTION_DESC = {
 
 export const ACTION_ICON = {
   'compress': 'compress', 'lz4-pack': 'bolt', 'make-image': 'disc', 'validate-only': 'shield',
-  'validate-repair': 'shield', 'lz4-verify': 'shield', 'verify-game': 'shield', 'read-speed-test': 'gauge', 'uncompress': 'expand',
+  'validate-repair': 'shield', 'lz4-verify': 'shield', 'read-speed-test': 'gauge', 'uncompress': 'expand',
   'lz4-unpack': 'expand', 'extract-image': 'folder', 'set-read-only': 'lock', 'refresh-mount': 'mount',
   'restore-ampr-original': 'undo', 'build-ampr-index': 'list', 'update-ampr': 'download',
   'copy-to': 'copy', 'move-to': 'move', 'delete-game-data': 'trash', 'report-compat': 'check',
@@ -60,7 +58,7 @@ export const ACTION_ICON = {
 
 export const GROUPS = [
   ['compress', 'Compress', ['compress', 'lz4-pack', 'make-image']],
-  ['check', 'Check', ['validate-only', 'validate-repair', 'lz4-verify', 'verify-game', 'read-speed-test']],
+  ['check', 'Check', ['validate-only', 'validate-repair', 'lz4-verify', 'read-speed-test']],
   ['community', 'Community', ['report-compat']],
   ['restore', 'Restore', ['uncompress', 'lz4-unpack', 'extract-image', 'set-read-only', 'refresh-mount']],
   ['ampr', 'APR-EMU', ['update-ampr', 'restore-ampr-original', 'build-ampr-index']],
@@ -129,7 +127,6 @@ export function secondaryActions(game) {
     ids.push('report-compat');
   }
   if (kind === 'folder') {
-    if (!packed) ids.push('verify-game');
     ids.push('make-image');
     if (canIndex) ids.push('build-ampr-index');
   }
@@ -218,7 +215,7 @@ export function gameSize(game) {
 }
 
 const PHASE_LABEL = {
-  'lz4-pack': 'Packing with LZ4', 'lz4-unpack': 'Unpacking LZ4', 'lz4-verify': 'Verifying',
+  'lz4-pack': 'Packing with LZ4', 'lz4-unpack': 'Unpacking LZ4', 'lz4-verify': 'Verifying LZ4 packs',
   'compress': 'Compressing', 'make-image': 'Making image', 'uncompress': 'Uncompressing',
   'validate-repair': 'Validating', 'validate-only': 'Validating', 'build-ampr-index': 'Building AMPR index',
   'set-read-only': 'Setting read-only', 'extract-image': 'Extracting', 'refresh-mount': 'Mounting',
@@ -301,14 +298,13 @@ export function opTone(op) {
 }
 
 export function opSummary(op) {
-  // The engine runs Verify Game Files as lz4-verify too.
-  const parts = [op.action === 'lz4-verify' ? 'Verify' : ACTION_LABEL[op.action] || op.action];
+  const parts = [ACTION_LABEL[op.action] || op.action];
   if (op.savedBytes > 0) parts.push(`saved ${formatBytes(op.savedBytes)}`);
   if (op.compressedSize > 0 && op.compressionSourceSize > 0) {
     parts.push(`${formatBytes(op.compressionSourceSize)} → ${formatBytes(op.compressedSize)}`);
   }
   if (op.badBlocksFound > 0) parts.push(`${op.badBlocksFound} bad blocks`);
-  if ((op.action === 'lz4-verify' || op.action === 'lz4-pack') && op.repairSummary) parts.push(op.repairSummary);
+  if (op.action === 'lz4-verify' && op.repairSummary) parts.push(op.repairSummary);
   return parts.join('  ·  ');
 }
 
