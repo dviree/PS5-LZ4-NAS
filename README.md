@@ -1,6 +1,6 @@
 # LZ4 Compression for PS5
 
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy_Me_a_Coffee-Support_this_project-8466FF?style=for-the-badge&logo=buymeacoffee&logoColor=white)](https://buymeacoffee.com/theghostonline)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy_Me_a_Coffee-Support_this_project-8466FF?style=for-the-badge&logo=buymeacoffee&logoColor=white)](https://buymeacoffee.com/theghostonline) [![Discord](https://img.shields.io/badge/Discord-%23lz4--compression-8466FF?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/AgBSm7JqjS)
 
 ![LZ4 Compression](assets-app/pic0.png)
 
@@ -178,8 +178,7 @@ Donations go to this project, not to the projects it builds on. If it saved you 
 <a href="https://buymeacoffee.com/theghostonline"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-violet.png" alt="Buy Me a Coffee" height="50"></a>
 
 Can't donate? A star or a bug report with the game, title ID and firmware helps too.
-New versions go up on Reddit first:
-[u/ripetahitimangoes](https://www.reddit.com/user/ripetahitimangoes/).
+Every release gets posted on Discord, and it's the quickest place to get help: [#lz4-compression](https://discord.gg/AgBSm7JqjS).
 
 ## Credits
 
