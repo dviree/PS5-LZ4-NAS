@@ -15,10 +15,17 @@ if [ "${1:-}" = update ]; then
   fi
   old="$(docker inspect -f '{{.Image}}' "$CONTAINER" 2>/dev/null)"
   docker pull "$IMAGE" || { echo "pull failed (DNS or network?); nothing changed"; exit 1; }
-  if [ "$(docker image inspect -f '{{.Id}}' "$IMAGE")" = "$old" ]; then
+  running=1
+  for c in "$CONTAINER" "$CONTAINER-ui"; do
+    [ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = true ] || running=0
+  done
+  if [ "$(docker image inspect -f '{{.Id}}' "$IMAGE")" = "$old" ] && [ "$running" = 1 ]; then
     echo "already up to date"
     exit 0
   fi
+  # A container that was created but never started (a mount that failed, say)
+  # is started here too, and its error is shown.
+  mkdir -p "$LIBRARY/_extracted" 2>/dev/null || true
   if docker compose version >/dev/null 2>&1; then
     (cd "$DIR" && docker compose -p ps5-lz4 up -d)
   else
