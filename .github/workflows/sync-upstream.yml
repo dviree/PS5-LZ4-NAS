@@ -122,3 +122,14 @@ jobs:
               echo "nas-build is up to date with main"
             fi
           fi
+
+      - name: What the original's site offers (log only)
+        continue-on-error: true
+        run: |
+          api=https://theghostonline.dev/api/v1/repos/theghostonline/PS5-LZ4-Compression
+          curl -fsS -m 20 "$api" | jq '{full_name, has_issues, has_releases, default_branch, updated_at, website, description}' || true
+          curl -fsS -m 20 "$api/releases?limit=3" | jq '[.[] | {tag_name, published_at, assets: [.assets[] | {name, size, browser_download_url}]}]' || true
+          curl -fsS -m 20 "$api/issue_templates" | jq '[.[] | {name, file_name, title, labels}]' || true
+          curl -fsS -m 20 "$api/issues?state=all&limit=5&type=issues" | jq '[.[] | {number, title, labels: [.labels[].name], created_at}]' || true
+          curl -fsS -m 20 "$api/labels" | jq '[.[].name]' || true
+          curl -sS -m 20 -o /dev/null -w "raw compat.json: %{http_code}\n" "https://theghostonline.dev/theghostonline/PS5-LZ4-Compression/raw/branch/main/compat/compat.json" || true
