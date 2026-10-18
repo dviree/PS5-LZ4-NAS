@@ -31,6 +31,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote add upstream "$UPSTREAM"
+          # The original repository went away on 2026-10-17 (deleted or private):
+          # say so and stop quietly instead of failing every ten minutes.
+          if ! git ls-remote --exit-code upstream refs/heads/main >/dev/null 2>&1; then
+            echo "::notice::$UPSTREAM is not reachable (deleted or private); nothing to sync"
+            exit 0
+          fi
           git fetch --no-tags upstream main
           git fetch --no-tags origin
           sync() {
