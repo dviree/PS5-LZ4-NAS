@@ -1531,12 +1531,16 @@ def compat_aggregate(issues: list[dict]) -> dict:
         status = COMPAT_STATUS.get(clean(fields.get("status"), 80).lower())
         if not re.fullmatch(r"[A-Z]{4}\d{5}", tid) or not status:
             continue
-        author = (issue.get("original_author") or (issue.get("user") or {}).get("login")
-                  or f"#{issue.get('number')}").lower()
+        # Reports moved over from GitHub start with their original issue, author (when known) and date.
+        moved = re.match(r"_Moved from GitHub #(\d+), opened (?:by @([\w-]+) )?on (\d{4}-\d{2}-\d{2})",
+                         issue.get("body") or "")
+        author = ((moved and (moved.group(2) or f"github#{moved.group(1)}")) or issue.get("original_author")
+                  or (issue.get("user") or {}).get("login") or f"#{issue.get('number')}").lower()
         rep = {"status": status, "game": clean(fields.get("game"), 80),
                "gameVersion": clean(fields.get("gameVersion"), 20), "level": clean(fields.get("level"), 4),
                "source": clean(fields.get("source"), 40), "firmware": clean(fields.get("firmware"), 12),
-               "appVersion": clean(fields.get("appVersion"), 12), "date": issue.get("created_at") or "",
+               "appVersion": clean(fields.get("appVersion"), 12),
+               "date": (moved and moved.group(3)) or issue.get("created_at") or "",
                "issue": issue.get("number")}
         if (tid, author) not in latest or rep["date"] >= latest[(tid, author)][1]["date"]:
             latest[(tid, author)] = (tid, rep)
