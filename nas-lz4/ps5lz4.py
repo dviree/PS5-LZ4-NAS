@@ -72,6 +72,8 @@ RUNTIME_FILE = Path(os.environ.get("PS5LZ4_RUNTIME", "/opt/ps5lz4/libSceAmpr.spr
 # refreshed by the fork sync and baked into each image).
 COMPAT_FILE = Path(os.environ.get("PS5LZ4_COMPAT", "/opt/ps5lz4/compat.json"))
 COMPAT_REPO = "theghostonline/PS5-LZ4-Compression"
+COMPAT_MIRROR = os.environ.get("PS5LZ4_COMPAT_MIRROR", "dviree/PS5-LZ4-NAS")
+COMPAT_BUNDLED = Path(os.environ.get("PS5LZ4_COMPAT_BUNDLED", "/opt/ps5lz4/compat.json"))
 LZC_PORT = int(os.environ.get("PS5LZ4_LZC_PORT", "5920"))  # LZ4 Compression engine on the PS5
 
 
@@ -1510,16 +1512,26 @@ def compat_refresh() -> dict:
     try:
         return compat_refresh_issues()
     except Exception as err:
-        url = f"https://raw.githubusercontent.com/{COMPAT_REPO}/main/compat/compat.json"
-        req = urllib.request.Request(url, headers={"User-Agent": f"ps5-lz4/{VERSION}"})
-        try:
-            with urllib.request.urlopen(req, timeout=20) as r:
-                data = json.load(r)
-        except Exception:
+        data = None
+        # The original's compat.json, else this fork's copy (kept by the sync until the
+        # original went away on 2026-10-17), else the copy in the image.
+        for repo in (COMPAT_REPO, COMPAT_MIRROR):
+            url = f"https://raw.githubusercontent.com/{repo}/main/compat/compat.json"
+            req = urllib.request.Request(url, headers={"User-Agent": f"ps5-lz4/{VERSION}"})
+            try:
+                with urllib.request.urlopen(req, timeout=20) as r:
+                    data = json.load(r)
+                if isinstance(data.get("games"), dict):
+                    data["source"] = "repo" if repo == COMPAT_REPO else "mirror"
+                    break
+            except Exception:
+                data = None
+        if data is None and COMPAT_BUNDLED.is_file():
+            data = read_json(COMPAT_BUNDLED, None)
+            if data and isinstance(data.get("games"), dict):
+                data["source"] = "bundled"
+        if not data or not isinstance(data.get("games"), dict):
             raise err
-        if not isinstance(data.get("games"), dict):
-            raise err
-        data["source"] = "repo"
         write_json(COMPAT_LIVE, data)
         return data
 
