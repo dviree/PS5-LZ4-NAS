@@ -32,7 +32,7 @@ own terms. Original copyright notices are kept in the source files.
 - **[PSBrew/MkPFS](https://github.com/PSBrew/MkPFS)**, which the PFS image work
   builds on.
 
-The PS5 port of the LZ4 packer and the LZ4 Compression app are by Husam Osman,
+The PS5 port of the LZ4 packer and the LZ4 Compression app are by theghostonline,
 under the GNU GPL v3 or later (`LICENSE`).
 
 ## The PS5 app

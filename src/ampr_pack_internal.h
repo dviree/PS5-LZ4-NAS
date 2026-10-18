@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-or-later
- * Copyright (C) 2026 Husam Osman. Based on drakmor's ampr_pack.py (GPL-3.0).
+ * Copyright (C) 2026 theghostonline. Based on drakmor's ampr_pack.py (GPL-3.0).
  *
  * LZ4 Compression - AMPR LZ4 asset packs, private interfaces.
  *
