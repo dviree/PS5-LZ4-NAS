@@ -840,7 +840,7 @@ function render() {
     (!tf ? `<div class="mut" style="margin-top:8px">Starts by itself in a few seconds…</div>` : '') : '';
   const pqEl = document.getElementById('pq'), pqs = (d.queue || []).filter(x => !d.job || x !== d.job.id);
   pqEl.innerHTML = pqs.length ? `<h4 class="qh">Queued (${pqs.length})</h4>` + pqs.map((x, i) =>
-    `<div class="qrow"><span class="qn">${i + 1}</span><span class="qname">${esc(((d.games || []).find(g => g.id === x) || {}).name || x)}</span>${sendWhenPacked(x, true)}</div>`).join('') : '';
+    `<div class="qrow"><span class="qn">${i + 1}</span><span class="qname">${esc(((d.games || []).find(g => g.id === x) || {}).name || x)}</span>${sendWhenPacked(x, true)}<button class="sm danger" data-g="${esc(x)}" onclick="queueRemove({game: this.dataset.g})" title="Remove from the queue">✕ Remove</button></div>`).join('') : '';
   renderPkgs(d);
   const busyEl = document.getElementById('busy'), parts = [];
   const ijobs = Object.entries((d.images || {}).jobs || {}).filter(([k, j]) => j.state === 'running');
@@ -965,7 +965,8 @@ function render() {
   const log = document.getElementById('log');
   const items = d.requests.recent;
   const pend = d.requests.pending_list || [];
-  const pending = pend.length ? pend.map(r => `<div class="mut">⏳ ${esc(ACT_EN[r.action] || r.action)} ${esc(r.game || '')} – ${d.running && ['start', 'fix', 'resume'].includes(r.action) ? 'starts when the running job is done' : 'sent'}</div>`).join('') : '';
+  const pending = pend.length ? pend.map(r => `<div class="mut qrow">⏳ <span class="qname">${esc(ACT_EN[r.action] || r.action)} ${esc(nameOf(r.game) || '')} – ${d.running && ['start', 'fix', 'resume'].includes(r.action) ? 'starts when the running job is done' : 'sent'}</span>` +
+    (r.file ? `<button class="sm danger" data-f="${esc(r.file)}" onclick="queueRemove({file: this.dataset.f})" title="Cancel this request">✕ Cancel</button>` : '') + '</div>').join('') : '';
   log.innerHTML = pending + (items.length ? items.map(r => {
     let url = (r.output || '').match(/https:\/\/github\.com\/\S+/);
     const fw = (localStorage.getItem('fw') || '').trim();
@@ -988,6 +989,13 @@ function waitWhy() {
   if (age == null || age > 30)
     return 'not picked up: the packing container (ps5-lz4) is not running. On the NAS: docker start ps5-lz4, or ./lz4-ps5.sh update; docker logs ps5-lz4 shows why it stopped';
   return 'starting…';
+}
+async function queueRemove(what) {
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'queue_remove', ...what})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) alert('Not removed: ' + (j.error || r.status));
+  setTimeout(load, 300);
 }
 function pendingFor(id) {
   return data && (data.requests.pending_list || []).some(r => r.action === 'start' && r.game === id);
@@ -1143,6 +1151,8 @@ function gameHtml(g, det) {
   if (w && w.error) rows.push(['Last error', `<span class="bad">${esc(w.error)}</span><div class="why">step ${esc(w.step || '')}</div>`]);
 
   const acts = [];
+  if (g.queued) acts.push(`<button class="danger" data-g="${esc(g.id)}" onclick="closeGame();queueRemove({game: this.dataset.g})">✕ Remove from queue</button>`);
+  if (pendingFor(g.id)) acts.push(`<button class="danger" data-g="${esc(g.id)}" onclick="closeGame();queueRemove({file: ((data.requests.pending_list || []).find(r => r.action === 'start' && r.game === this.dataset.g) || {}).file})">✕ Cancel</button>`);
   if (pendingFor(g.id)) acts.push(`<span class="pill p-run">waiting to start</span><div class="why" style="flex-basis:100%">${esc(waitWhy())}</div>`);
   else if (g.can_queue && !g.running && !g.queued)
     acts.push(`<button class="pri" data-game="${esc(g.id)}" onclick="compress(this.dataset.game, true)" title="Compress with LZ4, check it, then send it to the PS5 by itself">⚡ Compress &amp; send to PS5</button>`,

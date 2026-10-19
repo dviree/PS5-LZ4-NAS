@@ -1140,11 +1140,16 @@ def process(entries: list[Entry], args) -> int:
         if _stop_requested:
             break
         if queue is not None:
+            # The page can take a game out of the queue while another one packs.
+            queue = read_json(QUEUE_PATH, {}) or queue
+            if e.id not in queue.get("remaining", []):
+                continue
             queue["current"] = e.id
             write_json(QUEUE_PATH, queue)
         outcome = process_one(e, args)
         failures += outcome != "ok"
         if queue is not None:
+            queue = read_json(QUEUE_PATH, {}) or queue
             queue["current"] = None
             if outcome != "interrupted" and not _stop_requested:
                 queue.setdefault("failed" if outcome == "failed" else "finished", []).append(e.id)
@@ -6128,13 +6133,14 @@ def dashboard_data() -> dict:
     if REQUESTS.is_dir():
         for f in sorted(REQUESTS.glob("*.done.json"), key=lambda f: f.stat().st_mtime)[-5:]:
             done_req.append(read_json(f, {}))
-    pending_list = [read_json(f, {}) or {} for f in sorted(REQUESTS.glob("*.req.json"))] if REQUESTS.is_dir() else []
+    pending_list = [{**(read_json(f, {}) or {}), "file": f.name}
+                    for f in sorted(REQUESTS.glob("*.req.json"))] if REQUESTS.is_dir() else []
     pending = len(pending_list)
     try:
         agent_age = int(time.time() - (REQUESTS / ".agent-alive").stat().st_mtime)
     except OSError:
         agent_age = None
-    return {"running": running, "job": job, "queue": queue.get("remaining") or [] if running else [],
+    return {"running": running, "job": job, "queue": queue.get("remaining") or [],
             "interrupted": (not running) and bool(queue.get("remaining")),
             "free_bytes": free_bytes(OUTPUT), "games": rows, "totals": totals, "failed": failed,
             "lz4c_version": lz4c_version(),
@@ -7007,6 +7013,27 @@ def cmd_ui(args) -> int:
                 transfer_queue_set([g for g in transfer_queue() if g not in (key, st.get("request"))])
                 cache["at"] = 0
                 return self.send(200, json.dumps(res).encode())
+            if req.get("action") == "queue_remove":
+                # A game waiting in the packing queue (not the one being packed),
+                # or a Compress request not picked up yet.
+                game, name = str(req.get("game") or ""), str(req.get("file") or "")
+                if name:
+                    f = REQUESTS / name
+                    if not re.fullmatch(r"[\w.-]+\.req\.json", name) or f.parent != REQUESTS:
+                        return self.send(400, b'{"error":"bad request file"}')
+                    f.unlink(missing_ok=True)
+                elif game:
+                    q = read_json(QUEUE_PATH, {}) or {}
+                    if q.get("current") == game:
+                        return self.send(409, b'{"error":"that game is being packed now: use Stop"}')
+                    q["remaining"] = [x for x in q.get("remaining", []) if x != game]
+                    write_json(QUEUE_PATH, q)
+                    sa = read_json(SEND_AFTER, {}) or {}
+                    if game in sa:
+                        sa.pop(game)
+                        write_json(SEND_AFTER, sa)
+                cache["at"] = 0
+                return self.send(200, b'{"removed":true}')
             if req.get("action") in ("push_queue_remove", "push_queue_up"):
                 game, q = str(req.get("game") or ""), transfer_queue()
                 if game in q:
