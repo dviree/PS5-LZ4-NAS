@@ -7027,15 +7027,25 @@ def cmd_ui(args) -> int:
             if req.get("action") == "dup_use":
                 # "Use this one": this copy is listed and packed, the others with
                 # its Title ID are left out (nothing is deleted).
-                tid, rel = str(req.get("tid") or "").upper(), str(req.get("rel") or "")
+                import unicodedata
+                nfc = lambda x: unicodedata.normalize("NFC", x)
+                tid, rel = str(req.get("tid") or "").upper(), nfc(str(req.get("rel") or ""))
                 copies = [e for e in scan_library() if (e.title_id or "").upper() == tid]
-                if not re.fullmatch(r"[A-Z]{4}\d{5}", tid) or not any(e.rel == rel for e in copies):
-                    return self.send(400, b'{"error":"that copy is not in the library"}')
+                hit = next((e for e in copies if nfc(e.rel) == rel), None)
+                if not re.fullmatch(r"[A-Z]{4}\d{5}", tid) or hit is None:
+                    return self.send(400, json.dumps({"error": f"that copy is not in the library ({len(copies)} "
+                                                      f"copies of {tid} found)"}).encode())
+                running, _ = job_running()
+                current = (read_json(QUEUE_PATH, {}) or {}).get("current") if running else None
+                busy = next((e.rel for e in copies if e.id == current and e.rel != hit.rel), None)
                 prefs = read_json(PREFERRED, {}) or {}
-                prefs[tid] = rel
-                write_json(PREFERRED, prefs)
+                prefs[tid] = hit.rel
+                try:
+                    write_json(PREFERRED, prefs)
+                except OSError as err:
+                    return self.send(500, json.dumps({"error": f"could not save the choice: {err}"}).encode())
                 cache["at"] = 0
-                return self.send(200, json.dumps({"used": rel}).encode())
+                return self.send(200, json.dumps({"used": hit.rel, "busy": busy}).encode())
             if req.get("action") == "queue_remove":
                 # A game waiting in the packing queue (not the one being packed),
                 # or a Compress request not picked up yet.
