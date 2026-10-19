@@ -619,7 +619,10 @@ game, then `status` and `report`. Test it on the PS5 before `start --all`.
    purpose). It has two parts, and the web page shows progress, data left
    and time left for each: *unpacking* (writes the whole game once) and
    *comparing with the original* (reads every file twice, about as long
-   again). For a 180 GB game on hard disks, plan for one to two hours.
+   again). It repeats what Verify already proved (every packed file decoded
+   and compared byte for byte), and on one set of hard disks a big game
+   thrashes them for hours (one 176 GB game ran at 10 MB/s), so it only runs
+   for games up to 25 GB; set `PS5LZ4_RESTORE_TEST_MAX_GB` (0 = always).
 
 While a game is packed, the Activity tab, the summary card and the bubble in
 the corner show the speed, the time left for the step and for the whole game.

@@ -125,6 +125,9 @@ VHASH_MAGIC = b"PFSCVHS1"
 EXFAT_SIG = b"EXFAT   "
 
 STEPS = ("source", "check", "pack", "verify", "restore", "publish")
+# Restore test (a full unpack to disk compared with the original) only up to this
+# size; 0 runs it for every game. Verify compares every packed file either way.
+RESTORE_TEST_MAX = int(float(os.environ.get("PS5LZ4_RESTORE_TEST_MAX_GB", "25")) * (1 << 30))
 
 _child: subprocess.Popen | None = None
 _stop_requested = False
@@ -883,10 +886,23 @@ class Job:
             if not self.restore_test:
                 self.state["restore_test"] = "skipped (--no-restore-test)"
             return
+        _files, total = tree_bytes(root)
+        # Verify already decoded every packed file and compared it byte for byte
+        # with the original. The restore test does it again through a full
+        # unpack to disk: for a big game that is hours of disk thrash (writing
+        # the whole game and reading it and the original back), so by default
+        # it only runs for games up to PS5LZ4_RESTORE_TEST_MAX_GB.
+        if RESTORE_TEST_MAX and total > RESTORE_TEST_MAX:
+            why = (f"skipped for a {human(total)} game (over {human(RESTORE_TEST_MAX)}): Verify already "
+                   "compared every packed file byte for byte with the original")
+            for left in ("restore", "restore.out", "restore.err", "restore-compare.err"):
+                remove_work_path(self.work / left)  # a restore test interrupted by an older version
+            self.mark("restore", restore_test=why)
+            self.log(f"restore test {why}")
+            return
         self.set_step("restore")
         restore = self.work / "restore"
         remove_work_path(restore)
-        _files, total = tree_bytes(root)
         self.need_space(total, "restore test")
         self.run_tool([PACKER, "unpack", str(pack), str(restore)], "restore")
         expected_extra = {"ampr_emu.index", RUNTIME_REL}
@@ -5988,7 +6004,7 @@ def job_eta(current: str, st: dict, prog, restore_test: bool = True) -> dict | N
     later = LATER_PHASES.get(step)
     if later is not None and step == "restore" and phase == "unpacking":
         later = ["comparing with the original"]
-    if later is not None and not restore_test:
+    if later is not None and (not restore_test or (size and RESTORE_TEST_MAX and size > RESTORE_TEST_MAX)):
         later = [p for p in later if p == "checking every chunk"]
     if out["step_left"] is not None and later is not None and size:
         rest = [size / rates[p] for p in later if rates.get(p)]
