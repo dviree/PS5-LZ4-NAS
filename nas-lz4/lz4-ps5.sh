@@ -23,6 +23,17 @@ if [ "${1:-}" = update ]; then
     echo "already up to date"
     exit 0
   fi
+  # A running job is stopped the normal way first (it is resumable) and the
+  # recreate waits for it: killing it in the middle of a big disk write can
+  # leave the container unkillable ("did not receive an exit event").
+  if docker exec -u "$PUID:$PGID" "$CONTAINER" ps5lz4 status 2>/dev/null | grep -q '^job: RUNNING'; then
+    echo "stopping the running job first (it resumes after the update)…"
+    docker exec -u "$PUID:$PGID" "$CONTAINER" ps5lz4 stop || true
+    for i in $(seq 1 60); do
+      docker exec -u "$PUID:$PGID" "$CONTAINER" ps5lz4 status 2>/dev/null | grep -q '^job: RUNNING' || break
+      sleep 5
+    done
+  fi
   # A container that was created but never started (a mount that failed, say)
   # is started here too, and its error is shown.
   mkdir -p "$LIBRARY/_extracted" 2>/dev/null || true

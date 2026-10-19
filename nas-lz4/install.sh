@@ -177,6 +177,8 @@ services:
   ps5-lz4:
     image: $IMAGE
     container_name: $CONTAINER
+    # Time for a packing step to stop by itself before it is killed.
+    stop_grace_period: 2m
     restart: unless-stopped
     init: true
     network_mode: none
@@ -265,7 +267,7 @@ docker rm -f "$CONTAINER-ui" >/dev/null 2>&1 || true
 if [ -n "$COMPOSE" ]; then
   (cd "$BASE" && $COMPOSE -p ps5-lz4 up -d) || die "compose up failed; see the message above"
 else
-  docker run -d --name "$CONTAINER" --restart unless-stopped --init --network none \
+  docker run -d --name "$CONTAINER" --restart unless-stopped --init --stop-timeout 120 --network none \
     --label com.centurylinklabs.watchtower.enable="$WATCHTOWER" \
     --label com.centurylinklabs.watchtower.lifecycle.pre-update=/usr/local/bin/ps5lz4-busy \
     -e PUID="$PUID" -e PGID="$PGID" \
