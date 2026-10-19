@@ -190,6 +190,10 @@ export function GamePage({game, job, covered, hide, depth, onBack, onAction, onC
   if (game.amprPresent) specs.push(['APR-EMU', game.amprVersion || 'Present']);
   if (game.lz4Packed) specs.push(['LZ4 packs', String(game.lz4PackCount || 0)]);
   else if (game.lz4Supported) specs.push(['LZ4 profile', profileText(game)]);
+  // Glacier games (007, HITMAN) read their .rpkg files from disk, so packs can't work.
+  if (game.lz4DiskPackages) {
+    specs.push(['LZ4', game.lz4Packed ? "Won't start from packs, unpack it" : 'Not for this game', game.lz4Packed ? 'bad' : 'muted']);
+  }
   if (game.lz4Packed || game.lz4Supported) {
     const community = compatSummary(compat && compat[game.titleId]);
     specs.push(['Community', community ? community.text : 'No reports yet', community ? community.tone : undefined]);

@@ -86,6 +86,8 @@ from 1.5.0 update by hand this once (same steps as above, replacing both files).
    time:
    - Games that use AMPR show `Compress with LZ4`
    - Other games show `Compress` (`.ffpfsc`)
+   - 007 First Light and HITMAN 3 show `Compress` too. They read their `.rpkg`
+     files straight from disk, so they can't run from LZ4 packs
    - Compressed games show `Validate and Repair`
    - LZ4 packed games show `Verify LZ4 Packs`
    - Folders that won't boot can use `Verify Game Files` under Check
