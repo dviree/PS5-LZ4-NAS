@@ -55,3 +55,11 @@ int lzc_boot_files_check(const char *root, int repair, int packed,
 
 /* 1 when the file is a PlayGo emulator (not Sony's libScePlayGo). */
 int lzc_boot_is_playgo_emu(const char *path);
+
+/* 1 when the game keeps its data in IOI Glacier .rpkg packages (a runtime/
+ * folder, any case, with packagedefinition.txt or *.rpkg in it). Glacier
+ * opens those straight from disk, not through APR-EMU: packed, they are gone
+ * from disk and the game stops at boot (int 0x42), so it can't be LZ4
+ * packed. Seen on 007 First Light 01.018.000; HITMAN 3 has the same layout.
+ * Only reads the folder, so the game list can call it for every game. */
+int lzc_boot_reads_packages_from_disk(const char *root);

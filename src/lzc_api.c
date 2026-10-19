@@ -82,6 +82,9 @@
 #define LZC_SHADOW_IMAGE_BASE "/mnt/shadowmnt"
 #define LZC_SHADOW_CONFIG_FILE "/data/shadowmount/config.ini"
 #define LZC_SHADOW_MANUAL_LIST_FILE "/data/shadowmount/manual.lst"
+#define LZC_DISK_PACKAGES_MSG \
+  "this game opens its .rpkg packages straight from disk, so it can't run " \
+  "from LZ4 packs; compress it to .ffpfsc instead"
 #define LZC_INTERNAL_GAME_ROOT "/data/homebrew"
 #define LZC_USB_COUNT 8
 #define LZC_STORAGE_TARGET_COUNT (LZC_USB_COUNT + 2)
@@ -224,6 +227,8 @@ typedef struct lzc_game {
   int ampr_original_available;
   int lz4_packed;
   int lz4_supported;
+  /* Glacier .rpkg packages, read straight from disk: never LZ4 packed. */
+  int lz4_disk_packages;
   int lz4_profile_available;
   /* Bundled profile "Automatic" packs with (id, or empty for the scan) and
    * how it matched: LZC_BUNDLED_MATCH_TITLE or _ENGINE. */
@@ -1072,6 +1077,7 @@ populate_lz4_state(lzc_game_t *g) {
   ampr_pack_stats_t ps;
   g->lz4_packed = 0;
   g->lz4_supported = 0;
+  g->lz4_disk_packages = 0;
   g->lz4_pack_count = 0;
   g->lz4_files = 0;
   g->lz4_auto_profile[0] = 0;
@@ -1092,6 +1098,7 @@ populate_lz4_state(lzc_game_t *g) {
     }
     return;
   }
+  g->lz4_disk_packages = lzc_boot_reads_packages_from_disk(root);
   if(ampr_pack_probe(root, &ps)) {
     g->lz4_packed = 1;
     g->lz4_pack_count = ps.pack_count;
@@ -1101,6 +1108,7 @@ populate_lz4_state(lzc_game_t *g) {
     g->ampr_update_supported = 0;
     return;
   }
+  if(g->lz4_disk_packages) return;
   if(lzc_lz4_runtime_marker_present(root)) {
     g->lz4_supported = 1;
     set_auto_profile(g, root);
@@ -11267,6 +11275,7 @@ run_lz4_pack_op(lzc_operation_t *op) {
   }
   if(game.lz4_supported != 1) {
     snprintf(op->error, sizeof(op->error), "%s",
+             game.lz4_disk_packages ? LZC_DISK_PACKAGES_MSG :
              "this game doesn't use AMPR, so APR-EMU can't read LZ4 packs for it; compress it to .ffpfsc instead");
     return -1;
   }
@@ -11533,6 +11542,14 @@ run_lz4_verify_op(lzc_operation_t *op) {
   snprintf(op->output_path, sizeof(op->output_path), "%s", game.source_path);
   /* Folders get repaired; images are mounted read-only here. */
   repair = game.source_kind == LZC_SOURCE_FOLDER;
+  if(game.lz4_packed && game.lz4_disk_packages) {
+    snprintf(op->error, sizeof(op->error), "%s",
+             "this game opens its .rpkg packages straight from disk, so it "
+             "can't start from LZ4 packs; unpack it, then compress it to "
+             ".ffpfsc instead");
+    lzc_log("lz4-verify disk packages title=%s", op->title_id);
+    return -1;
+  }
   if(game.lz4_packed) {
     if(ampr_pack_verify(root, NULL, &cb, &st, err, sizeof(err)) != 0) {
       snprintf(op->error, sizeof(op->error), "%s",
@@ -12709,7 +12726,8 @@ enqueue_lz4_action(const http_request_t *req, lzc_action_t action) {
   if(action == LZC_ACTION_LZ4_PACK) {
     if(game.lz4_packed) return serve_error(req, 409, "this game is already LZ4 packed");
     if(!game.lz4_supported) {
-      return serve_error(req, 400, game.ampr_present && !game.is_mounted &&
+      return serve_error(req, 400, game.lz4_disk_packages ? LZC_DISK_PACKAGES_MSG :
+                         game.ampr_present && !game.is_mounted &&
                          game.source_kind != LZC_SOURCE_FOLDER ?
                          "mount this image with ShadowMountPlus first so its files can be read" :
                          "this game doesn't use AMPR, so APR-EMU can't read LZ4 packs for it; compress it to .ffpfsc instead");
@@ -13425,7 +13443,7 @@ append_game_summary(json_buf_t *b, int *first, const lzc_game_t *game,
                   "\"iconSize\":%llu,\"iconMtime\":%llu,"
                   "\"outputExists\":%s,\"canMoveToUsb\":%s,"
                   "\"canMoveToInternal\":%s,"
-                  "\"lz4Packed\":%s,\"lz4Supported\":%s,"
+                  "\"lz4Packed\":%s,\"lz4Supported\":%s,\"lz4DiskPackages\":%s,"
                   "\"lz4ProfileAvailable\":%s,\"lz4PackCount\":%u,"
                   "\"lz4Files\":%llu",
                   (unsigned long long)game->source_size,
@@ -13461,6 +13479,7 @@ append_game_summary(json_buf_t *b, int *first, const lzc_game_t *game,
                       ? "true" : "false",
                   game->lz4_packed ? "true" : "false",
                   game->lz4_supported ? "true" : "false",
+                  game->lz4_disk_packages ? "true" : "false",
                   game->lz4_profile_available ? "true" : "false",
                   game->lz4_pack_count,
                   (unsigned long long)game->lz4_files) != 0) {

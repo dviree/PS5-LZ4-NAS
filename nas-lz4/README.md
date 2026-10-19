@@ -678,6 +678,11 @@ before): empty files and PlayGo's `cache_ps5/pgc_*_dummy_file` and
 seem to be missing"). PPSA34547 also crashes after a few minutes with
 APR-EMU 0.4.2.1 even unpacked; that is an open APR-EMU bug, not the packing.
 
+Games on IOI's Glacier engine (a `runtime/` folder with `.rpkg` packages and
+`packagedefinition.txt`, e.g. PPSA11386) open those packages straight from disk,
+so they can't run from LZ4 packs at all: they show as "not LZ4" with that
+reason, and an LZ4 copy made earlier shows as an error (send the original).
+
 ## Verified on the NAS is not tested on the PS5
 
 `verified_on_nas: true` means the LZ4 packs are correct: every file comes back

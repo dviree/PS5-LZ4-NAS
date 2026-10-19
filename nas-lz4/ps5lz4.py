@@ -105,8 +105,10 @@ KNOWN_GAMES = {
                   "open": "Crashes after 2-7 minutes, around level loads and checkpoints, with APR-EMU 0.4.2.1 "
                           "even unpacked (fw 12.40 and 13.60): an open APR-EMU bug (ampr_emu issue #7), not "
                           "the packing."},
-    "PPSA11386": {"fixed": "The runtime folder is renamed to the case eboot.bin asks for and a "
-                           "PlayGo emulator is put in fakelib (Repair; RAR games report it when extracted)."},
+    "PPSA11386": {"fixed": "Unpacked folders: the runtime folder is renamed to the case eboot.bin asks for and "
+                           "a PlayGo emulator is put in fakelib (Repair; RAR games report it when extracted).",
+                  "open": "IOI Glacier engine: it reads its .rpkg packages straight from disk, so it can't run "
+                          "from LZ4 packs at all; this page no longer offers LZ4 for it. Keep it unpacked."},
 }
 
 PLAY_STATES = {  # ours -> (report form answer, label)
@@ -351,12 +353,35 @@ def deep_scan_folder(root: Path) -> str | None:
     return None
 
 
+# IOI's Glacier engine keeps its data in .rpkg packages in a runtime/ folder and
+# opens them straight from disk, not through APR-EMU: packed, they are gone from
+# disk and the game stops at boot. Such games can't be LZ4 packed (the
+# original's 1.6.2; seen on PPSA11386, the same layout as another Glacier title).
+GLACIER_WHY = ("IOI Glacier engine (.rpkg packages in runtime/): it opens them straight from disk, "
+               "so it can't start from LZ4 packs; keep it unpacked")
+
+
+def glacier_names(names) -> bool:
+    """True for a runtime/ listing with packagedefinition.txt or a .rpkg file."""
+    return any(n.lower() == "packagedefinition.txt" or n.lower().endswith(".rpkg") for n in names)
+
+
+def glacier_folder(root: Path) -> bool:
+    try:
+        rt = next((d for d in root.iterdir() if d.is_dir() and d.name.lower() == "runtime"), None)
+        return bool(rt) and glacier_names(p.name for p in rt.iterdir())
+    except OSError:
+        return False
+
+
 def ampr_status_folder(root: Path) -> tuple[str, str]:
     """('packed'|'compatible'|'incompatible', reason) for a game folder.
 
     Mirrors the PS5 engine (populate_lz4_state / title_imports_ampr)."""
     if (root / "ampr_assets.index").exists():
         return "packed", "already LZ4 packed (ampr_assets.index present)"
+    if glacier_folder(root):
+        return "incompatible", GLACIER_WHY
     for d in root.iterdir():
         if d.is_dir() and d.name.lower() == "fakelib":
             for f in d.iterdir():
@@ -401,8 +426,11 @@ def exfat_inspect(image: Path) -> dict:
         if pj:
             title_id, name = parse_param_json(b"".join(reader.read_file(pj)))
         total = sum(e.length for e in files.values())
+        rt = prefix + "runtime/"
         if get("ampr_assets.index"):
             status = ("packed", "already LZ4 packed (ampr_assets.index present)")
+        elif glacier_names(k[len(rt):] for k in files if k.startswith(rt) and "/" not in k[len(rt):]):
+            status = ("incompatible", GLACIER_WHY)
         elif get("fakelib/libsceampr.sprx"):
             status = ("compatible", "ships APR-EMU (fakelib/libSceAmpr.sprx)")
         elif get("eboot.bin") and stream_has(reader.read_file(get("eboot.bin")), b"libSceAmpr"):
@@ -1357,6 +1385,8 @@ def classify(e: "Entry", res: dict, cache: dict | None = None) -> tuple[str, str
     st = res["status"]
     if st == "done":
         problem = lz4_format_problem(e.output) if e.output.is_dir() else "output folder missing"
+        if not problem and e.kind == "folder" and glacier_folder(e.path):
+            problem = GLACIER_WHY.replace("keep it unpacked", "delete this LZ4 copy and send the original")
         return ("LZ4", res["detail"], False) if not problem else ("error", problem, False)
     if st == "skipped":
         return "not LZ4", res["detail"], False
@@ -1366,7 +1396,7 @@ def classify(e: "Entry", res: dict, cache: dict | None = None) -> tuple[str, str
     if cache is not None:
         try:
             stt = e.path.stat()
-            key, sig = str(e.path), f"{stt.st_size}:{int(stt.st_mtime)}"
+            key, sig = str(e.path), f"g1:{stt.st_size}:{int(stt.st_mtime)}"  # g1: with the Glacier check
         except OSError:
             pass
     hit = cache.get(key) if key else None

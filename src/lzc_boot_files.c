@@ -451,6 +451,26 @@ check_ampr_index(const char *root, int repair, lzc_boot_report_t *r,
 }
 
 int
+lzc_boot_reads_packages_from_disk(const char *root) {
+  char name[256], dir[1024];
+  DIR *d;
+  struct dirent *ent;
+  int found = 0;
+  if(!find_entry_nocase(root, "runtime", name, sizeof(name)) ||
+     join(dir, sizeof(dir), root, name) != 0 || !is_dir(dir)) {
+    return 0;
+  }
+  if(find_entry_nocase(dir, "packagedefinition.txt", name, sizeof(name))) return 1;
+  if(!(d = opendir(dir))) return 0;
+  while(!found && (ent = readdir(d)) != NULL) {
+    size_t len = strlen(ent->d_name);
+    found = len > 5 && !strcasecmp(ent->d_name + len - 5, ".rpkg");
+  }
+  closedir(d);
+  return found;
+}
+
+int
 lzc_boot_files_check(const char *root, int repair, int packed,
                      const char *const *sources, lzc_boot_report_t *r,
                      char *err, size_t err_size) {
