@@ -1009,6 +1009,7 @@ async function dupUse(tid, rel) {
     body: JSON.stringify({action: 'dup_use', tid, rel})});
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { alert('Not changed: ' + (j.error || r.status)); return; }
+  alert(`Now using ${j.used}.` + (j.busy ? `\n\n${j.busy} is being packed right now: that job goes on; Stop it if you don't want it.` : '\n\nThe other copies are left out of the list, Compress all and sending.'));
   closeGame(); setTimeout(load, 300);
 }
 function deleteCopy(gid, rel) {
