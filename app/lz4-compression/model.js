@@ -84,7 +84,8 @@ export function onDemand(game) {
 function baseAction(game) {
   if (!game || !game.sourcePath) return '';
   const kind = kindOf(game);
-  if (game.lz4Packed === true && kind === 'folder') return 'lz4-verify';
+  // Glacier games can't start from packs, so unpacking comes first.
+  if (game.lz4Packed === true && kind === 'folder') return game.lz4DiskPackages === true ? 'lz4-unpack' : 'lz4-verify';
   if (kind === 'compressed') return 'validate-repair';
   if (kind === 'folder' || kind === 'image') return 'compress';
   return '';
@@ -207,7 +208,8 @@ export function badgeText(game) {
   if (game.lz4Packed) return 'LZ4';
   if (game.pendingOp) return 'QUEUED';
   const ext = /\.([a-z0-9]+)$/i.exec(String(game.sourcePath || ''));
-  if (kindOf(game) !== 'folder' && ext) return ext[1].toUpperCase();
+  if (kindOf(game) === 'folder') return 'FOLDER';
+  if (ext) return ext[1].toUpperCase();
   return '';
 }
 
