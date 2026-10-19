@@ -56,6 +56,7 @@ REPORTS = STATE / "reports"
 PLAYED = STATE / "played"  # PS5 result of games that are not LZ4 (a sent original, an extracted RAR)
 LOCK_PATH = STATE / "run.lock"
 QUEUE_PATH = STATE / "queue.json"
+PREFERRED = STATE / "preferred.json"  # Title ID -> the library copy chosen with "Use this one"
 # The same folders as the NAS sees them, for reports.
 HOST_LIBRARY = os.environ.get("PS5LZ4_HOST_LIBRARY", str(LIBRARY))
 HOST_OUTPUT = os.environ.get("PS5LZ4_HOST_OUTPUT", str(OUTPUT))
@@ -578,6 +579,13 @@ def scan_library() -> list[Entry]:
     for e in entries:
         if e.kind != "folder" and e.title_id in folders:
             e.duplicate_of = folders[e.title_id].rel
+    # A copy chosen on the page ("Use this one") wins over the others with its Title ID.
+    prefs = read_json(PREFERRED, {}) or {}
+    for tid, rel in prefs.items():
+        group = [e for e in entries if (e.title_id or "").upper() == tid]
+        if any(e.rel == rel for e in group):
+            for e in group:
+                e.duplicate_of = None if e.rel == rel else rel
     # Two library entries must never share an output folder.
     seen: dict[str, Entry] = {}
     for e in entries:
@@ -4366,12 +4374,14 @@ def library_duplicates() -> list[dict]:
                 ver = game_version(name=e.path.name).get("version", "") or (image_meta(e.path).get("version") or "")
                 size = e.path.stat().st_size
             items.append({"id": e.id, "rel": e.rel, "kind": e.kind, "version": ver, "size": size,
+                          "used": not e.duplicate_of,
                           "path": str(Path(HOST_LIBRARY) / e.rel),
                           "lz4": e.output.is_dir() and (e.output / "ampr_assets.index").is_file()})
         newest = max(items, key=lambda i: (_ver_key(i["version"]), i["kind"] == "folder"))
         for i in items:
             i["newest"] = i is newest
-        out.append({"title_id": tid, "name": next((e.name for e in es if e.name), es[0].rel), "items": items})
+        out.append({"title_id": tid, "name": next((e.name for e in es if e.name), es[0].rel), "items": items,
+                    "chosen": (read_json(PREFERRED, {}) or {}).get(tid)})
     return out
 
 
@@ -6070,6 +6080,7 @@ def dashboard_data() -> dict:
         rep = read_json(REPORTS / f"{e.id}.json") or {}
         g = games.get((e.title_id or "").upper()) or {}
         row = {"id": e.id, "rel": e.rel, "source_path": str(Path(HOST_LIBRARY) / e.rel), "kind": e.kind,
+               "not_in_use": bool(e.duplicate_of),
                "source_size": src_size, "title_id": e.title_id,
                "name": rep.get("title_name") or e.name or nice_folder_name(e, games),
                "verdict": verdict, "why": why,
@@ -7013,6 +7024,18 @@ def cmd_ui(args) -> int:
                 transfer_queue_set([g for g in transfer_queue() if g not in (key, st.get("request"))])
                 cache["at"] = 0
                 return self.send(200, json.dumps(res).encode())
+            if req.get("action") == "dup_use":
+                # "Use this one": this copy is listed and packed, the others with
+                # its Title ID are left out (nothing is deleted).
+                tid, rel = str(req.get("tid") or "").upper(), str(req.get("rel") or "")
+                copies = [e for e in scan_library() if (e.title_id or "").upper() == tid]
+                if not re.fullmatch(r"[A-Z]{4}\d{5}", tid) or not any(e.rel == rel for e in copies):
+                    return self.send(400, b'{"error":"that copy is not in the library"}')
+                prefs = read_json(PREFERRED, {}) or {}
+                prefs[tid] = rel
+                write_json(PREFERRED, prefs)
+                cache["at"] = 0
+                return self.send(200, json.dumps({"used": rel}).encode())
             if req.get("action") == "queue_remove":
                 # A game waiting in the packing queue (not the one being packed),
                 # or a Compress request not picked up yet.

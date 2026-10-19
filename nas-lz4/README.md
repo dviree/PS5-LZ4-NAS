@@ -161,6 +161,10 @@ that container alone.
   once (other versions, or a folder and an image) is listed with each copy's
   version and size; the newest is marked, the others can be deleted (needs
   `DELETE_ORIGINALS=yes`; a copy of unknown version is never called older).
+  The game's sheet lists the same copies under **Copies**: **Use this one**
+  picks the copy that is listed, packed and sent (saved in
+  `state/preferred.json`); the others are left out, or marked NOT IN USE when
+  they already have an LZ4 copy. Nothing is deleted by choosing.
 - **Move between PS5 drives (ShadowMount tab):** **Move…** lists the drives
   ShadowMountPlus can put a game on, with free space, and starts its own
   move job (copied, checked, old copy removed), with progress, speed and

@@ -906,7 +906,7 @@ function render() {
         ? `<button class="sm pri" data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}" onclick="event.stopPropagation();push(this.dataset.id, this.dataset.name)">▶ Resume transfer</button>` : '';
       const why = g.verdict !== 'LZ4' && !g.running ? `<div class="why">${esc(g.why)}</div>` : '';
       const tx = txr && txr.state !== 'done' ? `<div class="cm">${xferText(txr)}</div>` : '';
-      return `<tr class="row" data-id="${esc(g.id)}" onclick="if(!event.target.closest('select,button,a'))openGame(this.dataset.id)"><td class="c-game"><img class="ico" alt="" loading="lazy" src="/api/icon?id=${encodeURIComponent(g.id)}" onerror="this.remove()"><span class="gname">${esc(g.name)}</span>${g.output_only ? '<span class="mine">LZ4 FOLDER</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_EN[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div>${placeHtml(g)}<div class="cm">${community(g.community)}</div>${tx}${sendNext ? '<div class="cm"><span class="chip ok">⬆️ sent to the PS5 when packed</span></div>' : ''}${why}</td>
+      return `<tr class="row" data-id="${esc(g.id)}" onclick="if(!event.target.closest('select,button,a'))openGame(this.dataset.id)"><td class="c-game"><img class="ico" alt="" loading="lazy" src="/api/icon?id=${encodeURIComponent(g.id)}" onerror="this.remove()"><span class="gname">${esc(g.name)}</span>${g.output_only ? '<span class="mine">LZ4 FOLDER</span>' : ''}${g.not_in_use ? '<span class="mine" title="Another copy of this game is in use (see Copies in its sheet)">NOT IN USE</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_EN[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div>${placeHtml(g)}<div class="cm">${community(g.community)}</div>${tx}${sendNext ? '<div class="cm"><span class="chip ok">⬆️ sent to the PS5 when packed</span></div>' : ''}${why}</td>
         <td class="c-status"><span class="pill ${v[0]}">${v[1]}</span></td>
         <td class="num c-src">${gb(g.source_bytes)}</td><td class="num c-out">${gb(g.output_bytes)}</td>
         <td class="num c-saved">${g.saved_percent != null ? `<b>${gb(g.source_bytes - g.output_bytes)}</b> saved · ${Math.round(g.saved_percent)} %<span class="mut mob"> · ${gb(g.source_bytes)} → ${gb(g.output_bytes)}</span>
@@ -939,12 +939,7 @@ function render() {
   const dups = d.duplicates || [];
   document.getElementById('dupcard').hidden = !dups.length;
   document.getElementById('dups').innerHTML = dups.map(grp => `<div class="dl"><div class="dl-top"><b>${esc(grp.name)}</b><span class="mut">${esc(grp.title_id)} · ${grp.items.length} copies</span></div>` +
-    grp.items.map(i => {
-      const gg = (d.games || []).find(x => x.id === i.id) || {}, size = i.size || gg.source_size || gg.source_bytes;
-      return `<div class="dl-row"><span class="chip ${i.newest ? 'ok' : ''}">${i.newest ? '✓ newest' : i.version ? 'older' : 'version?'}</span>
-        <span class="dl-name">v${esc(i.version || '?')}</span><span class="mut">${esc(i.kind)}${size ? ' · ' + gb(size) : ''}${i.lz4 ? ' · has an LZ4 copy' : ''} · ${esc(i.rel)}</span><span class="sp"></span>
-        ${i.newest ? '' : d.delete_originals ? `<button class="sm danger" data-g="${esc(i.id)}" onclick="deleteOriginal(this.dataset.g)">🗑 Delete this one</button>` : '<span class="mut" style="font-size:12px">delete needs DELETE_ORIGINALS=yes</span>'}</div>`;
-    }).join('') + '</div>').join('');
+    dupRows(grp) + '</div>').join('');
   const arcs = d.archives || [];
   document.getElementById('arccard').hidden = !arcs.length;
   document.getElementById('arcs').innerHTML = arcs.map(a => {
@@ -996,6 +991,30 @@ async function queueRemove(what) {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) alert('Not removed: ' + (j.error || r.status));
   setTimeout(load, 300);
+}
+// The copies of one game in the library: which is in use (listed, packed and
+// sent), "Use this one" for the others, and delete for the ones not in use.
+function dupRows(grp) {
+  const d = data, many = grp.items.filter(i => i.used).length > 1;
+  return grp.items.map(i => {
+    const gg = (d.games || []).find(x => x.id === i.id) || {}, size = i.size || gg.source_size || gg.source_bytes;
+    return `<div class="dl-row"><span class="chip ${i.newest ? 'ok' : ''}">${i.newest ? '✓ newest' : i.version ? 'older' : 'version?'}</span>
+      <span class="dl-name">v${esc(i.version || '?')}</span><span class="mut">${esc(i.kind)}${size ? ' · ' + gb(size) : ''}${i.lz4 ? ' · has an LZ4 copy' : ''} · ${esc(i.rel)}</span><span class="sp"></span>
+      ${i.used && !many ? '<span class="chip ok">in use</span>' : `<button class="sm pri" data-t="${esc(grp.title_id)}" data-r="${esc(i.rel)}" onclick="dupUse(this.dataset.t, this.dataset.r)">${many ? 'Use only this one' : 'Use this one'}</button>`}
+      ${i.used ? '' : d.delete_originals ? `<button class="sm danger" data-g="${esc(i.id)}" data-r="${esc(i.rel)}" onclick="deleteCopy(this.dataset.g, this.dataset.r)">🗑 Delete</button>` : ''}</div>`;
+  }).join('');
+}
+async function dupUse(tid, rel) {
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'dup_use', tid, rel})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { alert('Not changed: ' + (j.error || r.status)); return; }
+  closeGame(); setTimeout(load, 300);
+}
+function deleteCopy(gid, rel) {
+  if ((data.games || []).some(x => x.id === gid)) return deleteOriginal(gid);
+  closeGame();
+  act('delete_original', `Delete this copy from the NAS?\n\n${rel}\n\nThe copy in use stays. This can't be undone.`, {game: gid});
 }
 function pendingFor(id) {
   return data && (data.requests.pending_list || []).some(r => r.action === 'start' && r.game === id);
@@ -1122,6 +1141,8 @@ function gameHtml(g, det) {
     ['LZ4', gb(g.output_bytes)],
     ['Saved', g.saved_percent != null ? `${gb(g.source_bytes - g.output_bytes)} (${Math.round(g.saved_percent)} %)` : '–'],
   ];
+  const grp = (data.duplicates || []).find(x => x.title_id === (g.title_id || '').toUpperCase());
+  if (grp) rows.push([`Copies (${grp.items.length})`, `<div class="why" style="margin-bottom:4px">The same game is in the library more than once. The copy in use is listed, packed and sent; the others are left out.</div>${dupRows(grp)}`]);
   const kn = det && det.known;
   if (kn) rows.push(['Known for this game', (kn.fixed ? `<div><span class="good">✓ handled:</span> ${esc(kn.fixed)}</div>` : '') +
     (kn.open ? `<div style="margin-top:4px"><span class="bad">⚠ still open:</span> ${esc(kn.open)}</div>` : '')]);
