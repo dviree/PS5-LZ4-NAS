@@ -1,6 +1,7 @@
 // Community game reports: "[Game report]" issues on theghostonline.dev,
 // counted here (one vote per person per game, their newest report wins).
-import {FileSystem, Http, Platform} from '@ps5-react/core';
+import {FileSystem, Platform} from '@ps5-react/core';
+import {request} from './net.js';
 import {APP_VERSION} from './version.js';
 
 const SITE = 'https://theghostonline.dev';
@@ -54,6 +55,24 @@ function parseBody(body) {
   return out;
 }
 
+// "How does it run?" as one of REPORT_CHOICES. Reports from the web page leave it to the reporter,
+// so read free text too ("can't start", "Works well, runs better than exFAT"), then the title's
+// ": Works" suffix that the app's own links add.
+export function reportChoice(text, title) {
+  const s = String(text || '').toLowerCase().replace(/[\u2018\u2019]/g, "'").trim();
+  const exact = REPORT_CHOICES.find(item => item.form.toLowerCase() === s || item.label.toLowerCase() === s);
+  if (exact) return exact;
+  const pick = status => REPORT_CHOICES.find(item => item.status === status);
+  if (/works with issues/.test(s)) return pick('issues');
+  if (/^works?\b/.test(s)) return pick('works');
+  if (/won'?t (start|boot|load|launch)|can'?t (start|boot|load|launch)|cannot (start|boot|load|launch)|(does|did)n'?t (start|boot|load|launch)|not (start|boot|load|launch)|black screen|freez|stuck/.test(s)) return pick('noStart');
+  if (/crash/.test(s)) return pick('crash');
+  if (/stutter|issue|glitch|lag/.test(s)) return pick('issues');
+  if (/\b(works|runs|playable|fine)\b/.test(s)) return pick('works');
+  const suffix = /:\s*([^:]+)$/.exec(String(title || ''));
+  return suffix ? reportChoice(suffix[1]) : null;
+}
+
 export function countReports(issues) {
   const latest = new Map();
   for (const issue of issues) {
@@ -61,7 +80,7 @@ export function countReports(issues) {
     if (labels.some(label => IGNORED_LABELS.includes(label))) continue;
     const fields = parseBody(issue.body);
     const titleId = String(fields.titleId || '').toUpperCase();
-    const choice = REPORT_CHOICES.find(item => item.form.toLowerCase() === String(fields.status || '').toLowerCase());
+    const choice = reportChoice(fields.status || '', issue.title);
     if (!/^[A-Z]{4}\d{5}$/.test(titleId) || !choice) continue;
     // Reports moved over from GitHub start with their original issue, author (when known) and date.
     const moved = /^_Moved from GitHub #(\d+), opened (?:by @([\w-]+) )?on (\d{4}-\d{2}-\d{2})/.exec(issue.body || '');
@@ -93,7 +112,7 @@ export async function loadCompat() {
     }
     const issues = [];
     for (let page = 1; page <= MAX_PAGES; page++) {
-      const response = await Http.request(`${url}&page=${page}`, {maxBytes: 4 * 1024 * 1024});
+      const response = await request(`${url}&page=${page}`, {maxBytes: 4 * 1024 * 1024}, 20000);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const batch = await response.json();
       if (!Array.isArray(batch)) throw new Error('Not an issue list');

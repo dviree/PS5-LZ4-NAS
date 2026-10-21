@@ -1,7 +1,8 @@
 // In-app updates from the releases on theghostonline.dev: the app zip replaces the app's
 // folder and lz4-compression.elf replaces the engine in Payload Manager.
-import {Archives, Downloads, FileSystem, Http, Platform} from '@ps5-react/core';
+import {Archives, Downloads, FileSystem, Platform} from '@ps5-react/core';
 import {engineElf} from './api.js';
+import {request} from './net.js';
 import {APP_VERSION} from './version.js';
 
 const FEED = 'https://theghostonline.dev/api/v1/repos/theghostonline/PS5-LZ4-Compression/releases/latest';
@@ -67,17 +68,17 @@ function assetOf(release, name, sums) {
 async function sumsOf(release) {
   const file = (release.assets || []).find(item => item.name === SUMS_ASSET);
   if (!file) return {};
-  const response = await Http.request(file.browser_download_url, {maxBytes: 64 * 1024});
+  const response = await request(file.browser_download_url, {maxBytes: 64 * 1024}, 20000);
   if (!response.ok) throw new Error(`${SUMS_ASSET} answered HTTP ${response.status}`);
   return parseSums(await response.text());
 }
 
 export async function checkForUpdate() {
   const feed = readText(FEED_OVERRIDE) || FEED;
-  const response = await Http.request(feed, {
+  const response = await request(feed, {
     headers: {Accept: 'application/json', 'User-Agent': 'LZ4-Compression'},
     maxBytes: 1024 * 1024,
-  });
+  }, 20000);
   if (!response.ok) throw new Error(`Update check answered HTTP ${response.status}`);
   const release = await response.json();
   const version = String(release.tag_name || '').replace(/^v/i, '');
