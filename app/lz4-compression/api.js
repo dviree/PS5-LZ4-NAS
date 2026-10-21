@@ -1,5 +1,6 @@
 // Client for the LZ4 Compression payload (the engine) on the console.
-import {FileSystem, Http} from '@ps5-react/core';
+import {FileSystem} from '@ps5-react/core';
+import {request} from './net.js';
 
 export const ENGINE = 'http://127.0.0.1:5920';
 const PAYLOAD_MANAGER = 'http://127.0.0.1:8084';
@@ -18,36 +19,16 @@ export function engineElf() {
   }
 }
 
-// An abort signal that fires after ms (the transport retries a refused
-// connection for minutes, which is too long while an engine restarts).
-function timeoutSignal(ms) {
-  const listeners = new Set();
-  const signal = {
-    aborted: false,
-    addEventListener: (type, fn) => { if (type === 'abort') listeners.add(fn); },
-    removeEventListener: (type, fn) => listeners.delete(fn),
-  };
-  const id = setTimeout(() => {
-    signal.aborted = true;
-    for (const fn of [...listeners]) fn();
-  }, ms);
-  return {signal, clear: () => clearTimeout(id)};
-}
-
 async function call(path, options = {}) {
-  const timer = options.timeoutMs ? timeoutSignal(options.timeoutMs) : null;
   let response;
   try {
-    response = await Http.request(ENGINE + path, {
+    response = await request(ENGINE + path, {
       method: options.method || 'GET',
       maxBytes: options.maxBytes || 4 * 1024 * 1024,
-      ...(timer ? {signal: timer.signal} : {}),
-    });
+    }, options.timeoutMs);
   } catch (err) {
-    if (timer && timer.signal.aborted) throw new Error(`no answer from the engine within ${options.timeoutMs / 1000} s`);
+    if (err.timeout) throw new Error(`no answer from the engine within ${Math.round((options.timeoutMs || 60000) / 1000)} s`);
     throw err;
-  } finally {
-    if (timer) timer.clear();
   }
   let data = {};
   try {
@@ -184,7 +165,7 @@ export async function startEngine() {
   const elf = engineElf();
   if (!elf) return false;
   const url = `${PAYLOAD_MANAGER}/loadpayload:${elf}`;
-  let response = await Http.request(url, {method: 'POST', headers: {'X-PLDMGR-Request': '1'}, body: '', maxBytes: 65536});
-  if (response.status === 404 || response.status === 405) response = await Http.request(url, {method: 'GET', maxBytes: 65536});
+  let response = await request(url, {method: 'POST', headers: {'X-PLDMGR-Request': '1'}, body: '', maxBytes: 65536}, 15000);
+  if (response.status === 404 || response.status === 405) response = await request(url, {method: 'GET', maxBytes: 65536}, 15000);
   return response.ok && (await response.text()).trim() !== 'Invalid payload name';
 }

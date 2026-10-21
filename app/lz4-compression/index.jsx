@@ -174,7 +174,12 @@ function App() {
   useEffect(() => {
     if (phase !== 'ready') return undefined;
     let tick = 0;
+    let polling = false;
     const timer = setInterval(async () => {
+      // A slow engine (busy right after a job) must not get a second poll on top of the first,
+      // or the requests pile up until the transport's queue is full.
+      if (polling) return;
+      polling = true;
       tick++;
       try {
         const jobData = await api.job();
@@ -196,6 +201,8 @@ function App() {
         }
       } catch (err) {
         // The engine went away (closed from the web page, or crashed).
+      } finally {
+        polling = false;
       }
     }, JOB_POLL_MS);
     return () => clearInterval(timer);
