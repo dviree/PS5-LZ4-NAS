@@ -1405,24 +1405,26 @@ parse_hex32(const char *s, uint32_t *out) {
   return 0;
 }
 
+// ShadowMountPlus mounts an .ffpfsc at <pfsc base>/<file name without extension>_<fnv1a32 of
+// its full path>, whatever the file is called, so read the hash from the end of that folder name.
 static int
 shadow_pfsc_hash_from_path(const char *image_path, const char *title_id,
                            uint32_t *hash_out) {
   size_t prefix_len = strlen(LZC_SHADOW_PFSC_BASE);
-  size_t title_len = title_id ? strlen(title_id) : 0;
   const char *segment;
-  if(!image_path || !title_id || !hash_out || title_len == 0) return -1;
+  const char *end;
+  size_t len;
+  (void)title_id;
+  if(!image_path || !hash_out) return -1;
   if(strncmp(image_path, LZC_SHADOW_PFSC_BASE, prefix_len) ||
      image_path[prefix_len] != '/') {
     return -1;
   }
   segment = image_path + prefix_len + 1;
-  if(strncmp(segment, title_id, title_len) || segment[title_len] != '_') {
-    return -1;
-  }
-  if(parse_hex32(segment + title_len + 1, hash_out) != 0) return -1;
-  if(segment[title_len + 9] && segment[title_len + 9] != '/') return -1;
-  return 0;
+  end = strchr(segment, '/');
+  len = end ? (size_t)(end - segment) : strlen(segment);
+  if(len < 10 || segment[len - 9] != '_') return -1;
+  return parse_hex32(segment + len - 8, hash_out);
 }
 
 static int
@@ -2043,6 +2045,31 @@ find_outer_pfsc_candidate(const char *root, const char *title_id,
   return 0;
 }
 
+// The .ffpfsc in root whose full path has ShadowMountPlus's mount hash, for files that aren't
+// named <TITLEID>.ffpfsc ("Marvels Wolverine.ffpfsc", "PPSA03671-app.ffpfsc").
+static int
+find_outer_pfsc_in_root(const char *root, uint32_t shadow_hash, char *out,
+                        size_t out_size) {
+  char candidate[1024];
+  struct stat st;
+  struct dirent *ent;
+  int found = -1;
+  DIR *d = root ? opendir(root) : NULL;
+  if(!d) return -1;
+  while((ent = readdir(d)) != NULL) {
+    if(ent->d_name[0] == '.' || !ends_with_ci(ent->d_name, ".ffpfsc")) continue;
+    int n = snprintf(candidate, sizeof(candidate), "%s/%s", root, ent->d_name);
+    if(n < 0 || (size_t)n >= sizeof(candidate)) continue;
+    if(fnv1a32_string(candidate) != shadow_hash) continue;
+    if(stat(candidate, &st) != 0 || !S_ISREG(st.st_mode)) continue;
+    snprintf(out, out_size, "%s", candidate);
+    found = 0;
+    break;
+  }
+  closedir(d);
+  return found;
+}
+
 static int
 find_outer_pfsc_by_shadow_hash(const char *title_id, uint32_t shadow_hash,
                                char *out, size_t out_size) {
@@ -2051,6 +2078,12 @@ find_outer_pfsc_by_shadow_hash(const char *title_id, uint32_t shadow_hash,
   for(size_t i = 0; i < roots.count; i++) {
     if(find_outer_pfsc_candidate(roots.roots[i], title_id,
                                  shadow_hash, out, out_size) == 0) {
+      return 0;
+    }
+  }
+  for(size_t i = 0; i < roots.count; i++) {
+    if(find_outer_pfsc_in_root(roots.roots[i], shadow_hash, out,
+                               out_size) == 0) {
       return 0;
     }
   }
@@ -4412,6 +4445,37 @@ resolve_transfer_target_root(const char *storage_root,
   return 0;
 }
 
+// Whether an .ffpfsc is this title's: named <TITLEID>.ffpfsc, or the one ShadowMountPlus mounted
+// for the title (its mount link points into /mnt/shadowmnt/pfsc/<file stem>_<hash of this path>),
+// so a file called "Ghost of Yotei.ffpfsc" works too.
+static int
+ffpfsc_belongs_to_title(const char *outer, const char *title_id) {
+  static const char *const links[] = {"mount_img.lnk", "mount.lnk"};
+  char stem[256];
+  char mount_dir[1024];
+  char link_path[1024];
+  char target[1024];
+  if(!outer || !valid_title_id(title_id)) return 0;
+  if(strip_extension_base(base_name(outer), stem, sizeof(stem)) == 0 &&
+     !strcmp(stem, title_id)) {
+    return 1;
+  }
+  if(shadow_pfsc_mount_dir_for_outer(outer, mount_dir, sizeof(mount_dir)) != 0) {
+    return 0;
+  }
+  size_t len = strlen(mount_dir);
+  for(size_t i = 0; i < sizeof(links) / sizeof(links[0]); i++) {
+    snprintf(link_path, sizeof(link_path), "%s/%s/%s", LZC_APP_BASE, title_id,
+             links[i]);
+    if(read_link_file(link_path, target, sizeof(target)) == 0 &&
+       !strncmp(target, mount_dir, len) &&
+       (target[len] == '/' || target[len] == 0)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 static int
 find_game_for_operation_source_path(const lzc_operation_t *op, lzc_game_t *out,
                                     int exact_folder_sizes) {
@@ -4419,7 +4483,6 @@ find_game_for_operation_source_path(const lzc_operation_t *op, lzc_game_t *out,
   pfs_decompress_info_t dec = {0};
   pfs_app_info_t app = {0};
   struct stat st;
-  char title_id[64] = {0};
   char err[256] = {0};
   const char *name;
 
@@ -4443,8 +4506,7 @@ find_game_for_operation_source_path(const lzc_operation_t *op, lzc_game_t *out,
   set_game_mount_status(&candidate, 0, "not-mounted");
 
   if(S_ISREG(st.st_mode) && ends_with_ci(name, ".ffpfsc")) {
-    if(strip_extension_base(name, title_id, sizeof(title_id)) != 0 ||
-       strcmp(title_id, op->title_id) ||
+    if(!ffpfsc_belongs_to_title(op->source_path, op->title_id) ||
        pfs_decompress_detect_nested(op->source_path, &dec,
                                     err, sizeof(err)) != 0) {
       return -1;

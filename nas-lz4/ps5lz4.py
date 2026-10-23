@@ -1565,6 +1565,31 @@ COMPAT_FIELDS = {"title id": "titleId", "game": "game", "how does it run?": "sta
                  "firmware": "firmware", "lz4 compression version": "appVersion", "notes": "notes"}
 
 
+def compat_status(text: str, title: str = "") -> str | None:
+    """The status of a report: the form's answer, free text ("won't boot", "crashes"),
+    or the ": Works" at the end of the title (as the original's 1.6.3 reads it)."""
+    t = re.sub("[\u2018\u2019]", "'", str(text or "")).lower().strip()
+    if t in COMPAT_STATUS:
+        return COMPAT_STATUS[t]
+    if t == "won't start":
+        return "noStart"
+    if "works with issues" in t:
+        return "issues"
+    if re.match(r"works?\b", t):
+        return "works"
+    if re.search(r"won'?t (start|boot|load|launch)|can'?t (start|boot|load|launch)|cannot (start|boot|load|launch)"
+                 r"|(does|did)n'?t (start|boot|load|launch)|not (start|boot|load|launch)|black screen|freez|stuck", t):
+        return "noStart"
+    if "crash" in t:
+        return "crash"
+    if re.search(r"stutter|issue|glitch|lag", t):
+        return "issues"
+    if re.search(r"\b(works|runs|playable|fine)\b", t):
+        return "works"
+    m = re.search(r":\s*([^:]+)$", str(title or ""))
+    return compat_status(m.group(1)) if m and text is not None else None
+
+
 def compat_aggregate(issues: list[dict]) -> dict:
     """Issues (GitHub or Gitea REST) labelled compat or titled "[Game report] ..." -> compat.json.
     One vote per user per game (the original author for issues moved from GitHub)."""
@@ -1587,7 +1612,7 @@ def compat_aggregate(issues: list[dict]) -> dict:
             if key and val not in ("", "_No response_", "None"):
                 fields[key] = val
         tid = clean(fields.get("titleId"), 16).upper()
-        status = COMPAT_STATUS.get(clean(fields.get("status"), 80).lower())
+        status = compat_status(clean(fields.get("status"), 80), issue.get("title") or "")
         if not re.fullmatch(r"[A-Z]{4}\d{5}", tid) or not status:
             continue
         # Reports moved over from GitHub start with their original issue, author (when known) and date.
