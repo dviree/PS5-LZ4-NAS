@@ -7055,9 +7055,24 @@
 	    }
 
 	    const COMPAT_STATUS = {
-	      'works': 'works', 'works with issues': 'issues',
+	      'works': 'works', 'works with issues': 'issues', "won't start": 'noStart',
 	      "won't start (black screen or crash on launch)": 'noStart', 'crashes in game': 'crash'
 	    };
+
+	    // Same reading as the app (compat.js reportChoice): the field is free text when the report
+	    // came from this page, and the app's own links end the title with ": Works" and so on.
+	    function compatStatus(text, title) {
+	      const s = String(text || '').toLowerCase().replace(/[\u2018\u2019]/g, "'").trim();
+	      if (COMPAT_STATUS[s]) return COMPAT_STATUS[s];
+	      if (/works with issues/.test(s)) return 'issues';
+	      if (/^works?\b/.test(s)) return 'works';
+	      if (/won'?t (start|boot|load|launch)|can'?t (start|boot|load|launch)|cannot (start|boot|load|launch)|(does|did)n'?t (start|boot|load|launch)|not (start|boot|load|launch)|black screen|freez|stuck/.test(s)) return 'noStart';
+	      if (/crash/.test(s)) return 'crash';
+	      if (/stutter|issue|glitch|lag/.test(s)) return 'issues';
+	      if (/\b(works|runs|playable|fine)\b/.test(s)) return 'works';
+	      const suffix = /:\s*([^:]+)$/.exec(String(title || ''));
+	      return suffix ? compatStatus(suffix[1]) : '';
+	    }
 
 	    function countReports(issues) {
 	      const latest = new Map();
@@ -7071,7 +7086,7 @@
 	          if (value && value !== '_No response_') fields[parts[i].trim().toLowerCase()] = value.replace(/\s+/g, ' ');
 	        }
 	        const titleId = String(fields['title id'] || '').toUpperCase();
-	        const status = COMPAT_STATUS[String(fields['how does it run?'] || '').toLowerCase()];
+	        const status = compatStatus(fields['how does it run?'], issue.title);
 	        if (!/^[A-Z]{4}\d{5}$/.test(titleId) || !status) continue;
 	        // Reports moved over from GitHub start with their original issue, author (when known) and date.
 	        const moved = /^_Moved from GitHub #(\d+), opened (?:by @([\w-]+) )?on (\d{4}-\d{2}-\d{2})/.exec(issue.body || '');
