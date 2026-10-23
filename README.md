@@ -152,6 +152,12 @@ cancelled once it starts, and only works for folders on the same drive.
 - **Something went wrong.** [Open an issue](https://theghostonline.dev/theghostonline/PS5-LZ4-Compression/issues)
   with the game, its title ID and your firmware.
 
+## Other firmware and game versions
+
+Only tested on 13.60 so far. If you're on other firmware, pick the Tester role and your firmware in Channels & Roles on [Discord](https://discord.gg/PU9Er858Qp), then post in #lz4-compression-testing with your
+firmware, loader setup and ShadowMountPlus version, the game with its title ID
+and version, and what happened.
+
 ## Building
 
 The engine needs [ps5-payload-sdk v0.43](https://github.com/ps5-payload-dev/sdk/releases/tag/v0.43)
