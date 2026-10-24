@@ -194,6 +194,13 @@ Tested on PS5 firmware **13.60** with **kstuff-lite 1.11** and
 (19.5 GB) and its full hash validation (1,029,215 blocks) completed clean,
 with the title mounted and launchable afterwards.
 
+## Other firmware and game versions
+
+Only tested on 13.60 so far. If you're on other firmware, pick the Tester role and your
+firmware in Channels & Roles on the original's [Discord](https://discord.gg/PU9Er858Qp), then
+post in #lz4-compression-testing with your firmware, loader setup and ShadowMountPlus
+version, the game with its title ID and version, and what happened.
+
 ## Rest mode and interrupted jobs
 
 During ordinary copying, compression, unpacking, scanning, and validation,
