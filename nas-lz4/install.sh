@@ -14,7 +14,7 @@ LIBRARY="${LIBRARY:-/volume1/games/roms/ps5}"
 PS4_LIBRARY="${PS4_LIBRARY:-/volume1/games/roms/ps4}"  # PS4 .pkg files (optional, read-only)
 OUTPUT="${OUTPUT:-/volume1/games/ps5-lz4}"
 BASE="${BASE:-/volume2/docker/ps5-lz4}"
-NAS_USER="${NAS_USER:-nasuser}"
+NAS_USER="${NAS_USER:-}"   # empty: the owner of the game library (or of an earlier install)
 IMAGE="${IMAGE:-ghcr.io/dviree/ps5-lz4:latest}"   # Watchtower keeps it updated
 LOCAL_IMAGE="ps5-lz4:local"                       # fallback: built on the NAS
 CONTAINER="${CONTAINER:-ps5-lz4}"
@@ -65,6 +65,15 @@ elif command -v docker-compose >/dev/null 2>&1; then
 fi
 if [ -n "$COMPOSE" ]; then ok "compose: $($COMPOSE version 2>/dev/null | head -1)"; else warn "no docker compose; plain docker run will be used"; fi
 
+if [ -z "$NAS_USER" ] && [ -f "$BASE/.env" ]; then
+  NAS_USER="$(id -nu "$(sed -n 's/^PUID=//p' "$BASE/.env")" 2>/dev/null || true)"
+fi
+if [ -z "$NAS_USER" ]; then
+  NAS_USER="$(stat -c %U "$LIBRARY" 2>/dev/null || true)"
+fi
+if [ -z "$NAS_USER" ] || [ "$NAS_USER" = root ] || [ "$NAS_USER" = UNKNOWN ]; then
+  die "could not tell which NAS user owns the games: set NAS_USER=<your NAS user name>"
+fi
 id "$NAS_USER" >/dev/null 2>&1 || die "user $NAS_USER not found (set NAS_USER=...)"
 PUID="$(id -u "$NAS_USER")"; PGID="$(id -g "$NAS_USER")"
 ok "files will be owned by $NAS_USER ($PUID:$PGID)"
