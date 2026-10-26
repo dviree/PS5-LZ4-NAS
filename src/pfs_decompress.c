@@ -4282,3 +4282,167 @@ done:
   pfs_extract_plan_free(&plan);
   return rc;
 }
+
+/* The title ID inside an image, from its own sce_sys/param.json, for files whose name doesn't
+ * carry it ("Onimusha Way of the Sword.exfat"). Reads a plain exFAT image, or the exFAT image
+ * inside an .ffpfsc, with any sector and cluster size. */
+typedef int (*xf_read_fn)(void *ctx, uint64_t off, void *buf, size_t len);
+
+typedef struct xf_volume {
+  xf_read_fn rd;
+  void *ctx;
+  uint64_t cluster;
+  uint64_t fat_off;
+  uint64_t heap_off;
+  uint32_t count;
+  uint32_t root;
+} xf_volume_t;
+
+static int
+xf_read_raw(void *ctx, uint64_t off, void *buf, size_t len) {
+  return read_exact_at(*(const int *)ctx, buf, len, (off_t)off);
+}
+
+static int
+xf_read_pfsc(void *ctx, uint64_t off, void *buf, size_t len) {
+  return pfsc_reader_read((pfsc_reader_t *)ctx, off, buf, len, NULL, 0);
+}
+
+static int
+xf_open(xf_volume_t *x) {
+  unsigned char b[512];
+  if(x->rd(x->ctx, 0, b, sizeof(b)) != 0 || memcmp(b + 3, "EXFAT   ", 8) != 0) {
+    return -1;
+  }
+  unsigned ss = b[0x6c], cs = b[0x6d];
+  if(ss < 9 || ss > 12 || cs > 25 - ss) return -1;
+  uint64_t sector = 1ULL << ss;
+  x->cluster = sector << cs;
+  x->fat_off = (uint64_t)rd32(b + 0x50) * sector;
+  x->heap_off = (uint64_t)rd32(b + 0x58) * sector;
+  x->count = rd32(b + 0x5c);
+  x->root = rd32(b + 0x60);
+  return x->root >= 2 && x->root < x->count + 2u ? 0 : -1;
+}
+
+/* Up to max bytes of a stream: a FAT chain, or clusters in a row (the NoFatChain flag). */
+static int
+xf_read_stream(xf_volume_t *x, uint32_t first, int contiguous, uint64_t size,
+               unsigned char *out, size_t max, size_t *got) {
+  uint64_t want = size < max ? size : max;
+  size_t done = 0;
+  uint32_t c = first;
+  for(unsigned guard = 0; done < want; guard++) {
+    if(c < 2 || c >= x->count + 2u || guard > (1u << 20)) return -1;
+    size_t n = want - done < x->cluster ? (size_t)(want - done) : (size_t)x->cluster;
+    if(x->rd(x->ctx, x->heap_off + (uint64_t)(c - 2) * x->cluster, out + done, n) != 0) {
+      return -1;
+    }
+    done += n;
+    if(contiguous) {
+      c++;
+    } else {
+      unsigned char e[4];
+      if(x->rd(x->ctx, x->fat_off + (uint64_t)c * 4, e, sizeof(e)) != 0) return -1;
+      c = rd32(e);
+      if(c >= 0xfffffff7u) break;
+    }
+  }
+  *got = done;
+  return 0;
+}
+
+/* A file entry set by name (ASCII, any case): its first cluster, length and layout. */
+static int
+xf_find(const unsigned char *d, size_t n, const char *name, uint32_t *first,
+        uint64_t *len, int *contiguous, int *is_dir) {
+  for(size_t i = 0; i + 32 <= n; i += 32) {
+    if(d[i] == 0) break;
+    if(d[i] != 0x85) continue;
+    unsigned sec = d[i + 1];
+    if(sec < 2 || i + 32 * (size_t)(sec + 1) > n) continue;
+    const unsigned char *s = d + i + 32;
+    if(s[0] != 0xc0) continue;
+    unsigned nl = s[3];
+    char nm[256];
+    size_t k = 0;
+    for(unsigned e = 2; e <= sec && k < nl; e++) {
+      const unsigned char *ne = d + i + 32 * e;
+      if(ne[0] != 0xc1) break;
+      for(int c = 0; c < 15 && k < nl; c++) {
+        unsigned ch = rd16(ne + 2 + 2 * c);
+        nm[k++] = ch < 128 ? (char)ch : '?';
+      }
+    }
+    nm[k] = 0;
+    if(k == nl && !strcasecmp(nm, name)) {
+      *is_dir = (d[i + 4] & 0x10) != 0;
+      *contiguous = (s[1] & 2) != 0;
+      *first = rd32(s + 0x14);
+      *len = rd64(s + 0x18);
+      return 0;
+    }
+    i += 32 * (size_t)sec;
+  }
+  return -1;
+}
+
+static int
+xf_title_id(xf_volume_t *x, char *title, size_t title_size) {
+  const size_t cap = 1u << 20;
+  unsigned char *buf = malloc(cap + 1);
+  size_t got = 0;
+  uint32_t first = 0;
+  uint64_t len = 0;
+  int contiguous = 0, is_dir = 0, rc = -1;
+  if(!buf) return -1;
+  if(xf_open(x) != 0 ||
+     xf_read_stream(x, x->root, 0, UINT64_MAX, buf, cap, &got) != 0 ||
+     xf_find(buf, got, "sce_sys", &first, &len, &contiguous, &is_dir) != 0 || !is_dir ||
+     xf_read_stream(x, first, contiguous, len, buf, cap, &got) != 0 ||
+     xf_find(buf, got, "param.json", &first, &len, &contiguous, &is_dir) != 0 || is_dir ||
+     xf_read_stream(x, first, contiguous, len, buf, 65536, &got) != 0) {
+    goto done;
+  }
+  buf[got] = 0;
+  const char *p = strstr((const char *)buf, "\"titleId\"");
+  if(!p || !(p = strchr(p + 9, '"'))) goto done;
+  p++;
+  for(int i = 0; i < 9; i++) {
+    if(i < 4 ? !isupper((unsigned char)p[i]) : !isdigit((unsigned char)p[i])) goto done;
+  }
+  if(p[9] != '"' || title_size < 10) goto done;
+  memcpy(title, p, 9);
+  title[9] = 0;
+  rc = 0;
+done:
+  free(buf);
+  return rc;
+}
+
+int
+pfs_image_read_title_id(const char *path, char *title, size_t title_size) {
+  xf_volume_t x = {0};
+  int rc = -1;
+  if(!path || !title) return -1;
+  int fd = open(path, O_RDONLY);
+  if(fd < 0) return -1;
+  if(ends_with_ci(path, ".ffpfsc")) {
+    pfsc_reader_t r;
+    if(pfsc_reader_open_from_outer(fd, &r, NULL, 0) != 0) {
+      if(r.fd < 0) close(fd);
+      else pfsc_reader_close(&r);
+      return -1;
+    }
+    x.rd = xf_read_pfsc;
+    x.ctx = &r;
+    rc = xf_title_id(&x, title, title_size);
+    pfsc_reader_close(&r);
+    return rc;
+  }
+  x.rd = xf_read_raw;
+  x.ctx = &fd;
+  rc = xf_title_id(&x, title, title_size);
+  close(fd);
+  return rc;
+}

@@ -4171,8 +4171,11 @@ candidate_game_from_path(const char *source_path, const char *name,
   if(strstr(name, LZC_FORCE_REMOUNT_PREFIX)) return -1;
 
   if(S_ISREG(st.st_mode) && ends_with_ci(name, ".ffpfsc")) {
-    if(strip_extension_base(name, title_id, sizeof(title_id)) != 0 ||
-       !valid_title_id(title_id)) {
+    /* named <TITLEID>.ffpfsc, or anything else with the title in its own param.json */
+    if((strip_extension_base(name, title_id, sizeof(title_id)) != 0 ||
+        !valid_title_id(title_id)) &&
+       (pfs_image_read_title_id(source_path, title_id, sizeof(title_id)) != 0 ||
+        !valid_title_id(title_id))) {
       return -1;
     }
     expect_kind = LZC_SOURCE_COMPRESSED;
@@ -4436,6 +4439,7 @@ resolve_transfer_target_root(const char *storage_root,
 
 // Whether an .ffpfsc is this title's: named <TITLEID>.ffpfsc, or the one ShadowMountPlus mounted
 // for the title (its mount link points into /mnt/shadowmnt/pfsc/<file stem>_<hash of this path>),
+// or one whose own sce_sys/param.json names the title,
 // so a file called "Ghost of Yotei.ffpfsc" works too.
 static int
 ffpfsc_belongs_to_title(const char *outer, const char *title_id) {
@@ -4447,6 +4451,11 @@ ffpfsc_belongs_to_title(const char *outer, const char *title_id) {
   if(!outer || !valid_title_id(title_id)) return 0;
   if(strip_extension_base(base_name(outer), stem, sizeof(stem)) == 0 &&
      !strcmp(stem, title_id)) {
+    return 1;
+  }
+  char inner[16];
+  if(pfs_image_read_title_id(outer, inner, sizeof(inner)) == 0 &&
+     !strcmp(inner, title_id)) {
     return 1;
   }
   if(shadow_pfsc_mount_dir_for_outer(outer, mount_dir, sizeof(mount_dir)) != 0) {
