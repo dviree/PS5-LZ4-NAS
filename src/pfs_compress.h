@@ -88,6 +88,9 @@ typedef struct pfs_stream_options {
 int pfs_app_probe(const char *path, pfs_app_info_t *info,
                   char *err, size_t err_size);
 
+/* The title ID from an .exfat image's (or an .ffpfsc's nested exFAT image's) own
+ * sce_sys/param.json. 0 on success. */
+int pfs_image_read_title_id(const char *path, char *title, size_t title_size);
 int pfs_image_probe(const char *path, pfs_app_info_t *info,
                     char *err, size_t err_size);
 

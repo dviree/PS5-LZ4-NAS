@@ -7681,7 +7681,10 @@ pfs_image_probe(const char *path, pfs_app_info_t *info,
     return -1;
   }
   if(!find_title_id_in_basename(base, info->title_id,
-                                sizeof(info->title_id))) {
+                                sizeof(info->title_id)) &&
+     (nested_type != PFS_NESTED_EXFAT ||
+      pfs_image_read_title_id(clean, info->title_id,
+                              sizeof(info->title_id)) != 0)) {
     set_err(err, err_size, "image name is missing PPSA title id");
     return -1;
   }

@@ -565,7 +565,12 @@ def scan_library() -> list[Entry]:
                     elif depth < 3:
                         walk(p, depth + 1)
                 elif p.is_file() and p.suffix.lower() in IMAGE_EXTS:
-                    entries.append(Entry(p, IMAGE_EXTS[p.suffix.lower()]))
+                    e = Entry(p, IMAGE_EXTS[p.suffix.lower()])
+                    if not e.title_id:
+                        # No Title ID in the name ("Some Game.exfat"): read it from the
+                        # image's own sce_sys/param.json (as the original's 1.6.4 does).
+                        e.title_id = (_safe(lambda: image_meta(p).get("title_id"), "") or "").upper()
+                    entries.append(e)
             except PermissionError:
                 # One unreadable game must not stop the rest of the library.
                 UNREADABLE.add(str(p.relative_to(LIBRARY)))
