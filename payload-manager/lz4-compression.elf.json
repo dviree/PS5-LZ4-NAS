@@ -1,0 +1,12 @@
+{
+  "name": "LZ4 Compression",
+  "filename": "lz4-compression.elf",
+  "url": "https://theghostonline.dev/theghostonline/PS5-LZ4-Compression/releases/download/v1.6.4/lz4-compression.elf",
+  "source": "https://theghostonline.dev/theghostonline/PS5-LZ4-Compression/releases",
+  "source_direct": "https://theghostonline.dev/theghostonline/PS5-LZ4-Compression/releases/download/v1.6.4/lz4-compression.elf",
+  "description": "The LZ4 Compression engine: compress APR-EMU games into seekable LZ4 packs, .ffpfsc compress and uncompress, validate and repair. Open the LZ4 Compression app to use it.",
+  "last_update": "2026-10-26",
+  "version": "1.6.4",
+  "category": "Utilities",
+  "checksum": "a7c1a956ebddfc92851822b7d0e71e22fa98fd69758bc17b77043b338bd495a4"
+}
