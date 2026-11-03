@@ -1141,11 +1141,14 @@ function communityHtml(g, det) {
   if (!det) return '<div class="csec mut">Loading community reports…</div>';
   const c = det.community, web = det.community_web || ORIGIN_WEB, tid = det.title_id || g.title_id || '';
   const all = tid ? `<a href="${esc(web)}/issues?state=all&q=${encodeURIComponent(tid)}" target="_blank" rel="noopener">All reports</a>` : '';
-  const mine = g.ps5 || (det.report || {}).ps5_result || 'works';
   const extra = {version: (det.version || {}).version || '',
     level: (((det.report || {}).codec || '').match(/(\d+)$/) || [])[1] || '',
     source: {folder: 'Folder', exfat: 'exFAT image', ffpfsc: 'Uncompressed .ffpfsc', ffpfs: 'Uncompressed .ffpfsc'}[g.kind] || ''};
-  const report = tid ? `<a href="${esc(reportLink(web, tid, g.name || tid, mine, extra))}" target="_blank" rel="noopener">Report how it runs</a>` : '';
+  // One button per result: the report opens already filled in with it.
+  const rb = (st, label, cls) => `<a class="btn${cls ? ' ' + cls : ''}" style="padding:6px 12px;font-size:13px" href="${esc(reportLink(web, tid, g.name || tid, st, extra))}"
+    target="_blank" rel="noopener" title="Open a report on the original project's site, filled in: ${esc(label)}">${label}</a>`;
+  const report = tid ? `<div style="flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="mut">Report how it runs:</span>
+    ${rb('works', '✅ Works')}${rb('issues', '⚠️ Works with issues')}${rb('nostart', '❌ Doesn\'t start')}${rb('crash', '💥 Crashes in game')}</div>` : '';
   if (!c || !c.reports)
     return `<div class="csec"><h4>LZ4 <span class="mut" style="font-weight:500">· community reports</span></h4><div class="mut">Nobody has reported ${esc(g.name || tid)} yet.</div>
       <div class="acts">${report}</div></div>`;
