@@ -4932,8 +4932,11 @@ def scan_pkgs() -> list[dict]:
                     walk(p, depth + 1)
                 elif p.is_file() and p.suffix.lower() == ".pkg":
                     rel = str(p.relative_to(root))
+                    info = pkg_info(p)
+                    # PS4 packages (CUSA, no PS5 param.json) go on the page's PS4 games tab
+                    ps4 = info.get("platform") != "PS5" and not str(info.get("title_id", "")).upper().startswith("PPSA")
                     out.append({"id": f"{root_key}/{rel}", "rel": rel, "file": p.name, "source": root_key,
-                                "path": str(Path(pkg_host(root_key)) / rel), **pkg_info(p)})
+                                "path": str(Path(pkg_host(root_key)) / rel), "ps4": ps4, **info})
         walk(root, 0)
     # The same package under two names (same content ID, version and size):
     # the later ones point at the first.

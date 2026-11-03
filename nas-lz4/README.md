@@ -476,6 +476,9 @@ Each is mounted read-only into the web page container when it exists. On an
 earlier install, `./lz4-ps5.sh update` adds the `backport-updates-dlc`
 mount by itself (another folder: `PKG_LIBRARY=/path ./lz4-ps5.sh update`).
 
+PS4 packages (CUSA) are on their own **PS4 games** tab, which works the
+same way; the PKG installer tab shows PS5 packages only.
+
 The tab lists each package with its name, Title ID, version, type (Game,
 Update, DLC) and icon, read from the package itself, and the folder it is in.
 It filters by folder, type and name; the same package under a second name
