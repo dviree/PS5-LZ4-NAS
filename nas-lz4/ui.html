@@ -1143,7 +1143,8 @@ function communityHtml(g, det) {
   const c = det.community, web = det.community_web || ORIGIN_WEB, tid = det.title_id || g.title_id || '';
   const all = tid ? `<a href="${esc(web)}/issues?state=all&q=${encodeURIComponent(tid)}" target="_blank" rel="noopener">All reports</a>` : '';
   const extra = {version: (det.version || {}).version || '',
-    level: (((det.report || {}).codec || '').match(/(\d+)$/) || [])[1] || '',
+    // the level from this game's pack report; an LZ4 copy without one was packed here at the NAS's level
+    level: (((det.report || {}).codec || '').match(/(\d+)$/) || [])[1] || (g.output_bytes && data && data.level ? String(data.level) : ''),
     source: {folder: 'Folder', exfat: 'exFAT image', ffpfsc: 'Uncompressed .ffpfsc', ffpfs: 'Uncompressed .ffpfsc'}[g.kind] || ''};
   // One button per result: the report opens already filled in with it.
   const rb = (st, label, cls) => `<a class="btn${cls ? ' ' + cls : ''}" style="padding:6px 12px;font-size:13px" href="${esc(reportLink(web, tid, g.name || tid, st, extra))}"
