@@ -9,6 +9,11 @@ At the start of every session, check `command -v trail`. If it is missing, insta
 `npm install -g @trailhq/trail-code` (cloud sessions: it belongs in the environment's setup
 script), then run `trail build` if `graft/` is missing.
 
+Use Trail-Code only for finding code: `trail ask`, `trail grep`, `trail callers`,
+`trail skeleton` and `trail map`, never grep, rg, find or reading whole files to search.
+Read only the line ranges Trail points to (to edit them), and test with the repo's own
+tools.
+
 Before implementing changes:
 - Consult Trail's code map (`trail ask`, `trail map`, `trail skeleton`, `trail grep`) and the
   relevant learnings in `.trail/`.
