@@ -5738,6 +5738,39 @@ def ps5_installed() -> dict:
     return {"apps": apps, "dlc": dlc, "sources": sources}
 
 
+def pkg_on_ps5(p: dict, inst: dict) -> tuple[str, str]:
+    """Whether a package is on the PS5: ("installed"|"missing"|"no_game"|
+    "unknown", what the page shows)."""
+    cat, tid = p.get("category") or "Game", (p.get("title_id") or "").upper()
+    a = inst["apps"].get(tid)
+    ver = f" v{a['ver']}" if a and a.get("ver") else ""
+    if cat in ("Game", "App"):
+        return ("installed", f"installed{ver}") if a else ("missing", "not installed")
+    if not a:
+        return "no_game", "the game isn't installed"
+    if cat == "Update":
+        if not a.get("ver"):
+            return "unknown", "game installed, its version unknown"
+        if ver_key(a["ver"]) >= ver_key(p.get("version")):
+            return "installed", f"installed (game is{ver})"
+        return "missing", f"not installed (game is{ver})"
+    if cat == "DLC":
+        if inst["dlc"] is None:
+            return "unknown", "game installed; DLC unknown (no FTP)"
+        label = (p.get("content_id") or "").rpartition("-")[2].upper()
+        if label and any(label in n for n in inst["dlc"].get(tid, ())):
+            return "installed", "installed"
+        return "missing", "not installed"
+    return "unknown", ""
+
+
+def pkg_ps5_states() -> dict:
+    """pkg_on_ps5 for every package, for the page's PS5 column."""
+    inst = ps5_installed()
+    return {"states": {p["id"]: dict(zip(("state", "text"), pkg_on_ps5(p, inst))) for p in scan_pkgs()},
+            "sources": inst.get("sources", []), "checked": now()}
+
+
 def pkg_install_plan(ids: list[str] | None, inst: dict) -> list[dict]:
     """Install all: the packages (all, or these ids) in the order the PS5
     needs them (games, then updates, then DLC), each with skip set when it is
@@ -5752,28 +5785,16 @@ def pkg_install_plan(ids: list[str] | None, inst: dict) -> list[dict]:
             t = p["title_id"].upper()
             if t not in newest or ver_key(p.get("version")) > ver_key(newest[t].get("version")):
                 newest[t] = p
-    apps, dlc = inst["apps"], inst["dlc"]
     games = {(p.get("title_id") or "").upper() for p in pkgs if (p.get("category") or "Game") in ("Game", "App")}
     plan = []
     for p in pkgs:
         cat, tid = p.get("category") or "Game", (p.get("title_id") or "").upper()
-        a, skip = apps.get(tid), ""
-        if cat in ("Game", "App"):
-            if a:
-                skip = "installed" + (f" (v{a['ver']})" if a.get("ver") else "")
-        elif cat == "Update":
-            if newest.get(tid) is not p:
-                skip = f"a newer update (v{newest[tid].get('version')}) is in the list"
-            elif a and a.get("ver") and ver_key(a["ver"]) >= ver_key(p.get("version")):
-                skip = f"the game is already v{a['ver']}"
-            elif not a and tid not in games:
-                skip = "the game isn't on the PS5"
-        elif cat == "DLC":
-            label = (p.get("content_id") or "").rpartition("-")[2].upper()
-            if dlc is not None and label and any(label in n for n in dlc.get(tid, ())):
-                skip = "installed"
-            elif not a and tid not in games:
-                skip = "the game isn't on the PS5"
+        state, text = pkg_on_ps5(p, inst)
+        skip = text if state == "installed" else ""
+        if cat == "Update" and newest.get(tid) is not p:
+            skip = f"a newer update (v{newest[tid].get('version')}) is in the list"
+        elif state == "no_game" and tid not in games:
+            skip = "the game isn't on the PS5"
         plan.append({"id": p["id"], "name": p.get("name") or p["file"], "category": cat,
                      "version": p.get("version") or "", "skip": skip})
     return plan
@@ -6891,6 +6912,11 @@ def cmd_ui(args) -> int:
                 return self.send(200, json.dumps(_verify.get(key) or {"state": "none"}).encode())
             if self.path == "/metrics":
                 return self.send(200, metrics_text().encode(), "text/plain; version=0.0.4")
+            if self.path == "/api/pkg/onps5":
+                try:
+                    return self.send(200, json.dumps(pkg_ps5_states()).encode())
+                except ValueError as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if self.path.startswith("/api/ps5/launchcheck?"):
                 from urllib.parse import parse_qs, urlparse
                 try:

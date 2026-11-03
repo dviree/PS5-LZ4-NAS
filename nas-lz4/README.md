@@ -502,6 +502,10 @@ Update, DLC) and icon, read from the package itself, and the folder it is in.
 It filters by folder, type and name; the same package under a second name
 (same content ID, version and size) is hidden unless you untick that box.
 
+The **PS5** column says whether each package is installed on the PS5 (a
+game, an update at the game's version or older, a DLC), checked when the
+tab opens and with **↻ Check PS5**, from the same sources as Install all.
+
 **⬇ Install all** installs every package in the list (as filtered) that
 isn't on the PS5 yet. It first checks what is on the PS5, from every source
 that answers: pkg-receiver (`/user/app`, with versions), the games

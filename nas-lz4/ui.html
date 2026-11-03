@@ -590,16 +590,31 @@ const PKG_TABS = {
   ps4: {title: 'PS4 games', sub: 'PS4 games, updates and DLC (.pkg, CUSA)', ps4: true}};
 for (const [k, t] of Object.entries(PKG_TABS)) document.getElementById('p-' + k).innerHTML = `
   <div class="card"><h2>${t.title} <span class="mut" style="font-weight:500">· ${t.sub}, installed on the PS5 by pkg-receiver (Remote tab)</span></h2>
-    <div class="mut" id="${k}-src"></div>
+    <div class="mut" id="${k}-src"></div><div class="mut" id="${k}-on"></div>
     <div class="filters" style="margin-top:8px">
       <input id="${k}-q" type="search" placeholder="Search name, Title ID or file" oninput="renderPkgTab(data, '${k}')">
       <select id="${k}-f" onchange="renderPkgTab(data, '${k}')"><option value="">Every folder</option></select>
       <select id="${k}-k" onchange="renderPkgTab(data, '${k}')"><option value="">Every type</option><option>Game</option><option>Update</option><option>DLC</option><option>App</option></select>
       <label class="mut" style="align-self:center"><input type="checkbox" id="${k}-d" style="width:auto;min-width:0;margin-right:6px" onchange="renderPkgTab(data, '${k}')" checked> Hide the same package under another name</label>
+      <button class="ghost" onclick="loadPkgOnPs5()" title="Ask the PS5 again which packages are installed">↻ Check PS5</button>
       <button class="pri" id="${k}-all" onclick="pkgInstallAll('${k}')" title="Installs every package in the list that isn't on the PS5 yet: games first, then the newest update, then DLC">⬇ Install all</button>
     </div>
     <div class="scroll"><table id="${k}-list"></table></div></div>`;
 function renderPkgs(d) { if (d) for (const k in PKG_TABS) renderPkgTab(d, k); }
+// What is installed on the PS5 (pkg-receiver, ShadowMount, FTP), for the PS5 column.
+let pkgOnPs5 = null;
+async function loadPkgOnPs5() {
+  for (const k in PKG_TABS) document.getElementById(k + '-on').textContent = 'Checking the PS5…';
+  try {
+    const r = await fetch('/api/pkg/onps5', {cache: 'no-store'}), j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.status);
+    pkgOnPs5 = j;
+  } catch (e) { pkgOnPs5 = {error: e.message}; }
+  for (const k in PKG_TABS) document.getElementById(k + '-on').innerHTML = pkgOnPs5.error
+    ? `<span class="bad">Installed on the PS5: not checked (${esc(pkgOnPs5.error)})</span>`
+    : `Installed on the PS5: checked ${esc((pkgOnPs5.checked || '').slice(11, 16))} (${esc((pkgOnPs5.sources || []).join(', '))})`;
+  renderPkgs(data);
+}
 const pkgShown = {};
 function renderPkgTab(d, k) {
   if (!d) return;
@@ -625,13 +640,17 @@ function renderPkgTab(d, k) {
     const state = sending ? `<span class="pill p-run">⬆️ ${tf.total ? Math.floor(100 * tf.bytes / tf.total) : 0} %</span>`
       : queued ? '<span class="pill p-run">queued</span>'
       : t && t.state === 'done' ? `<span class="good">copied to ${esc(dest)}</span>`
-      : t && t.state === 'failed' ? `<span class="bad">stopped at ${t.total ? Math.round(100 * t.bytes / t.total) : 0} %</span>` : '<span class="mut">–</span>';
+      : t && t.state === 'failed' ? `<span class="bad">stopped at ${t.total ? Math.round(100 * t.bytes / t.total) : 0} %</span>` : '';
+    const on = pkgOnPs5 && pkgOnPs5.states && pkgOnPs5.states[p.id];
+    const onTxt = on ? `<div class="${on.state === 'installed' ? 'good' : 'mut'}">${on.state === 'installed' ? '✓ ' : ''}${esc(on.text)}</div>`
+      : `<div class="mut">${pkgOnPs5 && pkgOnPs5.error ? '?' : pkgOnPs5 ? '–' : 'checking…'}</div>`;
+    const stateCell = onTxt + (state ? `<div>${state}</div>` : '');
     const btn = `<div class="rowbtns"><button class="sm pri" data-g="${esc(p.id)}" data-n="${esc(p.name)}" onclick="pkgInstall(this.dataset.g, this.dataset.n, 'url')" title="pkg-receiver on the PS5 downloads it from this NAS and installs it">⬇ Install on PS5</button>`
       + (t && t.state === 'done' ? `<button class="sm ghost" data-g="${esc(p.id)}" data-n="${esc(p.name)}" onclick="pkgInstall(this.dataset.g, this.dataset.n, 'local')" title="Install the copy already in ${esc(dest)}">Install from ${esc(dest)}</button>` : '')
       + (sending || queued ? '' : `<button class="sm ghost" data-g="${esc('pkg:' + p.id)}" data-n="${esc(p.name)}" onclick="pushPkg(this.dataset.g, this.dataset.n)">${t && t.state === 'failed' ? '▶ Resume copy' : t && t.state === 'done' ? 'Copy again' : '⬆️ Copy to ' + esc(dest)}</button>`) + '</div>';
     return `<tr><td class="c-game"><img class="ico" alt="" loading="lazy" src="/api/pkg/icon?id=${encodeURIComponent(p.id)}" onerror="this.remove()"><span class="gname">${esc(p.name)}</span>
         <div class="why">${esc(p.title_id || '')}${p.version ? ' · v' + esc(p.version) : ''} · ${esc(p.file)} · ${esc(PKG_FOLDER[p.source] || p.source || '')}${p.same_as ? ` · <span class="mut">same as ${esc(p.same_as.split('/').pop())}</span>` : ''}${p.error ? ` · <span class="bad">${esc(p.error)}</span>` : ''}</div></td>
-      <td><span class="pill p-no">${esc(p.category || 'Game')}</span></td><td class="num">${gb(p.size)}</td><td>${state}</td><td>${btn}</td></tr>`;
+      <td><span class="pill p-no">${esc(p.category || 'Game')}</span></td><td class="num">${gb(p.size)}</td><td>${stateCell}</td><td>${btn}</td></tr>`;
   }).join('');
 }
 async function pkgInstallAll(k) {
@@ -659,6 +678,7 @@ async function pkgInstallAll(k) {
     alert(`Started ${res.started.length} install(s) on the PS5; follow them there (Downloads / notifications).` +
       (res.failed.length ? `\n\nNot started:\n${res.failed.map(f => '• ' + f.name + ': ' + f.error).join('\n')}` : ''));
     if (typeof loadPkgAct === 'function') loadPkgAct();
+    setTimeout(loadPkgOnPs5, 60000);
   } catch (e) { alert('Install all: ' + e.message); }
   finally { btn.disabled = false; btn.textContent = label; }
 }
@@ -1934,6 +1954,7 @@ function tab(t) {
   if (t === 'up') loadUp();
   if (t === 'act') setTimeout(loadPkgAct, 0);
   if (t === 'pg' && !pgData) loadPg();
+  if ((t === 'pkg' || t === 'ps4') && !pkgOnPs5) loadPkgOnPs5();
   if (t === 'ps5') rcvCheck();
   if (t === 'ps5' && !window._drives) { window._drives = 1; loadDrives(); }
   if (t === 'ftp' && !ftpLoaded) ftpGo(ftpPath);
