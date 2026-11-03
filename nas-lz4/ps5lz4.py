@@ -378,6 +378,35 @@ def glacier_folder(root: Path) -> bool:
         return False
 
 
+# Unity games often don't start once LZ4 packed (seen by exFAT2AMPR's author).
+UNITY_WHY = ("made with Unity: Unity games often don't start once LZ4 packed; "
+             "keep the original until the LZ4 copy has started once")
+UNITY_FILES = {"globalgamemanagers", "data.unity3d", "unityplayer.prx", "libunity.prx", "unityplayer.sprx",
+               "libil2cpp.prx", "il2cpp.prx", "global-metadata.dat"}
+
+
+def unity_names(names) -> bool:
+    """True for a file listing (relative paths) of a Unity game."""
+    return any(n.lower().rsplit("/", 1)[-1] in UNITY_FILES or "/il2cpp_data/" in "/" + n.lower() + "/"
+               for n in names)
+
+
+def unity_folder(root: Path, limit: int = 20000) -> bool:
+    """unity_names over a game folder, three levels deep at most."""
+    names, stack = [], [(root, "", 0)]
+    try:
+        while stack and len(names) < limit:
+            d, rel, depth = stack.pop()
+            for p in d.iterdir():
+                r = f"{rel}{p.name}"
+                names.append(r)
+                if p.is_dir() and depth < 3 and not p.is_symlink():
+                    stack.append((p, r + "/", depth + 1))
+    except OSError:
+        pass
+    return unity_names(names)
+
+
 def ampr_status_folder(root: Path) -> tuple[str, str]:
     """('packed'|'compatible'|'incompatible', reason) for a game folder.
 
@@ -4083,6 +4112,80 @@ def smp(route: str, body: dict | None = None, timeout: float = 30) -> dict:
     return j
 
 
+BACKPORT_ROOTS = [f"{d}/{s}" for d in ("/data", "/mnt/ext0", "/mnt/ext1", "/mnt/usb0", "/mnt/usb1")
+                  for s in ("homebrew", "etaHEN/games")]
+
+
+def launch_check(tid: str) -> dict:
+    """What would stop an LZ4 game from starting on the PS5 (idea from
+    exFAT2AMPR's launch check): ShadowMountPlus's fakelib turned off for it,
+    APR-EMU missing from fakelib/, a fakelib2/ without APR-EMU (it replaces
+    fakelib/ as a whole), eboot.bin not executable, and a backport whose own
+    libSceAmpr ShadowMountPlus lays over the emulator. Read through
+    ShadowMountPlus's API and FTP; what can't be read is said, not guessed."""
+    import ftplib
+    tid = tid.strip().upper()
+    if not re.fullmatch(r"(PPSA|CUSA)\d{5}", tid):
+        raise ValueError("not a title ID")
+    errors, warnings, notes = [], [], []
+    root = ""
+    try:
+        j = smp("/api/v1/games/info", {"title_id": tid}, timeout=30)
+        g = j.get("game") if isinstance(j.get("game"), dict) else j
+        if str(g.get("fakelib_mode") or "").lower() == "disabled" or g.get("fakelib_effective_enabled") is False:
+            errors.append("ShadowMountPlus has fakelib turned off for this game, so APR-EMU never loads: "
+                          "turn fakelib on for it in ShadowMountPlus")
+        root = str(g.get("runtime_path") or (g.get("path") if g.get("source_type") == "folder" else "") or "")
+        if not root:
+            notes.append("ShadowMountPlus has the game but not mounted, so its files can't be checked: mount it and check again")
+    except ValueError as err:
+        notes.append(f"ShadowMountPlus: {err}")
+    try:
+        f = ps5_ftp_connect()
+    except ValueError as err:
+        notes.append(str(err))
+        return {"title_id": tid, "errors": errors, "warnings": warnings, "notes": notes, "root": root}
+    try:
+        if root:
+            names = ps5_ftp_names(f, root)
+            low = {n.lower() for n in names or []}
+            if names is None:
+                notes.append(f"{root} can't be read over FTP")
+            elif "ampr_assets.index" not in low:
+                notes.append("not an LZ4 packed game (no ampr_assets.index): nothing to check for APR-EMU")
+            else:
+                fl = {n.lower() for n in ps5_ftp_names(f, f"{root}/fakelib") or []}
+                if "libsceampr.sprx" not in fl:
+                    errors.append("APR-EMU is missing: no fakelib/libSceAmpr.sprx in the game")
+                if "fakelib2" in low:
+                    fl2 = {n.lower() for n in ps5_ftp_names(f, f"{root}/fakelib2") or []}
+                    if "libsceampr.sprx" not in fl2:
+                        errors.append("fakelib2/ has no libSceAmpr.sprx: fakelib2 replaces fakelib as a whole, "
+                                      "so the game starts without APR-EMU (copy fakelib/libSceAmpr.sprx into it)")
+                lines: list[str] = []
+                try:
+                    f.retrlines(f"LIST {root}", lines.append)
+                except ftplib.all_errors:
+                    pass
+                for line in lines:
+                    m = LIST_RE.match(line)
+                    if m and m.group(4) == "eboot.bin" and "x" not in line.split()[0]:
+                        warnings.append("eboot.bin has no execute permission on the PS5 (FTP shows "
+                                        f"{line.split()[0]}); if the game doesn't start, set it to 755")
+        for d in BACKPORT_ROOTS:
+            bp = f"{d}/backports/{tid}/fakelib"
+            for n in ps5_ftp_names(f, bp) or []:
+                if n.lower() in ("libsceampr.sprx", "libsceampr.prx"):
+                    errors.append(f"the backport {bp}/{n} brings its own AMPR library: ShadowMountPlus lays it "
+                                  "over APR-EMU and the LZ4 game can't read its packs (remove that file from the backport)")
+    finally:
+        try:
+            f.quit()
+        except Exception:
+            pass
+    return {"title_id": tid, "errors": errors, "warnings": warnings, "notes": notes, "root": root}
+
+
 def smp_hide(path: str) -> str:
     """Rename a game source with a leading dot, so ShadowMountPlus's scans skip it."""
     import ftplib
@@ -6470,6 +6573,8 @@ def game_detail(game_id: str) -> dict:
             "title_id": tid, "community": compat_games().get(tid), "community_repo": COMPAT_REPO, "community_web": ORIGIN_WEB,
             "community_live": (read_json(COMPAT_LIVE, {}) or {}).get("source") == "live", "apr": apr,
             "known": KNOWN_GAMES.get(tid.upper()) if tid else None,
+            "unity": UNITY_WHY if (out and out.is_dir() and unity_folder(out)) or
+                     (src and src.kind == "folder" and unity_folder(src.path)) else None,
             "version": version,
             "ffpfsc": {"rows": ffpfsc_lookup(tid, (src.name or Path(src.rel).name.removesuffix(src.path.suffix if src.kind != "folder" else ""))
                                              if src else game_id.removesuffix("-lz4")),
@@ -6786,6 +6891,12 @@ def cmd_ui(args) -> int:
                 return self.send(200, json.dumps(_verify.get(key) or {"state": "none"}).encode())
             if self.path == "/metrics":
                 return self.send(200, metrics_text().encode(), "text/plain; version=0.0.4")
+            if self.path.startswith("/api/ps5/launchcheck?"):
+                from urllib.parse import parse_qs, urlparse
+                try:
+                    return self.send(200, json.dumps(launch_check((parse_qs(urlparse(self.path).query).get("tid") or [""])[0])).encode())
+                except Exception as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if self.path.startswith("/api/ps5/amprlog?"):
                 from urllib.parse import parse_qs, urlparse
                 try:

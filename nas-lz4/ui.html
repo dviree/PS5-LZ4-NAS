@@ -1214,13 +1214,15 @@ function gameHtml(g, det) {
   const kn = det && det.known;
   if (kn) rows.push(['Known for this game', (kn.fixed ? `<div><span class="good">✓ handled:</span> ${esc(kn.fixed)}</div>` : '') +
     (kn.open ? `<div style="margin-top:4px"><span class="bad">⚠ still open:</span> ${esc(kn.open)}</div>` : '')]);
+  if (det && det.unity) rows.push(['Engine', `<span class="bad">⚠ ${esc(det.unity)}</span>`]);
   const a = det && det.apr;
   if (a) rows.push(['APR-EMU', `${a.ok ? '<span class="good">' + esc(a.build) + ' ✓</span>' : '<span class="bad">' + esc(a.build) + '</span> · Check all, then Repair'}${a.path ? `<div class="why">${esc(a.path)}</div>` : ''}`]);
   const vv = g.output ? (data.verifies || {})[g.output.split('/').pop()] : null;
   if (vv) rows.push(['Verify LZ4', vv.state === 'running' ? 'running…' : `${vv.state === 'passed' ? '<span class="good">✓ passed</span>' : '<span class="bad">✗ ' + esc(vv.state) + '</span>'} <span class="mut">${esc(vv.finished || '')}</span>` +
     (vv.state !== 'passed' && vv.output ? `<pre class="log" style="max-height:160px;overflow:auto">${esc(vv.output.split('\n').slice(-8).join('\n'))}</pre>` : '')]);
   const pp = ps5Place(g);
-  if (pp || g.title_id) rows.push(['On the PS5', `${pp ? esc(pp.path) : ''}<div class="why" id="ps5-here">${pp && pp.sent ? '<span class="good">sent by this page</span>' : 'checking the PS5…'}</div>`]);
+  if (pp || g.title_id) rows.push(['On the PS5', `${pp ? esc(pp.path) : ''}<div class="why" id="ps5-here">${pp && pp.sent ? '<span class="good">sent by this page</span>' : 'checking the PS5…'}</div>` +
+    (g.title_id ? `<button class="sm" style="margin-top:6px" data-t="${esc(g.title_id)}" onclick="launchCheck(this.dataset.t, this.nextElementSibling)" title="Checks on the PS5 what would stop the LZ4 game from starting: fakelib off in ShadowMountPlus, APR-EMU missing, fakelib2, eboot.bin, a backport with its own AMPR library">🚦 Start check</button><div></div>` : '')]);
   if (f) rows.push(['LZ4 folder', `${esc(f.path)}<div class="why">${f.files} files · ${f.paks} LZ4 volumes · ${gb(f.bytes)}${f.problem ? ' · <span class="bad">' + esc(f.problem) + '</span>' : ' · format ok'}</div>`]);
   if (r) {
     rows.push(['Compression', `${esc(r.codec || '')}${r.profile ? `<div class="why">profile: ${esc(r.profile)}</div>` : ''}`]);
@@ -1796,6 +1798,16 @@ async function smpAct(action, tid, path, question, extra) {
   if (action === 'smp_cancel') { smpJob(); return; }
   if (j.scan_deferred) alert('Done. ShadowMountPlus will scan when it can (' + (j.scan_deferred_reason || 'later') + ').');
   setTimeout(loadSmp, 1500);
+}
+async function launchCheck(tid, el) {
+  el.innerHTML = '<span class="mut">Checking on the PS5…</span>';
+  let j;
+  try { const r = await fetch('/api/ps5/launchcheck?tid=' + encodeURIComponent(tid), {cache: 'no-store'}); j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); }
+  catch (e) { el.innerHTML = `<span class="bad">Not checked: ${esc(e.message)}</span>`; return; }
+  const li = (xs, cls, mark) => xs.map(x => `<div class="${cls}" style="margin-top:4px">${mark} ${esc(x)}</div>`).join('');
+  el.innerHTML = (j.errors.length ? `<div class="bad" style="margin-top:6px"><b>Would not start:</b></div>` + li(j.errors, 'bad', '✗')
+      : j.root && !j.notes.length ? '<div class="good" style="margin-top:6px">✓ Nothing found that would stop it from starting</div>' : '') +
+    li(j.warnings, 'mut', '⚠') + li(j.notes, 'mut', 'ℹ') + (j.root ? `<div class="why">${esc(j.root)}</div>` : '');
 }
 async function amprLog(path, el) {
   el.innerHTML = '<span class="mut">Reading ampr_emu.log…</span>';

@@ -461,6 +461,24 @@ a packed game's sheet:
 Making an exFAT image of the original first changes nothing: the NAS unpacks
 it again before LZ4 packing. Originals are never converted.
 
+## Start check (would the LZ4 game start?)
+
+**🚦 Start check** under *On the PS5* in a game's sheet checks, through
+ShadowMountPlus's API and FTP, what would stop the LZ4 game from starting
+(the idea comes from exFAT2AMPR's launch check, by V-10):
+
+- ShadowMountPlus has fakelib turned off for the game, so APR-EMU never loads;
+- `fakelib/libSceAmpr.sprx` (APR-EMU) is missing;
+- a `fakelib2/` without `libSceAmpr.sprx` (it replaces `fakelib/` as a whole);
+- `eboot.bin` without execute permission (a warning);
+- a backport (`backports/<Title ID>/fakelib/` in a homebrew or etaHEN games
+  folder) with its own `libSceAmpr`, which ShadowMountPlus lays over APR-EMU.
+
+The game must be mounted by ShadowMountPlus for its files to be checked; what
+can't be read is said, not guessed. The sheet also warns when a game is made
+with Unity: those often don't start once LZ4 packed, so keep the original
+until the LZ4 copy has started once.
+
 ## PKG installer (.pkg games, updates, DLC and backports)
 
 PS4 games can't be LZ4 (APR-EMU is PS5 only), but their `.pkg` files can be
