@@ -481,6 +481,19 @@ Update, DLC) and icon, read from the package itself, and the folder it is in.
 It filters by folder, type and name; the same package under a second name
 (same content ID, version and size) is hidden unless you untick that box.
 
+**⬇ Install all** installs every package in the list (as filtered) that
+isn't on the PS5 yet. It first asks pkg-receiver what is installed
+(`/user/app`, with versions) and lists the DLC folders in `/user/addcont`
+over FTP, then shows what it will install and what it skips:
+
+- a game or app that is installed;
+- an update when the game is already at that version or newer, or when a
+  newer update of the same game is in the list (only the newest goes);
+- DLC that is installed (without FTP it can't tell, and says so);
+- an update or DLC whose game is neither on the PS5 nor in the list.
+
+Games go first, then updates, then DLC.
+
 - **⬇ Install on PS5**: the PS5 downloads the package straight from this page
   (`/pkgfile/...`, with Range requests) and installs it with its own
   installer. That needs **pkg-receiver** on the PS5

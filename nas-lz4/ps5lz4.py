@@ -5566,6 +5566,113 @@ def pkg_install(pid: str, via: str, page_host: str) -> dict:
     return res
 
 
+def ver_key(v: str) -> tuple:
+    """"01.004.000" / "01.06" as numbers, for comparing versions."""
+    return tuple(int(x) for x in re.findall(r"\d+", str(v or ""))) or (0,)
+
+
+def ps5_installed() -> dict:
+    """What is already on the PS5: apps in /user/app with their version (from
+    pkg-receiver's /api/installed) and, over FTP when it answers, the DLC
+    folders in /user/addcont/<title ID> (None: unknown)."""
+    import ftplib
+    import urllib.error
+    import urllib.request
+    host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
+    if not host:
+        raise ValueError("set the PS5 address on the Remote tab first")
+    try:
+        with urllib.request.urlopen(f"http://{host}:{RECV_PORT}/api/installed", timeout=15) as r:
+            j = json.load(r)
+    except (urllib.error.URLError, OSError, ValueError) as err:
+        raise ValueError(f"pkg-receiver (Glass build) does not answer on the PS5 (port {RECV_PORT}): "
+                         f"start it on the Remote tab ({err})")
+    apps = {str(a.get("id", "")).upper(): a for a in j.get("apps") or []}
+    dlc = None
+    try:
+        f = ps5_ftp_connect()
+        try:
+            dlc = {}
+            for i in ps5_ftp_list_conn(f, "/user/addcont"):
+                if i["dir"]:
+                    try:
+                        dlc[i["name"].upper()] = {x["name"].upper() for x in ps5_ftp_list_conn(f, f"/user/addcont/{i['name']}")}
+                    except ftplib.all_errors:
+                        dlc[i["name"].upper()] = set()
+        finally:
+            try:
+                f.quit()
+            except Exception:
+                pass
+    except (ValueError, OSError, *ftplib.all_errors):
+        dlc = None
+    return {"apps": apps, "dlc": dlc}
+
+
+def pkg_install_plan(ids: list[str] | None, inst: dict) -> list[dict]:
+    """Install all: the packages (all, or these ids) in the order the PS5
+    needs them (games, then updates, then DLC), each with skip set when it is
+    already on the PS5 or can't be installed. A second name of the same
+    package and an older update of the same game are left out."""
+    pkgs = [p for p in scan_pkgs() if not p.get("same_as") and (ids is None or p["id"] in ids)]
+    order = {"Game": 0, "App": 0, "Update": 1, "DLC": 2}
+    pkgs.sort(key=lambda p: (order.get(p.get("category") or "Game", 0), p.get("name") or ""))
+    newest: dict = {}
+    for p in pkgs:
+        if p.get("category") == "Update" and p.get("title_id"):
+            t = p["title_id"].upper()
+            if t not in newest or ver_key(p.get("version")) > ver_key(newest[t].get("version")):
+                newest[t] = p
+    apps, dlc = inst["apps"], inst["dlc"]
+    games = {(p.get("title_id") or "").upper() for p in pkgs if (p.get("category") or "Game") in ("Game", "App")}
+    plan = []
+    for p in pkgs:
+        cat, tid = p.get("category") or "Game", (p.get("title_id") or "").upper()
+        a, skip = apps.get(tid), ""
+        if cat in ("Game", "App"):
+            if a:
+                skip = "installed" + (f" (v{a['ver']})" if a.get("ver") else "")
+        elif cat == "Update":
+            if newest.get(tid) is not p:
+                skip = f"a newer update (v{newest[tid].get('version')}) is in the list"
+            elif a and a.get("ver") and ver_key(a["ver"]) >= ver_key(p.get("version")):
+                skip = f"the game is already v{a['ver']}"
+            elif not a and tid not in games:
+                skip = "the game isn't on the PS5"
+        elif cat == "DLC":
+            label = (p.get("content_id") or "").rpartition("-")[2].upper()
+            if dlc is not None and label and any(label in n for n in dlc.get(tid, ())):
+                skip = "installed"
+            elif not a and tid not in games:
+                skip = "the game isn't on the PS5"
+        plan.append({"id": p["id"], "name": p.get("name") or p["file"], "category": cat,
+                     "version": p.get("version") or "", "skip": skip})
+    return plan
+
+
+def pkg_install_all(ids: list[str] | None, page_host: str, dry: bool) -> dict:
+    """Install every package not on the PS5 yet (dry: only say which)."""
+    inst = ps5_installed()
+    plan = pkg_install_plan(ids, inst)
+    out = {"plan": plan, "dlc_checked": inst["dlc"] is not None, "started": [], "failed": []}
+    if dry:
+        return out
+    for e in plan:
+        if e["skip"]:
+            continue
+        try:
+            pkg_install_now(e["id"], "url", page_host)
+            pkg_history_add({"kind": "install", "id": e["id"], "name": e["name"], "via": "url", "ok": True})
+            out["started"].append(e["name"])
+        except (ValueError, SystemExit) as err:
+            pkg_history_add({"kind": "install", "id": e["id"], "name": e["name"], "via": "url", "ok": False, "error": str(err)})
+            out["failed"].append({"name": e["name"], "error": str(err)})
+        time.sleep(0.5)
+    if out["started"]:
+        ps5_notify(f"NAS: installing {len(out['started'])} package(s), downloading from the NAS")
+    return out
+
+
 def pkg_install_now(pid: str, via: str, page_host: str) -> dict:
     """Ask pkg-receiver to install a package: from this page over HTTP ("url"),
     or from the copy sent to the PS5's package folder ("local")."""
@@ -6925,6 +7032,14 @@ def cmd_ui(args) -> int:
                 try:
                     res = pkg_install(str(req.get("game") or ""), str(req.get("via") or "url"),
                                       self.headers.get("Host") or "")
+                    return self.send(200, json.dumps(res).encode())
+                except (ValueError, SystemExit) as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+            if req.get("action") == "pkg_install_all":
+                ids = req.get("ids")
+                try:
+                    res = pkg_install_all([str(i) for i in ids] if isinstance(ids, list) else None,
+                                          self.headers.get("Host") or "", bool(req.get("dry")))
                     return self.send(200, json.dumps(res).encode())
                 except (ValueError, SystemExit) as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())

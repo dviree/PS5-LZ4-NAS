@@ -293,6 +293,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
       <select id="pkg-f" onchange="renderPkgs(data)"><option value="">Every folder</option></select>
       <select id="pkg-k" onchange="renderPkgs(data)"><option value="">Every type</option><option>Game</option><option>Update</option><option>DLC</option><option>App</option></select>
       <label class="mut" style="align-self:center"><input type="checkbox" id="pkg-d" style="width:auto;min-width:0;margin-right:6px" onchange="renderPkgs(data)" checked> Hide the same package under another name</label>
+      <button class="pri" id="pkg-all" onclick="pkgInstallAll()" title="Installs every package in the list that isn't on the PS5 yet: games first, then the newest update, then DLC">⬇ Install all</button>
     </div>
     <div class="scroll"><table id="pkgs"></table></div></div>
 </main>
@@ -605,6 +606,8 @@ function renderPkgs(d) {
   const pk = all.filter(p => (!fsel.value || p.source === fsel.value) && (!kv || (p.category || 'Game') === kv)
     && !(hideDup && p.same_as) && (!q || [p.name, p.title_id, p.file, p.content_id].join(' ').toLowerCase().includes(q)));
   const dest = (d.settings || {}).ps4_dest || '/mnt/usb0', tf = d.transfer && d.transfer.state === 'running' ? d.transfer : null;
+  pkgShown = pk.map(p => p.id);
+  document.getElementById('pkg-all').textContent = `⬇ Install all (${pk.length})`;
   if (!pk.length) { document.getElementById('pkgs').innerHTML = `<tr><td class="mut">${all.length ? 'No package matches.' : 'No .pkg files in these folders.'}</td></tr>`; return; }
   document.getElementById('pkgs').innerHTML = '<tr><th>Package</th><th>Type</th><th class="num">Size</th><th>PS5</th><th></th></tr>' + pk.map(p => {
     const t = (d.transfers || {})[p.file], queued = (d.transfer_queue || []).includes('pkg:' + p.id), sending = tf && tf.game === p.file;
@@ -619,6 +622,34 @@ function renderPkgs(d) {
         <div class="why">${esc(p.title_id || '')}${p.version ? ' · v' + esc(p.version) : ''} · ${esc(p.file)} · ${esc(PKG_FOLDER[p.source] || p.source || '')}${p.same_as ? ` · <span class="mut">same as ${esc(p.same_as.split('/').pop())}</span>` : ''}${p.error ? ` · <span class="bad">${esc(p.error)}</span>` : ''}</div></td>
       <td><span class="pill p-no">${esc(p.category || 'PS4')}</span></td><td class="num">${gb(p.size)}</td><td>${state}</td><td>${btn}</td></tr>`;
   }).join('');
+}
+let pkgShown = [];
+async function pkgInstallAll() {
+  const s = data.settings || {}, btn = document.getElementById('pkg-all'), label = btn.textContent;
+  if (!s.ps5_ftp) { alert('Enter the PS5 address on the Remote tab first.'); tab('ps5'); return; }
+  if (!pkgShown.length) return;
+  const call = async dry => {
+    const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action: 'pkg_install_all', ids: pkgShown, dry})});
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || r.status);
+    return j;
+  };
+  btn.disabled = true; btn.textContent = 'Checking the PS5…';
+  try {
+    const plan = await call(true), go = plan.plan.filter(e => !e.skip), skip = plan.plan.filter(e => e.skip);
+    const line = e => `• ${e.name}${e.version ? ' v' + e.version : ''} (${e.category})${e.skip ? ': ' + e.skip : ''}`;
+    if (!go.length) { alert('Nothing to install: everything in the list is on the PS5 already.\n\n' + skip.map(line).join('\n')); return; }
+    if (!confirm(`Install ${go.length} package(s) on the PS5?\n\n${go.map(line).join('\n')}` +
+        (skip.length ? `\n\nSkipped (${skip.length}):\n${skip.map(line).join('\n')}` : '') +
+        (plan.dlc_checked ? '' : '\n\nDLC could not be checked (no FTP to the PS5): DLC is installed again.'))) return;
+    btn.textContent = 'Starting installs…';
+    const res = await call(false);
+    alert(`Started ${res.started.length} install(s) on the PS5; follow them there (Downloads / notifications).` +
+      (res.failed.length ? `\n\nNot started:\n${res.failed.map(f => '• ' + f.name + ': ' + f.error).join('\n')}` : ''));
+    if (typeof loadPkgAct === 'function') loadPkgAct();
+  } catch (e) { alert('Install all: ' + e.message); }
+  finally { btn.disabled = false; btn.textContent = label; }
 }
 async function pkgInstall(id, name, via) {
   const s = data.settings || {};
