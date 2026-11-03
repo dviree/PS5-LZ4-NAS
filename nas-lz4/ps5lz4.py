@@ -5273,8 +5273,10 @@ def serve_pkg(h, pid: str, head: bool = False) -> None:
     installer downloads in pieces)."""
     try:
         p = catalog_file(pid)
-    except SystemExit:
+    except SystemExit as err:
+        b = f"{err}\n".encode()
         h.send_response(404)
+        h.send_header("Content-Type", "text/plain; charset=utf-8")
         h.send_header("Content-Length", str(len(b)))
         h.end_headers()
         if not head:
