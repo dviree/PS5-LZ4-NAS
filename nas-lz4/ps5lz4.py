@@ -6975,7 +6975,8 @@ def cmd_ui(args) -> int:
                 return self.send(404, b'{"error":"not found"}')
             try:
                 n = int(self.headers.get("Content-Length") or 0)
-                req = json.loads(self.rfile.read(min(n, 4096)) or b"{}")
+                # 1 MB: Install all sends the id of every listed package
+                req = json.loads(self.rfile.read(min(n, 1 << 20)) or b"{}")
             except ValueError:
                 return self.send(400, b'{"error":"bad request"}')
             if req.get("action") == "pair":
