@@ -12,6 +12,7 @@ set -euo pipefail
 
 LIBRARY="${LIBRARY:-/volume1/games/roms/ps5}"
 PS4_LIBRARY="${PS4_LIBRARY:-/volume1/games/roms/ps4}"  # PS4 .pkg files (optional, read-only)
+PKG_LIBRARY="${PKG_LIBRARY:-/volume1/games/backport-updates-dlc}"  # more .pkg files: updates, DLC, backports (optional, read-only)
 OUTPUT="${OUTPUT:-/volume1/games/ps5-lz4}"
 BASE="${BASE:-/volume2/docker/ps5-lz4}"
 NAS_USER="${NAS_USER:-}"   # empty: the owner of the game library (or of an earlier install)
@@ -93,6 +94,15 @@ if [ -d "$PS4_LIBRARY" ]; then
   PS4_RUN=(-v "$PS4_LIBRARY:/library-ps4:ro" -e PS5LZ4_HOST_PS4_LIBRARY="$PS4_LIBRARY")
 else
   warn "no PS4 package folder at $PS4_LIBRARY (set PS4_LIBRARY=... to list .pkg files)"
+fi
+PKG_MOUNT=""; PKG_RUN=()
+if [ -d "$PKG_LIBRARY" ]; then
+  n_pkg=$(find "$PKG_LIBRARY/" -maxdepth 4 -iname '*.pkg' -type f 2>/dev/null | wc -l)
+  ok "packages $PKG_LIBRARY: $n_pkg .pkg"
+  PKG_MOUNT="      - \"$PKG_LIBRARY:/library-pkgs:ro\""
+  PKG_RUN=(-v "$PKG_LIBRARY:/library-pkgs:ro" -e PS5LZ4_HOST_PKG_LIBRARY="$PKG_LIBRARY")
+else
+  warn "no package folder at $PKG_LIBRARY (set PKG_LIBRARY=... for updates, DLC and backports)"
 fi
 
 for v in "$(dirname "$OUTPUT")" "$(dirname "$BASE")"; do
@@ -178,6 +188,7 @@ OUTPUT=$OUTPUT
 BASE=$BASE
 CONTAINER=$CONTAINER
 IMAGE=$IMAGE
+PKG_LIBRARY=$PKG_LIBRARY
 EOF
 
 cat > "$BASE/docker-compose.yml" <<EOF
@@ -239,12 +250,14 @@ services:
       PS5LZ4_HOST_OUTPUT: "$OUTPUT"
       PS5LZ4_HOST_STATE: "$BASE/state"
       PS5LZ4_HOST_PS4_LIBRARY: "$PS4_LIBRARY"
+      PS5LZ4_HOST_PKG_LIBRARY: "$PKG_LIBRARY"
       PS5LZ4_LEVEL: "$LEVEL"
       PS5LZ4_DELETE_ORIGINALS: "$DELETE_ORIGINALS"
       TZ: "$TZ_NAME"
     volumes:
       - "$LIBRARY:/library:ro"
 $PS4_MOUNT
+$PKG_MOUNT
       - "$OUTPUT:/output:ro"
       - "$BASE/state:/state"
       - "$BASE/logs:/state/logs:ro"
@@ -289,7 +302,7 @@ else
     -p "$UI_PORT:5921" -p "$CATALOG_PORT:9898" --label com.centurylinklabs.watchtower.enable="$WATCHTOWER" \
     -e PS5LZ4_HOST_LIBRARY="$LIBRARY" -e PS5LZ4_HOST_OUTPUT="$OUTPUT" -e PS5LZ4_LEVEL="$LEVEL" -e TZ="$TZ_NAME" \
     -v "$LIBRARY:/library:ro" -v "$OUTPUT:/output:ro" -v "$BASE/state:/state" \
-    -v "$BASE/logs:/state/logs:ro" -v "$BASE/reports:/state/reports:ro" ${PS4_RUN[@]+"${PS4_RUN[@]}"} \
+    -v "$BASE/logs:/state/logs:ro" -v "$BASE/reports:/state/reports:ro" ${PS4_RUN[@]+"${PS4_RUN[@]}"} ${PKG_RUN[@]+"${PKG_RUN[@]}"} \
     "$IMAGE" ps5lz4 ui --port 5921 >/dev/null
 fi
 sleep 2

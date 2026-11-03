@@ -461,15 +461,25 @@ a packed game's sheet:
 Making an exFAT image of the original first changes nothing: the NAS unpacks
 it again before LZ4 packing. Originals are never converted.
 
-## PS4 packages (.pkg)
+## PKG installer (.pkg games, updates, DLC and backports)
 
 PS4 games can't be LZ4 (APR-EMU is PS5 only), but their `.pkg` files can be
-sent to the PS5 and installed there. The install script mounts
-`PS4_LIBRARY` (default `/volume1/games/roms/ps4`, read-only) into the web
-page container; `.pkg` files in the PS5 library are listed too.
+sent to the PS5 and installed there, like PS5 updates, DLC and backports.
+The **PKG installer** tab reads `.pkg` files (up to three folders deep) from:
 
-The **Packages** card on My games lists each package with its name, CUSA
-ID, version, type (Game, Update, DLC) and icon, read from the package itself.
+- the PS5 library (`LIBRARY`, default `/volume1/games/roms/ps5`);
+- `PKG_LIBRARY`, a folder of updates, DLC and backports (default
+  `/volume1/games/backport-updates-dlc`, next to `roms`);
+- `PS4_LIBRARY` (default `/volume1/games/roms/ps4`).
+
+Each is mounted read-only into the web page container when it exists. On an
+earlier install, `./lz4-ps5.sh update` adds the `backport-updates-dlc`
+mount by itself (another folder: `PKG_LIBRARY=/path ./lz4-ps5.sh update`).
+
+The tab lists each package with its name, Title ID, version, type (Game,
+Update, DLC) and icon, read from the package itself, and the folder it is in.
+It filters by folder, type and name; the same package under a second name
+(same content ID, version and size) is hidden unless you untick that box.
 
 - **⬇ Install on PS5**: the PS5 downloads the package straight from this page
   (`/pkgfile/...`, with Range requests) and installs it with its own

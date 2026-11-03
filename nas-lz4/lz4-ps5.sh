@@ -15,11 +15,20 @@ if [ "${1:-}" = update ]; then
   fi
   old="$(docker inspect -f '{{.Image}}' "$CONTAINER" 2>/dev/null)"
   docker pull "$IMAGE" || { echo "pull failed (DNS or network?); nothing changed"; exit 1; }
+  # The package folder (updates, DLC, backports) for the page's PKG installer
+  # tab, on installs made before it: mounted read-only into the page.
+  PKG_LIBRARY="${PKG_LIBRARY:-$(dirname "$(dirname "$LIBRARY")")/backport-updates-dlc}"
+  if [ -d "$PKG_LIBRARY" ] && ! grep -q ':/library-pkgs:ro"' "$DIR/docker-compose.yml"; then
+    sed -i "s|^\(      - \".*:/output:ro\"\)\$|      - \"$PKG_LIBRARY:/library-pkgs:ro\"\n\1|" "$DIR/docker-compose.yml"
+    sed -i "/^      PS5LZ4_HOST_PS4_LIBRARY: /a\      PS5LZ4_HOST_PKG_LIBRARY: \"$PKG_LIBRARY\"" "$DIR/docker-compose.yml"
+    echo "package folder $PKG_LIBRARY added to the page (read-only)"
+    pkg_added=1
+  fi
   running=1
   for c in "$CONTAINER" "$CONTAINER-ui"; do
     [ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = true ] || running=0
   done
-  if [ "$(docker image inspect -f '{{.Id}}' "$IMAGE")" = "$old" ] && [ "$running" = 1 ]; then
+  if [ "$(docker image inspect -f '{{.Id}}' "$IMAGE")" = "$old" ] && [ "$running" = 1 ] && [ -z "${pkg_added:-}" ]; then
     echo "already up to date"
     exit 0
   fi

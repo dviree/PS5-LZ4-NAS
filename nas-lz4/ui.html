@@ -218,6 +218,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
   <button id="t-mine" class="on" onclick="tab('mine')">My games</button>
   <button id="t-act" onclick="tab('act')">Activity<span class="badge" id="act-n" hidden></span></button>
   <button id="t-pg" onclick="tab('pg')">PS5 games</button>
+  <button id="t-pkg" onclick="tab('pkg')">PKG installer</button>
   <button id="t-smp" onclick="tab('smp')">ShadowMount</button>
   <button id="t-sav" onclick="tab('sav')">Saves</button>
   <button id="t-up" onclick="tab('up')">PS5 Upload</button>
@@ -283,7 +284,16 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     The newest is marked; deleting an older one frees its space (needs DELETE_ORIGINALS=yes). Its LZ4 copy, if any, stays.</div>
     <div id="dups"></div></div>
   <div class="card"><h2>Library</h2><div id="unread"></div><div class="scroll"><table id="games"></table></div></div>
-  <div class="card" id="pkgcard" hidden><h2>Packages <span class="mut" style="font-weight:500">· .pkg, installed on the PS5 by pkg-receiver (Remote tab)</span></h2>
+</main>
+<main id="p-pkg" hidden>
+  <div class="card" id="pkgcard"><h2>PKG installer <span class="mut" style="font-weight:500">· games, updates, DLC and backports (.pkg), installed on the PS5 by pkg-receiver (Remote tab)</span></h2>
+    <div class="mut" id="pkg-src"></div>
+    <div class="filters" style="margin-top:8px">
+      <input id="pkg-q" type="search" placeholder="Search name, Title ID or file" oninput="renderPkgs(data)">
+      <select id="pkg-f" onchange="renderPkgs(data)"><option value="">Every folder</option></select>
+      <select id="pkg-k" onchange="renderPkgs(data)"><option value="">Every type</option><option>Game</option><option>Update</option><option>DLC</option><option>App</option></select>
+      <label class="mut" style="align-self:center"><input type="checkbox" id="pkg-d" style="width:auto;min-width:0;margin-right:6px" onchange="renderPkgs(data)" checked> Hide the same package under another name</label>
+    </div>
     <div class="scroll"><table id="pkgs"></table></div></div>
 </main>
 <main id="p-act" hidden>
@@ -580,11 +590,22 @@ async function sendAfterToggle(id, on) {
     body: JSON.stringify({action: on ? 'send_after' : 'send_after_remove', game: id})});
   load();
 }
+const PKG_FOLDER = {ps5: 'PS5 games', pkgs: 'Updates, DLC and backports', ps4: 'PS4 packages'};
 function renderPkgs(d) {
-  const pk = d.pkgs || [], card = document.getElementById('pkgcard');
-  card.hidden = !pk.length;
-  if (!pk.length) return;
+  if (!d) return;
+  const all = d.pkgs || [], folders = d.pkg_folders || [];
+  document.getElementById('pkg-src').innerHTML = folders.length
+    ? 'Read from ' + folders.map(f => `<b>${esc(PKG_FOLDER[f.key] || f.key)}</b> <code>${esc(f.host)}</code> (${f.count})`).join(' · ')
+    : 'No package folder is mounted. Run <code>./lz4-ps5.sh update</code> on the NAS (it adds <code>backport-updates-dlc</code> next to <code>roms</code>).';
+  const fsel = document.getElementById('pkg-f'), fv = fsel.value;
+  fsel.innerHTML = '<option value="">Every folder</option>' + folders.map(f => `<option value="${esc(f.key)}">${esc(PKG_FOLDER[f.key] || f.key)}</option>`).join('');
+  fsel.value = fv;
+  const q = document.getElementById('pkg-q').value.trim().toLowerCase(), kv = document.getElementById('pkg-k').value,
+    hideDup = document.getElementById('pkg-d').checked;
+  const pk = all.filter(p => (!fsel.value || p.source === fsel.value) && (!kv || (p.category || 'Game') === kv)
+    && !(hideDup && p.same_as) && (!q || [p.name, p.title_id, p.file, p.content_id].join(' ').toLowerCase().includes(q)));
   const dest = (d.settings || {}).ps4_dest || '/mnt/usb0', tf = d.transfer && d.transfer.state === 'running' ? d.transfer : null;
+  if (!pk.length) { document.getElementById('pkgs').innerHTML = `<tr><td class="mut">${all.length ? 'No package matches.' : 'No .pkg files in these folders.'}</td></tr>`; return; }
   document.getElementById('pkgs').innerHTML = '<tr><th>Package</th><th>Type</th><th class="num">Size</th><th>PS5</th><th></th></tr>' + pk.map(p => {
     const t = (d.transfers || {})[p.file], queued = (d.transfer_queue || []).includes('pkg:' + p.id), sending = tf && tf.game === p.file;
     const state = sending ? `<span class="pill p-run">⬆️ ${tf.total ? Math.floor(100 * tf.bytes / tf.total) : 0} %</span>`
@@ -595,7 +616,7 @@ function renderPkgs(d) {
       + (t && t.state === 'done' ? `<button class="sm ghost" data-g="${esc(p.id)}" data-n="${esc(p.name)}" onclick="pkgInstall(this.dataset.g, this.dataset.n, 'local')" title="Install the copy already in ${esc(dest)}">Install from ${esc(dest)}</button>` : '')
       + (sending || queued ? '' : `<button class="sm ghost" data-g="${esc('pkg:' + p.id)}" data-n="${esc(p.name)}" onclick="pushPkg(this.dataset.g, this.dataset.n)">${t && t.state === 'failed' ? '▶ Resume copy' : t && t.state === 'done' ? 'Copy again' : '⬆️ Copy to ' + esc(dest)}</button>`) + '</div>';
     return `<tr><td class="c-game"><img class="ico" alt="" loading="lazy" src="/api/pkg/icon?id=${encodeURIComponent(p.id)}" onerror="this.remove()"><span class="gname">${esc(p.name)}</span>
-        <div class="why">${esc(p.title_id || '')}${p.version ? ' · v' + esc(p.version) : ''} · ${esc(p.file)}${p.error ? ` · <span class="bad">${esc(p.error)}</span>` : ''}</div></td>
+        <div class="why">${esc(p.title_id || '')}${p.version ? ' · v' + esc(p.version) : ''} · ${esc(p.file)} · ${esc(PKG_FOLDER[p.source] || p.source || '')}${p.same_as ? ` · <span class="mut">same as ${esc(p.same_as.split('/').pop())}</span>` : ''}${p.error ? ` · <span class="bad">${esc(p.error)}</span>` : ''}</div></td>
       <td><span class="pill p-no">${esc(p.category || 'PS4')}</span></td><td class="num">${gb(p.size)}</td><td>${state}</td><td>${btn}</td></tr>`;
   }).join('');
 }
@@ -1844,7 +1865,7 @@ async function ps5Copies(tid) {
 }
 let comm = null;
 function tab(t) {
-  for (const k of ['mine', 'act', 'pg', 'smp', 'sav', 'up', 'ps5', 'comm', 'ftp']) {
+  for (const k of ['mine', 'act', 'pg', 'pkg', 'smp', 'sav', 'up', 'ps5', 'comm', 'ftp']) {
     document.getElementById('p-' + k).hidden = t !== k;
     document.getElementById('t-' + k).classList.toggle('on', t === k);
   }
@@ -2210,8 +2231,8 @@ async function loadPkgAct() {
 loadPkgAct(); setInterval(loadPkgAct, 3000);
 setInterval(() => { if (!document.getElementById('p-comm').hidden) loadComm(); }, 60000); ps5State(); setInterval(ps5State, 15000); rcvCheck(); setInterval(rcvCheck, 60000);
 try {
-  const saved = {'#community': 'comm', '#remote': 'ps5', '#ftp': 'ftp', '#activity': 'act', '#games': 'pg'}[location.hash] || localStorage.getItem('tab');
-  if (['comm', 'ps5', 'ftp', 'act', 'pg'].includes(saved)) tab(saved);
+  const saved = {'#community': 'comm', '#remote': 'ps5', '#ftp': 'ftp', '#activity': 'act', '#games': 'pg', '#pkg': 'pkg'}[location.hash] || localStorage.getItem('tab');
+  if (['comm', 'ps5', 'ftp', 'act', 'pg', 'pkg'].includes(saved)) tab(saved);
 } catch (e) {}
 </script>
 <footer class="mut" style="text-align:center;padding:16px;font-size:12px">ps5-lz4 ·

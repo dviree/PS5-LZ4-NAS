@@ -4789,12 +4789,26 @@ def images_data() -> dict:
 
 PS4_LIBRARY = Path(os.environ.get("PS5LZ4_PS4_LIBRARY", "/library-ps4"))
 HOST_PS4_LIBRARY = os.environ.get("PS5LZ4_HOST_PS4_LIBRARY", str(PS4_LIBRARY))
+# A folder of updates, DLC and backports (default <share>/backport-updates-dlc,
+# mounted read-only by install.sh or lz4-ps5.sh update).
+PKG_LIBRARY = Path(os.environ.get("PS5LZ4_PKG_LIBRARY", "/library-pkgs"))
+HOST_PKG_LIBRARY = os.environ.get("PS5LZ4_HOST_PKG_LIBRARY", "")
 PKG_CATEGORY = {"gd": "Game", "gp": "Update", "ac": "DLC", "gde": "Game", "gdk": "Game", "gdc": "App"}
 _pkg_cache: dict = {}
 
 
 def pkg_roots() -> dict:
-    return {k: p for k, p in (("ps4", PS4_LIBRARY), ("ps5", LIBRARY)) if p.is_dir()}
+    return {k: p for k, p in (("ps5", LIBRARY), ("pkgs", PKG_LIBRARY), ("ps4", PS4_LIBRARY)) if p.is_dir()}
+
+
+def pkg_host(root_key: str) -> str:
+    """The NAS path of a package root, as shown on the page."""
+    return {"ps4": HOST_PS4_LIBRARY, "ps5": HOST_LIBRARY}.get(root_key) or HOST_PKG_LIBRARY or str(PKG_LIBRARY)
+
+
+def pkg_folders(pkgs: list[dict]) -> list[dict]:
+    """The package roots with their NAS path and how many packages each has."""
+    return [{"key": k, "host": pkg_host(k), "count": sum(1 for p in pkgs if p["source"] == k)} for k in pkg_roots()]
 
 
 def pkg_container(fh) -> tuple[int, dict]:
@@ -4918,10 +4932,18 @@ def scan_pkgs() -> list[dict]:
                     walk(p, depth + 1)
                 elif p.is_file() and p.suffix.lower() == ".pkg":
                     rel = str(p.relative_to(root))
-                    host = HOST_PS4_LIBRARY if root_key == "ps4" else HOST_LIBRARY
-                    out.append({"id": f"{root_key}/{rel}", "rel": rel, "file": p.name,
-                                "path": str(Path(host) / rel), **pkg_info(p)})
+                    out.append({"id": f"{root_key}/{rel}", "rel": rel, "file": p.name, "source": root_key,
+                                "path": str(Path(pkg_host(root_key)) / rel), **pkg_info(p)})
         walk(root, 0)
+    # The same package under two names (same content ID, version and size):
+    # the later ones point at the first.
+    seen: dict = {}
+    for p in out:
+        key = (p.get("content_id"), p.get("version"), p.get("size"))
+        if p.get("content_id") and key in seen:
+            p["same_as"] = seen[key]
+        else:
+            seen.setdefault(key, p["path"])
     return out
 
 
@@ -6192,7 +6214,7 @@ def dashboard_data() -> dict:
             "verifies": _safe(verify_states, {}),
             "send_after": list(read_json(SEND_AFTER, {}) or {}),
             "images": images_data(),
-            "pkgs": scan_pkgs(),
+            "pkgs": (pkgs := scan_pkgs()), "pkg_folders": pkg_folders(pkgs),
             "level": int(os.environ.get("PS5LZ4_LEVEL", "9")), "runtime": RUNTIME_NAME.removeprefix("APR-EMU "),
             "compat_updated": compat_data().get("updated"),
             "requests": {"pending": pending, "pending_list": pending_list, "recent": done_req[::-1],
