@@ -5575,9 +5575,11 @@ def ver_key(v: str) -> tuple:
 
 
 def ps5_installed() -> dict:
-    """What is already on the PS5: apps in /user/app with their version (from
-    pkg-receiver's /api/installed) and, over FTP when it answers, the DLC
-    folders in /user/addcont/<title ID> (None: unknown)."""
+    """What is already on the PS5, from every source that answers: the apps
+    in /user/app with their version (pkg-receiver's /api/installed), games
+    ShadowMountPlus has mounted, and over FTP the apps the PS5 has registered
+    (/system_data/priv/appmeta, /user/app) and the DLC folders in
+    /user/addcont/<title ID> (dlc None: FTP didn't answer, unknown)."""
     import ftplib
     import urllib.error
     import urllib.request
@@ -5591,17 +5593,38 @@ def ps5_installed() -> dict:
         raise ValueError(f"pkg-receiver (Glass build) does not answer on the PS5 (port {RECV_PORT}): "
                          f"start it on the Remote tab ({err})")
     apps = {str(a.get("id", "")).upper(): a for a in j.get("apps") or []}
+    sources = ["pkg-receiver"]
+    try:
+        for g in smp("/api/v1/games", {"include_size": False}, timeout=15).get("games") or []:
+            tid = str(g.get("title_id") or "").upper()
+            if tid and tid not in apps:
+                apps[tid] = {"id": tid, "ver": str(g.get("version") or ""), "from": "ShadowMount"}
+        sources.append("ShadowMount")
+    except ValueError:
+        pass
     dlc = None
     try:
         f = ps5_ftp_connect()
         try:
+            for d in ("/system_data/priv/appmeta", "/user/app"):
+                try:
+                    for i in ps5_ftp_list_conn(f, d):
+                        tid = i["name"].upper()
+                        if i["dir"] and re.fullmatch(r"(PPSA|CUSA)\d{5}", tid) and tid not in apps:
+                            apps[tid] = {"id": tid, "ver": "", "from": d}
+                except ftplib.all_errors:
+                    pass
+            sources.append("FTP")
             dlc = {}
-            for i in ps5_ftp_list_conn(f, "/user/addcont"):
-                if i["dir"]:
-                    try:
-                        dlc[i["name"].upper()] = {x["name"].upper() for x in ps5_ftp_list_conn(f, f"/user/addcont/{i['name']}")}
-                    except ftplib.all_errors:
-                        dlc[i["name"].upper()] = set()
+            try:
+                for i in ps5_ftp_list_conn(f, "/user/addcont"):
+                    if i["dir"]:
+                        try:
+                            dlc[i["name"].upper()] = {x["name"].upper() for x in ps5_ftp_list_conn(f, f"/user/addcont/{i['name']}")}
+                        except ftplib.all_errors:
+                            dlc[i["name"].upper()] = set()
+            except ftplib.error_perm:
+                pass  # no /user/addcont: no DLC installed
         finally:
             try:
                 f.quit()
@@ -5609,7 +5632,7 @@ def ps5_installed() -> dict:
                 pass
     except (ValueError, OSError, *ftplib.all_errors):
         dlc = None
-    return {"apps": apps, "dlc": dlc}
+    return {"apps": apps, "dlc": dlc, "sources": sources}
 
 
 def pkg_install_plan(ids: list[str] | None, inst: dict) -> list[dict]:
@@ -5657,7 +5680,8 @@ def pkg_install_all(ids: list[str] | None, page_host: str, dry: bool) -> dict:
     """Install every package not on the PS5 yet (dry: only say which)."""
     inst = ps5_installed()
     plan = pkg_install_plan(ids, inst)
-    out = {"plan": plan, "dlc_checked": inst["dlc"] is not None, "started": [], "failed": []}
+    out = {"plan": plan, "dlc_checked": inst["dlc"] is not None, "sources": inst.get("sources", []),
+           "started": [], "failed": []}
     if dry:
         return out
     for e in plan:

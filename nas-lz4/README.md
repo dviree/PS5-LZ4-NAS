@@ -485,9 +485,11 @@ It filters by folder, type and name; the same package under a second name
 (same content ID, version and size) is hidden unless you untick that box.
 
 **⬇ Install all** installs every package in the list (as filtered) that
-isn't on the PS5 yet. It first asks pkg-receiver what is installed
-(`/user/app`, with versions) and lists the DLC folders in `/user/addcont`
-over FTP, then shows what it will install and what it skips:
+isn't on the PS5 yet. It first checks what is on the PS5, from every source
+that answers: pkg-receiver (`/user/app`, with versions), the games
+ShadowMountPlus has mounted, and over FTP the apps the PS5 has registered
+(`/system_data/priv/appmeta`, `/user/app`) and the DLC folders in
+`/user/addcont`. Then it shows what it will install and what it skips:
 
 - a game or app that is installed;
 - an update when the game is already at that version or newer, or when a

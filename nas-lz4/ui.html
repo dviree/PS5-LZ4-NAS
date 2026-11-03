@@ -652,6 +652,7 @@ async function pkgInstallAll(k) {
     if (!go.length) { alert('Nothing to install: everything in the list is on the PS5 already.\n\n' + skip.map(line).join('\n')); return; }
     if (!confirm(`Install ${go.length} package(s) on the PS5?\n\n${go.map(line).join('\n')}` +
         (skip.length ? `\n\nSkipped (${skip.length}):\n${skip.map(line).join('\n')}` : '') +
+        `\n\nChecked on the PS5: ${(plan.sources || []).join(', ') || '?'}.` +
         (plan.dlc_checked ? '' : '\n\nDLC could not be checked (no FTP to the PS5): DLC is installed again.'))) return;
     btn.textContent = 'Starting installs…';
     const res = await call(false);
