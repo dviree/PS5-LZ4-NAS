@@ -503,7 +503,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
       <input id="c-q" placeholder="Search game or Title ID" oninput="renderComm()">
       <select id="c-f" onchange="renderComm()">
         <option value="">All</option><option value="works">Works</option>
-        <option value="problems">Problems (won't start / crashes)</option><option value="mine">Only my games</option>
+        <option value="problems">Problems (issues / won't start / crashes)</option><option value="mine">Only my games</option>
       </select>
       <select id="c-s" onchange="renderComm()">
         <option value="date">Latest report</option><option value="reports">Most reports</option><option value="name">Name</option>
@@ -616,6 +616,30 @@ async function loadPkgOnPs5() {
   renderPkgs(data);
 }
 const pkgShown = {};
+const pkgExpanded = new Set();
+function pkgGameGroups(packages, games = []) {
+  const groups = new Map(), rank = {Game: 0, App: 1, Update: 2, DLC: 3};
+  for (const p of packages) {
+    const tid = (p.title_id || '').trim().toUpperCase();
+    // Never combine unrelated packages without a valid Title ID.
+    const key = /^(PPSA|CUSA)\d{5}$/.test(tid) ? tid : 'pkg:' + p.id;
+    if (!groups.has(key)) groups.set(key, {key, tid, packages: []});
+    groups.get(key).packages.push(p);
+  }
+  for (const g of groups.values()) {
+    g.packages.sort((a, b) => (rank[a.category || 'Game'] ?? 4) - (rank[b.category || 'Game'] ?? 4)
+      || (a.name || '').localeCompare(b.name || '') || (b.version || '').localeCompare(a.version || '', undefined, {numeric: true}));
+    const base = g.packages.find(p => (p.category || 'Game') === 'Game');
+    const game = games.find(p => (p.title_id || '').toUpperCase() === g.tid);
+    g.name = (game && game.name) || (base && base.name) || g.tid || g.packages[0].name;
+  }
+  return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+function togglePkgGroup(k, key) {
+  const id = k + ':' + key;
+  if (pkgExpanded.has(id)) pkgExpanded.delete(id); else pkgExpanded.add(id);
+  renderPkgTab(data, k);
+}
 function renderPkgTab(d, k) {
   if (!d) return;
   const all = (d.pkgs || []).filter(p => !!p.ps4 === PKG_TABS[k].ps4), folders = d.pkg_folders || [];
@@ -635,7 +659,7 @@ function renderPkgTab(d, k) {
   document.getElementById(k + '-all').textContent = `⬇ Install all (${pk.length})`;
   const list = document.getElementById(k + '-list');
   if (!pk.length) { list.innerHTML = `<tr><td class="mut">${all.length ? 'No package matches.' : 'No .pkg files in these folders.'}</td></tr>`; return; }
-  list.innerHTML = '<tr><th>Package</th><th>Type</th><th class="num">Size</th><th>PS5</th><th></th></tr>' + pk.map(p => {
+  const packageRow = p => {
     const t = (d.transfers || {})[p.file], queued = (d.transfer_queue || []).includes('pkg:' + p.id), sending = tf && tf.game === p.file;
     const state = sending ? `<span class="pill p-run">⬆️ ${tf.total ? Math.floor(100 * tf.bytes / tf.total) : 0} %</span>`
       : queued ? '<span class="pill p-run">queued</span>'
@@ -651,7 +675,20 @@ function renderPkgTab(d, k) {
     return `<tr><td class="c-game"><img class="ico" alt="" loading="lazy" src="/api/pkg/icon?id=${encodeURIComponent(p.id)}" onerror="this.remove()"><span class="gname">${esc(p.name)}</span>
         <div class="why">${esc(p.title_id || '')}${p.version ? ' · v' + esc(p.version) : ''} · ${esc(p.file)} · ${esc(PKG_FOLDER[p.source] || p.source || '')}${p.same_as ? ` · <span class="mut">same as ${esc(p.same_as.split('/').pop())}</span>` : ''}${p.error ? ` · <span class="bad">${esc(p.error)}</span>` : ''}</div></td>
       <td><span class="pill p-no">${esc(p.category || 'Game')}</span></td><td class="num">${gb(p.size)}</td><td>${stateCell}</td><td>${btn}</td></tr>`;
-  }).join('');
+  };
+  list.innerHTML = '<thead><tr><th>Package</th><th>Type</th><th class="num">Size</th><th>PS5</th><th></th></tr></thead>' +
+    pkgGameGroups(pk, d.games || []).map(g => {
+      if (g.packages.length === 1) return '<tbody>' + packageRow(g.packages[0]) + '</tbody>';
+      const open = pkgExpanded.has(k + ':' + g.key);
+      const counts = {};
+      for (const p of g.packages) counts[p.category || 'Game'] = (counts[p.category || 'Game'] || 0) + 1;
+      const summary = Object.entries(counts).map(([type, n]) => `${n} ${type}`).join(' · ');
+      return `<tbody><tr class="pkg-group"><th colspan="5" style="text-align:left">
+        <button class="ghost" data-tab="${esc(k)}" data-group="${esc(g.key)}" aria-expanded="${open}"
+          onclick="togglePkgGroup(this.dataset.tab, this.dataset.group)">${open ? '▾' : '▸'} ${esc(g.name)} · ${g.packages.length} packages</button>
+        <span class="mut">${esc(g.tid)} · ${esc(summary)}</span></th></tr></tbody>
+        <tbody${open ? '' : ' hidden'}>${g.packages.map(packageRow).join('')}</tbody>`;
+    }).join('');
 }
 async function pkgInstallAll(k) {
   const s = data.settings || {}, btn = document.getElementById(k + '-all'), label = btn.textContent;
@@ -1965,8 +2002,11 @@ function ago(iso) {
 }
 async function loadComm(refresh) {
   try {
-    if (refresh) document.getElementById('c-sub').textContent = 'Fetching the reports from GitHub…';
-    comm = await (await fetch('/api/community' + (refresh ? '?refresh=1' : ''), {cache: 'no-store'})).json();
+    if (refresh) document.getElementById('c-sub').textContent = 'Fetching community reports…';
+    const r = await fetch('/api/community' + (refresh ? '?refresh=1' : ''), {cache: 'no-store'});
+    const next = await r.json();
+    if (!r.ok) throw new Error(next.error || r.status);
+    comm = next;
     renderComm();
   } catch (e) { document.getElementById('c-sub').textContent = 'Could not read the reports: ' + e; }
 }
@@ -1982,10 +2022,11 @@ function renderComm() {
     `${rows.length} games, ${total} reports from <a href="${esc(comm.web || ORIGIN_WEB)}/issues?state=all&labels=" target="_blank" rel="noopener">${esc(comm.repo)}</a>` +
     ` · ${{live: 'live from theghostonline.dev', repo: "from the original project's list", mirror: "from this fork's copy", bundled: 'from this image', image: 'from this image'}[comm.source] || ''}` +
     (comm.updated ? `, updated ${esc(ago(comm.updated))}` : '') +
+    (comm.refresh_error ? ` · <span class="bad">Refresh failed; showing saved reports: ${esc(comm.refresh_error)}</span>` : '') +
     ` · <button class="sm" onclick="loadComm(true)">Refresh now</button>`;
   if (q) rows = rows.filter(r => (r.name || '').toLowerCase().includes(q) || r.tid.toLowerCase().includes(q));
   if (f === 'works') rows = rows.filter(r => r.works);
-  if (f === 'problems') rows = rows.filter(r => r.noStart || r.crash);
+  if (f === 'problems') rows = rows.filter(r => r.issues || r.noStart || r.crash);
   if (f === 'mine') rows = rows.filter(r => mine.has(r.tid));
   const date = r => (r.lastReport || {}).date || '';
   rows.sort(sort === 'name' ? (a, b) => (a.name || '').localeCompare(b.name || '') :

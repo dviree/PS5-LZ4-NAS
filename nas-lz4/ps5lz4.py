@@ -1609,10 +1609,8 @@ def compat_status(text: str, title: str = "") -> str | None:
         return "noStart"
     if "works with issues" in t:
         return "issues"
-    if re.match(r"works?\b", t):
-        return "works"
     if re.search(r"won'?t (start|boot|load|launch)|can'?t (start|boot|load|launch)|cannot (start|boot|load|launch)"
-                 r"|(does|did)n'?t (start|boot|load|launch)|not (start|boot|load|launch)|black screen|freez|stuck", t):
+                 r"|(does|did)n'?t (start|boot|load|launch|work)|not (start|boot|load|launch|work)|black screen|freez|stuck", t):
         return "noStart"
     if "crash" in t:
         return "crash"
@@ -1639,14 +1637,18 @@ def compat_aggregate(issues: list[dict]) -> dict:
         if "compat" not in labels and not str(issue.get("title") or "").startswith("[Game report]"):
             continue
         fields = {}
-        parts = re.split(r"(?m)^### +(.+?)\s*$", issue.get("body") or "")
+        # Accept both the issue form's Markdown and manually pasted plain labels.
+        # Horizontal whitespace only: blank values must not consume the next label.
+        headings = "|".join(re.escape(k) for k in COMPAT_FIELDS)
+        parts = re.split(r"(?im)^(?:###[ \t]+)?(" + headings + r")[ \t]*:?[ \t]*\r?$",
+                         issue.get("body") or "")
         for i in range(1, len(parts) - 1, 2):
             key = COMPAT_FIELDS.get(parts[i].strip().lower())
             val = parts[i + 1].strip()
             if key and val not in ("", "_No response_", "None"):
                 fields[key] = val
         tid = clean(fields.get("titleId"), 16).upper()
-        status = compat_status(clean(fields.get("status"), 80), issue.get("title") or "")
+        status = compat_status(clean(fields.get("status"), 2000), issue.get("title") or "")
         if not re.fullmatch(r"[A-Z]{4}\d{5}", tid) or not status:
             continue
         # Reports moved over from GitHub start with their original issue, author (when known) and date.
@@ -1701,8 +1703,12 @@ def compat_refresh() -> dict:
             data = read_json(COMPAT_BUNDLED, None)
             if data and isinstance(data.get("games"), dict):
                 data["source"] = "bundled"
+        cached = compat_data()
+        if isinstance(cached.get("games"), dict) and (not data or cached.get("updated", "") >= data.get("updated", "")):
+            data = dict(cached)
         if not data or not isinstance(data.get("games"), dict):
             raise err
+        data["refresh_error"] = str(err)
         write_json(COMPAT_LIVE, data)
         return data
 
@@ -7098,7 +7104,7 @@ def cmd_ui(args) -> int:
                         print(f"[{now()}] community reports not refreshed: {err}", flush=True)
                 data = compat_data()
                 body = {"repo": COMPAT_REPO, "web": ORIGIN_WEB, "updated": data.get("updated"), "source": data.get("source") or "image",
-                        "games": data.get("games") or {}}
+                        "games": data.get("games") or {}, "refresh_error": data.get("refresh_error")}
                 return self.send(200, json.dumps(body, ensure_ascii=False).encode())
             if self.path == "/api/dashboard":
                 with lock:
