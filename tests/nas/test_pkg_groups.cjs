@@ -41,3 +41,28 @@ document.getElementById('pkg-k').value = '';
 vm.runInContext("renderPkgTab(data, 'pkg')", context);
 assert.ok(!document.getElementById('pkg-list').innerHTML.includes('<script>'));
 console.log('PASS: UI syntax, game grouping, category order, independent unknowns, collapse persistence, filters, install IDs, platform separation and escaping');
+// Compression controls send the chosen codec/runtime/level, including for a
+// source rejected by the legacy AMPR compatibility check.
+vm.runInContext(html.slice(html.indexOf("let packMode = 'legacy'"), html.indexOf('// The original project')), context);
+context.data = {games: [{id:'test', name:'Test', can_queue:false}], settings:{}};
+context.confirm = () => true;
+const notices = [], requests = [];
+context.alert = text => notices.push(text);
+context.act = (action, confirmation, extra) => requests.push({action, ...extra});
+(async () => {
+  vm.runInContext("selectPackMode('zstd')", context);
+  assert.equal(vm.runInContext('packOptions().level', context), 5);
+  assert.ok(vm.runInContext('packControls()', context).includes('max="22"'));
+  await vm.runInContext("compress('test', false, false)", context);
+  assert.equal(requests[0].codec, 'zstd');
+  assert.equal(requests[0].runtime, 'ng');
+  vm.runInContext("selectPackMode('ng')", context);
+  await vm.runInContext("compress('test', false, false)", context);
+  assert.equal(requests[1].codec, 'lz4');
+  assert.equal(requests[1].runtime, 'ng');
+  vm.runInContext('packLevel = 99', context);
+  await vm.runInContext("compress('test', false, false)", context);
+  assert.equal(requests.length, 2);
+  assert.ok(notices.length);
+  console.log('PASS: Zstd/NG controls, defaults, request payload and level validation');
+})().catch(e => { console.error(e); process.exitCode = 1; });

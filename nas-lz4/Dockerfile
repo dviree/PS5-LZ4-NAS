@@ -17,19 +17,25 @@ RUN CFLAGS="-O2 -Wno-error=format-truncation" make -f tests/host/Makefile PYTHON
  && strip build/host/ampr_pack_cli \
  && build/host/ampr_pack_cli 2>&1 | grep -q 'verify <packed>'
 
+FROM python:3.12-slim-bookworm AS forge
+COPY nas-lz4/install-forge.py /tmp/install-forge.py
+RUN python3 /tmp/install-forge.py
+
 FROM python:3.12-slim-bookworm
 ARG MKPFS_VERSION=1.1.0
 # unrar (RARLAB's freeware, from Debian non-free): extracts multi-part RAR5
 # archives in the library, checking every file's CRC.
 RUN sed -i 's/^Components: main$/Components: main non-free/' /etc/apt/sources.list.d/debian.sources \
  && apt-get update \
- && apt-get install -y --no-install-recommends unrar \
+ && apt-get install -y --no-install-recommends unrar libstdc++6 \
  && rm -rf /var/lib/apt/lists/* \
  && unrar | head -1
 RUN pip install --no-cache-dir "mkpfs==${MKPFS_VERSION}" \
  && mkpfs -V | grep -q "${MKPFS_VERSION}" \
  && python3 -c "from mkpfs.exfat import ExfatReader; import cryptography"
 COPY --from=build /src/build/host/ampr_pack_cli /usr/local/bin/ampr_pack_cli
+COPY --from=forge /usr/local/bin/ps5-dump-forge /usr/local/bin/ps5-dump-forge
+COPY --from=forge /opt/ps5lz4/ /opt/ps5lz4/
 COPY profiles /opt/ps5lz4/profiles
 COPY compat/compat.json /opt/ps5lz4/compat.json
 COPY nas-lz4/ps5lz4.py /opt/ps5lz4/ps5lz4.py
