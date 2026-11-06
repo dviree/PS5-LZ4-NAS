@@ -216,6 +216,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
 </header>
 <nav class="tabs">
   <button id="t-mine" class="on" onclick="tab('mine')">My games</button>
+  <button id="t-zstd" onclick="tab('zstd')">Zstd</button>
   <button id="t-act" onclick="tab('act')">Activity<span class="badge" id="act-n" hidden></span></button>
   <button id="t-pg" onclick="tab('pg')">PS5 games</button>
   <button id="t-pkg" onclick="tab('pkg')">PKG installer</button>
@@ -287,6 +288,29 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
   <div class="card"><h2>Library</h2><div id="unread"></div><div class="scroll"><table id="games"></table></div></div>
 </main>
 <main id="p-pkg" hidden></main>
+<main id="p-zstd" hidden>
+  <div class="card"><h2>Zstd compression</h2>
+    <p class="mut">Create verified Zstd copies with ampr-emu-ng. Originals are kept. Disable fakelib updates in ShadowMountPlus to keep the matching runtime.</p>
+    <div class="filters">
+      <input id="zstd-q" aria-label="Search Zstd games" placeholder="Search name or Title ID" oninput="renderZstd()">
+      <label>Level <input id="zstd-level" type="number" min="1" max="22" value="5" style="width:70px;min-width:0"></label>
+      <label class="chk"><input id="zstd-profile" type="checkbox" checked> Use TOML profile</label>
+    </div>
+    <div class="why">Output: <code id="zstd-output"></code></div>
+    <div class="why" id="zstd-summary"></div>
+    <button class="ghost" style="margin-top:10px" onclick="tab('act')">View queue and progress</button>
+  </div>
+  <div class="card"><h2>Games</h2><div id="zstd-games"></div></div>
+  <div class="card" id="profile-editor" hidden>
+    <h2>TOML · <span id="profile-name"></span></h2>
+    <p class="mut">Upload a .toml file or paste a profile. Saved profiles apply to this game's LZ4 and Zstd copies. Mandatory boot fixes, PlayGo markers and empty files stay loose for Zstd, even if the profile says compress.</p>
+    <div class="acts"><label class="btn">Load .toml <input type="file" accept=".toml,text/plain" hidden onchange="importProfile(this)"></label>
+      <button class="ghost" onclick="document.getElementById('profile-editor').hidden = true">Close</button></div>
+    <textarea id="profile-content" aria-label="Game TOML profile" spellcheck="false" rows="18" style="box-sizing:border-box;width:100%;margin-top:12px;font-family:monospace"></textarea>
+    <div class="acts" style="margin-top:10px"><button id="profile-save" onclick="saveProfile()">Save TOML</button></div>
+    <div class="why" id="profile-msg" role="status"></div>
+  </div>
+</main>
 <main id="p-ps4" hidden></main>
 <main id="p-act" hidden>
   <div class="card" id="arccard" hidden><h2>RAR archives in the library</h2>
@@ -906,6 +930,7 @@ function xferText(t) {
 
 function render() {
   const d = data;
+  renderZstd();
   if (!settingsFilled && d.settings) {
     document.getElementById('s-ftp').value = d.settings.ps5_ftp || '';
     document.getElementById('s-dest').value = d.settings.ps5_dest || '';
@@ -1155,6 +1180,76 @@ function removeImage(on, name) {
 function imageStop() {
   act('image_stop', 'Stop making the exFAT image? The half-made image is thrown away; the LZ4 folder is not touched.');
 }
+function renderZstd() {
+  if (!data) return;
+  const query = document.getElementById('zstd-q').value.trim().toLowerCase();
+  const games = (data.games || []).filter(g => !g.output_only || g.pack_codec === 'zstd');
+  const packed = games.filter(g => g.pack_codec === 'zstd' && g.output).length;
+  document.getElementById('zstd-output').textContent = data.zstd_output_host || 'Not reported by the server; update the container.';
+  document.getElementById('zstd-summary').textContent = `${packed} Zstd copies · ${games.filter(g => !g.output_only).length} originals`;
+  const visible = games.filter(g => !query || `${g.name} ${g.title_id || ''}`.toLowerCase().includes(query));
+  document.getElementById('zstd-games').innerHTML = visible.map(g => {
+    const ready = g.pack_codec === 'zstd' && !!g.output;
+    const waiting = pendingFor(g.id);
+    const state = g.running ? 'packing' : g.queued ? 'queued' : waiting ? 'waiting to start' : ready ? 'Zstd ready' : 'original available';
+    const actions = ready
+      ? `<button class="sm" data-g="${esc(g.id)}" onclick="openGame(this.dataset.g)">Details</button>`
+      : !g.output_only && !g.running && !g.queued && !waiting
+        ? `<button class="sm pri" data-g="${esc(g.id)}" onclick="compressZstd(this.dataset.g, false)">Compress to Zstd</button>
+           <button class="sm" data-g="${esc(g.id)}" onclick="compressZstd(this.dataset.g, true)">Compress &amp; send</button>` : '';
+    return `<div class="dl"><div class="dl-top"><b>${esc(g.name)}</b><span class="mut">${esc(g.title_id || '')}</span><span class="sp"></span><span class="pill ${ready ? 'p-LZ4' : 'p-run'}">${state}</span></div>
+      ${ready ? `<div class="why">${gb(g.output_bytes)} · ${esc(g.output)}</div>` : ''}
+      <div class="acts" style="margin-top:8px">${actions}${!g.output_only ? `<button class="sm ghost" data-g="${esc(g.id)}" onclick="openProfile(this.dataset.g)">TOML profile</button>` : ''}</div></div>`;
+  }).join('') || '<div class="mut">No matching games.</div>';
+}
+function compressZstd(id, send) {
+  return compress(id, send, false, {codec: 'zstd', runtime: 'ng',
+    level: Number(document.getElementById('zstd-level').value),
+    profile: document.getElementById('zstd-profile').checked});
+}
+async function openProfile(id) {
+  closeGame();
+  tab('zstd');
+  const editor = document.getElementById('profile-editor'), button = document.getElementById('profile-save');
+  editor.hidden = false; editor.dataset.game = id;
+  document.getElementById('profile-name').textContent = id;
+  document.getElementById('profile-content').value = '';
+  document.getElementById('profile-msg').textContent = 'Loading…';
+  button.disabled = true;
+  editor.scrollIntoView({behavior: 'smooth', block: 'start'});
+  try {
+    const r = await fetch('/api/profile?id=' + encodeURIComponent(id), {cache: 'no-store'}), j = await r.json();
+    if (editor.dataset.game !== id) return;
+    if (!r.ok) throw new Error(j.error || r.status);
+    document.getElementById('profile-name').textContent = j.name;
+    document.getElementById('profile-content').value = j.content;
+    document.getElementById('profile-msg').textContent = j.description;
+    button.disabled = false;
+  } catch (e) { if (editor.dataset.game === id) document.getElementById('profile-msg').textContent = 'Failed: ' + e.message; }
+}
+async function importProfile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const msg = document.getElementById('profile-msg');
+  if (file.size > 256 * 1024) { msg.textContent = 'TOML must be at most 256 KiB.'; input.value = ''; return; }
+  try {
+    document.getElementById('profile-content').value = await file.text();
+    msg.textContent = 'Loaded ' + file.name + '. Press Save TOML to apply it.';
+  } catch (e) { msg.textContent = 'Failed: ' + e.message; }
+  input.value = '';
+}
+async function saveProfile() {
+  const editor = document.getElementById('profile-editor'), id = editor.dataset.game;
+  const button = document.getElementById('profile-save'); button.disabled = true;
+  try {
+    const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action: 'profile_save', game: id, content: document.getElementById('profile-content').value})});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.status);
+    if (editor.dataset.game === id) document.getElementById('profile-msg').textContent = j.description;
+  } catch (e) { if (editor.dataset.game === id) document.getElementById('profile-msg').textContent = 'Failed: ' + e.message; }
+  finally { if (editor.dataset.game === id) button.disabled = false; }
+}
 let packMode = 'legacy', packLevel = 9, packProfile = true;
 function packOptions() {
   return {codec: packMode === 'zstd' ? 'zstd' : 'lz4', runtime: packMode === 'legacy' ? 'legacy' : 'ng', level: packLevel,
@@ -1332,6 +1427,7 @@ function gameHtml(g, det) {
   if (w && w.error) rows.push(['Last error', `<span class="bad">${esc(w.error)}</span><div class="why">step ${esc(w.step || '')}</div>`]);
 
   const acts = [];
+  if (!g.output_only) acts.push(`<button class="ghost" data-game="${esc(g.id)}" onclick="openProfile(this.dataset.game)">TOML profile</button>`);
   if (!g.output && !g.output_only && !g.running && !g.queued && !pendingFor(g.id)) {
     acts.push(packControls());
     acts.push(`<button class="pri" data-game="${esc(g.id)}" onclick="convertGame(this.dataset.game, 'zstd')" title="Zstd level 5 with ampr-emu-ng; keeps the original">Convert to Zstd</button>`,
@@ -2019,11 +2115,12 @@ async function ps5Copies(tid) {
 }
 let comm = null;
 function tab(t) {
-  for (const k of ['mine', 'act', 'pg', 'pkg', 'ps4', 'smp', 'sav', 'up', 'ps5', 'comm', 'ftp']) {
+  for (const k of ['mine', 'zstd', 'act', 'pg', 'pkg', 'ps4', 'smp', 'sav', 'up', 'ps5', 'comm', 'ftp']) {
     document.getElementById('p-' + k).hidden = t !== k;
     document.getElementById('t-' + k).classList.toggle('on', t === k);
   }
   try { localStorage.setItem('tab', t); } catch (e) {}
+  if (t === 'zstd') renderZstd();
   if (t === 'comm') loadComm();
   if (t === 'smp') loadSmp();
   if (t === 'sav') loadSav();
@@ -2390,8 +2487,8 @@ async function loadPkgAct() {
 loadPkgAct(); setInterval(loadPkgAct, 3000);
 setInterval(() => { if (!document.getElementById('p-comm').hidden) loadComm(); }, 60000); ps5State(); setInterval(ps5State, 15000); rcvCheck(); setInterval(rcvCheck, 60000);
 try {
-  const saved = {'#community': 'comm', '#remote': 'ps5', '#ftp': 'ftp', '#activity': 'act', '#games': 'pg', '#pkg': 'pkg', '#ps4': 'ps4'}[location.hash] || localStorage.getItem('tab');
-  if (['comm', 'ps5', 'ftp', 'act', 'pg', 'pkg', 'ps4'].includes(saved)) tab(saved);
+  const saved = {'#zstd': 'zstd', '#community': 'comm', '#remote': 'ps5', '#ftp': 'ftp', '#activity': 'act', '#games': 'pg', '#pkg': 'pkg', '#ps4': 'ps4'}[location.hash] || localStorage.getItem('tab');
+  if (['zstd', 'comm', 'ps5', 'ftp', 'act', 'pg', 'pkg', 'ps4'].includes(saved)) tab(saved);
 } catch (e) {}
 </script>
 <footer class="mut" style="text-align:center;padding:16px;font-size:12px">ps5lz4zstd ·
@@ -2399,3 +2496,4 @@ try {
   is ported from <a href="https://github.com/streetpea/chiaki-ng" target="_blank" rel="noopener">chiaki-ng</a>, AGPL-3.0)</footer>
 </body>
 </html>
+

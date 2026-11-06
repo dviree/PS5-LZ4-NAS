@@ -618,8 +618,12 @@ def custom_profile_for(root: Path, name: str) -> tuple[Path | None, str]:
     return None, ""
 
 
-def choose_profile(title_id: str, name: str, root: Path) -> tuple[str | None, str]:
+def choose_profile(title_id: str, name: str, root: Path, game_id: str = "") -> tuple[str | None, str]:
     """(toml path or None, description). Custom beats bundled beats scan."""
+    if game_id:
+        custom = CUSTOM_PROFILES / ("game-" + hashlib.sha256(game_id.encode()).hexdigest()[:24] + ".toml")
+        if custom.is_file():
+            return str(custom), f"custom ({custom.name})"
     if title_id:
         custom = CUSTOM_PROFILES / f"{title_id.upper()}.toml"
         if custom.is_file():
@@ -639,6 +643,98 @@ def choose_profile(title_id: str, name: str, root: Path) -> tuple[str | None, st
         if engine and p.get("engine") == engine:
             return str(PROFILES / p["file"]), f"bundled {p['id']} ({engine} engine layout)"
     return None, "automatic scan-based profile"
+
+
+def profile_entry(game_id: str) -> Entry:
+    entry = next((e for e in scan_library() if e.id == game_id), None)
+    if entry is None:
+        raise ValueError("original game not found in the library")
+    return entry
+
+
+def editable_profile_path(entry: Entry) -> Path:
+    # Title IDs share a profile across versions; unlabelled games get an exact binding.
+    key = entry.title_id.upper() if re.fullmatch(r"PPSA\d{5}", entry.title_id.upper()) else \
+        "game-" + hashlib.sha256(entry.id.encode()).hexdigest()[:24]
+    return CUSTOM_PROFILES / (key + ".toml")
+
+
+def game_profile(game_id: str) -> dict:
+    entry = profile_entry(game_id)
+    path, description = choose_profile(entry.title_id, entry.name or entry.id, entry.path, entry.id)
+    return {"game": entry.id, "name": entry.name or entry.id, "description": description,
+            "content": Path(path).read_text(encoding="utf-8-sig") if path else
+                '[pack]\ndefault_action = "compress"\n\n[[rule]]\naction = "loose"\ninclude = []\n'}
+
+
+def save_game_profile(game_id: str, content: str) -> dict:
+    import tempfile
+    import tomllib
+    entry = profile_entry(game_id)
+    if not isinstance(content, str) or len(content.encode()) > 256 * 1024:
+        raise ValueError("TOML must be text, at most 256 KiB")
+    parsed = tomllib.loads(content)
+    if not isinstance(parsed.get("pack"), dict):
+        raise ValueError("TOML needs a [pack] table")
+    rules = parsed.get("rule", [])
+    if not isinstance(rules, list) or any(not isinstance(r, dict) for r in rules):
+        raise ValueError("Use [[rule]] tables for the rules")
+    for rule in rules:
+        if "include_from" in rule or "exclude_from" in rule:
+            raise ValueError("Paste file patterns into include/exclude arrays; this upload contains no sidecar lists")
+    target = editable_profile_path(entry)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent, delete=False) as temp:
+        temp.write(content)
+    os.replace(temp.name, target)
+    return {"saved": target.name, "description": "Saved for this game's LZ4 and Zstd jobs. Mandatory boot fixes stay active."}
+
+
+def toml_value(value) -> str:
+    """Encode parsed TOML as inline tables, retaining all profile options."""
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value).lower()
+    if isinstance(value, list):
+        return "[" + ", ".join(toml_value(v) for v in value) + "]"
+    if isinstance(value, dict):
+        return "{ " + ", ".join(json.dumps(k) + " = " + toml_value(v) for k, v in value.items()) + " }"
+    if isinstance(value, (_dt.datetime, _dt.date, _dt.time)):
+        return value.isoformat()
+    raise ValueError("unsupported TOML value")
+
+
+def ng_profile(root: Path, selected: str | None, destination: Path) -> str:
+    """Apply the game profile, then enforce the same disk-file fixes as LZ4."""
+    import tomllib
+    safety = tomllib.loads((PROFILES / "nas-ng.toml").read_text())
+    config = tomllib.loads(Path(selected).read_text(encoding="utf-8-sig")) if selected else {"pack": {"default_action": "compress"}}
+    rules = config.setdefault("rule", [])
+    # Resolve existing profiles' list files before moving the profile into the job.
+    for rule in rules:
+        for key in ("include", "exclude"):
+            lists = rule.pop(key + "_from", [])
+            if isinstance(lists, str):
+                lists = [lists]
+            if lists:
+                values = rule.get(key, [])
+                if isinstance(values, str):
+                    values = [values]
+                for name in lists:
+                    values += [line.strip() for line in (Path(selected).parent / name).read_text(encoding="utf-8-sig").splitlines()
+                               if line.strip() and not line.lstrip().startswith("#")]
+                rule[key] = values
+    rules.extend(safety["rule"])
+    # The legacy packer always keeps empty placeholders loose, regardless of TOML.
+    empty = [p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file() and p.stat().st_size == 0]
+    if empty:
+        rules.append({"action": "loose", "include": empty})
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text("\n".join(json.dumps(k) + " = " + toml_value(v) for k, v in config.items()) + "\n")
+    return str(destination)
 
 
 # --------------------------------------------------------------------------
@@ -1003,12 +1099,16 @@ class Job:
                 raise Skip("source is already packed; unpack it before making a new copy")
             if not (root / "eboot.bin").is_file():
                 raise Skip("no eboot.bin in source")
-            self.mark("check", ampr=NG_NAME, profile_path=str(PROFILES / "nas-ng.toml"),
-                      profile="NG safety rules: system files, PlayGo and boot files stay loose")
+            snapshot = self.work / "pack-profile.toml"
+            if self.done("check") and snapshot.is_file():
+                return  # Resume with the profile used by this job, even after a UI edit.
+            selected, desc = choose_profile(self.state["title_id"], name, root, self.e.id) if self.use_profile else (None, "no game TOML")
+            self.mark("check", ampr=NG_NAME, profile_path=ng_profile(root, selected, snapshot),
+                      profile=desc + "; mandatory LZ4 disk-file and boot fixes")
             return
         if status != "compatible":
             raise Skip(reason)
-        profile, desc = (choose_profile(self.state["title_id"], name, root) if self.use_profile
+        profile, desc = (choose_profile(self.state["title_id"], name, root, self.e.id) if self.use_profile
                          else (None, "no TOML (turned off for this game): automatic scan-based profile"))
         self.mark("check", ampr=reason, profile_path=profile, profile=desc)
         self.log(f"compatible: {reason}; profile: {desc}")
@@ -6795,6 +6895,7 @@ def dashboard_data() -> dict:
     return {"running": running, "job": job, "queue": queue.get("remaining") or [],
             "interrupted": (not running) and bool(queue.get("remaining")),
             "free_bytes": free_bytes(OUTPUT), "games": rows, "totals": totals, "failed": failed,
+            "zstd_output_host": host_output_path(zstd_output()),
             "lz4c_version": lz4c_version(),
             "delete_originals": DELETE_ORIGINALS,
             "archives": _safe(scan_archives, []),
@@ -7200,6 +7301,13 @@ def cmd_ui(args) -> int:
         def do_GET(self):
             if self.path in ("/", "/index.html"):
                 return self.send(200, UI_HTML.encode(), "text/html")
+            if self.path.startswith("/api/profile?"):
+                from urllib.parse import parse_qs, urlparse
+                gid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+                try:
+                    return self.send(200, json.dumps(game_profile(gid)).encode())
+                except (ValueError, OSError) as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if self.path in ("/store", "/store/"):
                 return self.send(200, STORE_HTML.encode(), "text/html")
             if self.path.startswith("/api/game?"):
@@ -7483,6 +7591,11 @@ def cmd_ui(args) -> int:
                 req = json.loads(self.rfile.read(min(n, 1 << 20)) or b"{}")
             except ValueError:
                 return self.send(400, b'{"error":"bad request"}')
+            if req.get("action") == "profile_save":
+                try:
+                    return self.send(200, json.dumps(save_game_profile(str(req.get("game") or ""), req.get("content"))).encode())
+                except (ValueError, OSError) as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if req.get("action") == "pair":
                 try:
                     if req.get("ps5_ftp"):  # the address typed on the page, saved or not
@@ -7951,3 +8064,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
