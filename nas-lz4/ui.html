@@ -1176,9 +1176,12 @@ function packControls() {
       style="width:70px;min-width:0" onchange="packLevel = Number(this.value)"></label>
     <span class="mut">ampr-emu-ng: disable fakelib updates in ShadowMountPlus.</span></div>`;
 }
-async function compress(id, send, image) {
+function convertGame(id, codec) {
+  return compress(id, false, false, {codec, runtime: 'ng', level: codec === 'zstd' ? 5 : 9});
+}
+async function compress(id, send, image, options = packOptions()) {
   const g = (data.games || []).find(x => x.id === id) || {name: id};
-  const s = data.settings || {}, opts = packOptions();
+  const s = data.settings || {}, opts = options;
   if (!Number.isInteger(opts.level) || opts.level < 1 || opts.level > (opts.codec === 'zstd' ? 22 : 12)) {
     alert('Choose a valid compression level.'); return;
   }
@@ -1327,7 +1330,9 @@ function gameHtml(g, det) {
   const acts = [];
   if (!g.output && !g.output_only && !g.running && !g.queued && !pendingFor(g.id)) {
     acts.push(packControls());
-    acts.push(`<button class="pri" data-game="${esc(g.id)}" onclick="compress(this.dataset.game, false)">Compress selected format</button>`);
+    acts.push(`<button class="pri" data-game="${esc(g.id)}" onclick="convertGame(this.dataset.game, 'zstd')" title="Zstd level 5 with ampr-emu-ng; keeps the original">Convert to Zstd</button>`,
+      `<button data-game="${esc(g.id)}" onclick="convertGame(this.dataset.game, 'lz4')" title="LZ4 level 9 with ampr-emu-ng; keeps the original">Convert to LZ4 (ampr-emu-ng)</button>`,
+      `<button class="ghost" data-game="${esc(g.id)}" onclick="compress(this.dataset.game, false)">Compress selected format</button>`);
   }
   if (g.queued) acts.push(`<button class="danger" data-g="${esc(g.id)}" onclick="closeGame();queueRemove({game: this.dataset.g})">✕ Remove from queue</button>`);
   if (pendingFor(g.id)) acts.push(`<button class="danger" data-g="${esc(g.id)}" onclick="closeGame();queueRemove({file: ((data.requests.pending_list || []).find(r => r.action === 'start' && r.game === this.dataset.g) || {}).file})">✕ Cancel</button>`);

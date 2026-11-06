@@ -60,9 +60,16 @@ context.act = (action, confirmation, extra) => requests.push({action, ...extra})
   await vm.runInContext("compress('test', false, false)", context);
   assert.equal(requests[1].codec, 'lz4');
   assert.equal(requests[1].runtime, 'ng');
+  await vm.runInContext("convertGame('test', 'zstd')", context);
+  assert.equal(requests[2].codec, 'zstd');
+  assert.equal(requests[2].runtime, 'ng');
+  assert.equal(requests[2].level, 5);
+  await vm.runInContext("convertGame('test', 'lz4')", context);
+  assert.equal(requests[3].codec, 'lz4');
+  assert.equal(requests[3].level, 9);
   vm.runInContext('packLevel = 99', context);
   await vm.runInContext("compress('test', false, false)", context);
-  assert.equal(requests.length, 2);
+  assert.equal(requests.length, 4);
   assert.ok(notices.length);
   console.log('PASS: Zstd/NG controls, defaults, request payload and level validation');
 })().catch(e => { console.error(e); process.exitCode = 1; });
