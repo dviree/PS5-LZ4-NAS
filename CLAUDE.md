@@ -10,9 +10,11 @@ At the start of every session, check `command -v trail`. If it is missing, insta
 script), then run `trail build` if `graft/` is missing.
 
 Use Trail-Code only for finding code: `trail ask`, `trail grep`, `trail callers`,
-`trail skeleton` and `trail map`, never grep, rg, find or reading whole files to search.
-Read only the line ranges Trail points to (to edit them), and test with the repo's own
-tools.
+`trail skeleton` and `trail map`, never grep, rg, find, sed or reading whole files to
+search. Read only the line ranges Trail points to (to edit them), and test with the repo's
+own tools. Trail indexes code only (.py, .c/.h, .js/.jsx), not ui.html, Dockerfile,
+shell scripts, workflows or Markdown: for those, say in the reply that Trail can't search
+them before reading them, and read only the file that needs the change.
 
 Before implementing changes:
 - Consult Trail's code map (`trail ask`, `trail map`, `trail skeleton`, `trail grep`) and the
