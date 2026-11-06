@@ -522,6 +522,21 @@ a packed game's sheet:
 Making an exFAT image of the original first changes nothing: the NAS unpacks
 it again before LZ4 packing. Originals are never converted.
 
+## Your own TOML profiles
+
+Put TOML profiles (and the `.include.txt` lists their `include_from` names) in
+`/volume2/docker/ps5-lz4/state/profiles/`. A profile is used for a game when:
+
+1. it is named after the game's Title ID (`PPSA01234.toml`); or
+2. every file its rules list (`include` paths and `include_from` lists, the
+   first 20, any letter case) is in the game, so a profile named after the
+   game, the way profiles are shared, needs no renaming; or
+3. its file name is part of the game's name.
+
+The packer then uses that profile instead of the bundled ones; the page's
+LZ4 level replaces the profile's `compression_level`. The game's sheet and log
+say which profile was used and why.
+
 ## Start check (would the LZ4 game start?)
 
 **🚦 Start check** under *On the PS5* in a game's sheet checks, through

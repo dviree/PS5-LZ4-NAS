@@ -561,12 +561,72 @@ def detect_engine(root: Path) -> str:
     return ""
 
 
+def profile_paths(toml: Path) -> list[str]:
+    """The plain file paths a profile's rules list (include and include_from,
+    globs left out), for matching a profile to a game by its files."""
+    import tomllib
+    try:
+        rules = tomllib.loads(toml.read_text(encoding="utf-8-sig")).get("rule") or []
+    except (OSError, ValueError):
+        return []
+    out = []
+    for r in rules if isinstance(rules, list) else []:
+        inc = r.get("include") or []
+        frm = r.get("include_from") or []
+        for v in ([inc] if isinstance(inc, str) else inc):
+            out.append(str(v))
+        for f in ([frm] if isinstance(frm, str) else frm):
+            try:
+                out += (toml.parent / str(f)).read_text(encoding="utf-8-sig").splitlines()
+            except OSError:
+                pass
+    return [p.strip().strip("/") for p in out if p.strip() and not any(c in p for c in "*?[")]
+
+
+def path_ci(root: Path, rel: str, cache: dict) -> bool:
+    """Whether rel exists under root, any letter case (profiles list lowercase paths)."""
+    cur = root
+    for part in rel.split("/"):
+        if cur not in cache:
+            try:
+                cache[cur] = {p.name.lower(): p for p in cur.iterdir()}
+            except OSError:
+                cache[cur] = {}
+        cur = cache[cur].get(part.lower())
+        if cur is None:
+            return False
+    return True
+
+
+def custom_profile_for(root: Path, name: str) -> tuple[Path | None, str]:
+    """A profile in state/profiles named any way (e.g. after the game) that
+    fits this game: every file its rules list (first 20 checked) is in the
+    game; else one whose file name is in the game's name."""
+    cache: dict = {}
+    best, best_n = None, 0
+    for toml in sorted(CUSTOM_PROFILES.glob("*.toml")):
+        paths = profile_paths(toml)[:20]
+        if paths and all(path_ci(root, p, cache) for p in paths) and len(paths) > best_n:
+            best, best_n = toml, len(paths)
+    if best:
+        return best, f"custom ({best.name}: the {best_n} files it lists are in the game)"
+    norm = "".join(c.lower() for c in name if c.isalnum())
+    for toml in sorted(CUSTOM_PROFILES.glob("*.toml")):
+        stem = "".join(c.lower() for c in toml.stem if c.isalnum())
+        if len(stem) >= 4 and stem in norm:
+            return toml, f"custom ({toml.name}: name match)"
+    return None, ""
+
+
 def choose_profile(title_id: str, name: str, root: Path) -> tuple[str | None, str]:
     """(toml path or None, description). Custom beats bundled beats scan."""
     if title_id:
         custom = CUSTOM_PROFILES / f"{title_id.upper()}.toml"
         if custom.is_file():
             return str(custom), f"custom ({custom.name})"
+    custom, why = custom_profile_for(root, name)
+    if custom:
+        return str(custom), why
     norm = "".join(c.lower() for c in name if c.isalnum())
     bundled = load_bundled_profiles()
     for p in bundled:
