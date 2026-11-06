@@ -25,6 +25,9 @@ After modifying code:
 - Run `trail check` when applicable.
 - Preserve and update relevant project learnings (`trail note --title "<about>"`).
 
+Keep Trail's "[trail] tokens saved" lines in the output (don't filter them away) and end
+every reply that used Trail with "🌱 trail saved ~N tokens this turn", N summed from them.
+
 If Trail-Code is unavailable, report that explicitly. Do not claim Trail checks were
 performed unless they actually ran.
 
