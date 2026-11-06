@@ -792,7 +792,8 @@ def resolve_targets(args_targets: list[str], entries: list[Entry]) -> list[Entry
 
 class Job:
     def __init__(self, entry: Entry, level: int, restore_test: bool,
-                 require_vhash: bool, codec: str = "lz4", runtime: str = "legacy"):
+                 require_vhash: bool, codec: str = "lz4", runtime: str = "legacy",
+                 use_profile: bool = True):
         if codec not in ("lz4", "zstd") or runtime not in ("legacy", "ng"):
             raise JobError("invalid codec or runtime")
         if codec == "zstd" and runtime != "ng":
@@ -800,6 +801,7 @@ class Job:
         if not 1 <= level <= (22 if codec == "zstd" else 12):
             raise JobError("compression level out of range")
         self.codec, self.runtime = codec, runtime
+        self.use_profile = use_profile  # False: no TOML, the packer's own scan decides
         entry.pack_codec = codec
         self.e = entry
         self.level = level
@@ -1006,7 +1008,8 @@ class Job:
             return
         if status != "compatible":
             raise Skip(reason)
-        profile, desc = choose_profile(self.state["title_id"], name, root)
+        profile, desc = (choose_profile(self.state["title_id"], name, root) if self.use_profile
+                         else (None, "no TOML (turned off for this game): automatic scan-based profile"))
         self.mark("check", ampr=reason, profile_path=profile, profile=desc)
         self.log(f"compatible: {reason}; profile: {desc}")
 
@@ -1308,7 +1311,8 @@ def process_one(e: Entry, args) -> str:
               "(use --force-image to pack the image)", flush=True)
         return "ok"
     job = Job(e, args.level, not args.no_restore_test, args.require_vhash,
-              getattr(args, "codec", "lz4"), getattr(args, "runtime", "legacy"))
+              getattr(args, "codec", "lz4"), getattr(args, "runtime", "legacy"),
+              not getattr(args, "no_profile", False))
     try:
         job.run()
         (REPORTS / f"{e.id}.skipped.json").unlink(missing_ok=True)
@@ -1442,7 +1446,8 @@ def cmd_start(args) -> int:
                                           "runtime": getattr(args, "runtime", "legacy"),
                                           "no_restore_test": args.no_restore_test,
                                           "require_vhash": args.require_vhash,
-                                          "force_image": args.force_image}}
+                                          "force_image": args.force_image,
+                                          "no_profile": getattr(args, "no_profile", False)}}
     # Refuse early if a job holds the lock.
     try:
         with open(LOCK_PATH, "a+") as fh:
@@ -1456,7 +1461,7 @@ def cmd_start(args) -> int:
     argv = ["nohup", sys.executable, os.path.abspath(__file__), "run", "--from-queue",
             "--level", str(opts.get("level", 9)), "--codec", opts.get("codec", "lz4"),
             "--runtime", opts.get("runtime", "legacy")]
-    for flag in ("no_restore_test", "require_vhash", "force_image"):
+    for flag in ("no_restore_test", "require_vhash", "force_image", "no_profile"):
         if opts.get(flag):
             argv.append("--" + flag.replace("_", "-"))
     with open(log, "a") as out:
@@ -6932,7 +6937,7 @@ def cmd_dashboard(_args) -> int:
 
 def queued_request(req: dict) -> dict:
     # Keep compression options across the UI-container -> worker-container queue.
-    return {k: req[k] for k in ("action", "game", "result", "codec", "runtime", "level") if k in req}
+    return {k: req[k] for k in ("action", "game", "result", "codec", "runtime", "level", "profile") if k in req}
 
 
 def run_request(req: dict) -> dict:
@@ -6954,6 +6959,8 @@ def run_request(req: dict) -> dict:
         if type(level) is not int or not 1 <= level <= (22 if codec == "zstd" else 12):
             return {"ok": False, "output": "invalid compression level"}
         argv += ["--codec", codec, "--runtime", runtime, "--level", str(level)]
+        if req.get("profile") is False:
+            argv.append("--no-profile")
     if action == "community":
         result = req.get("result")
         if result not in PLAY_STATES:
@@ -7849,6 +7856,8 @@ def main() -> int:
                         help="skip .ffpfsc images without a .vhash sidecar")
         sp.add_argument("--force-image", action="store_true",
                         help="pack an image even when a folder of the same game exists")
+        sp.add_argument("--no-profile", action="store_true",
+                        help="use no TOML profile (custom or bundled): the packer's own scan decides")
 
     sp = sub.add_parser("doctor", help="check the installation")
     sp.set_defaults(func=cmd_doctor)

@@ -533,6 +533,11 @@ Put TOML profiles (and the `.include.txt` lists their `include_from` names) in
    game, the way profiles are shared, needs no renaming; or
 3. its file name is part of the game's name.
 
+**Use TOML profile** next to Compression on the page (or `--no-profile` on
+the command line) turns profiles off for one pack: no custom or bundled
+profile, the packer's own scan decides. LZ4 NG and Zstd always use their
+own safety profile.
+
 The packer then uses that profile instead of the bundled ones; the page's
 LZ4 level replaces the profile's `compression_level`. The game's sheet and log
 say which profile was used and why.

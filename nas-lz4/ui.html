@@ -1155,9 +1155,10 @@ function removeImage(on, name) {
 function imageStop() {
   act('image_stop', 'Stop making the exFAT image? The half-made image is thrown away; the LZ4 folder is not touched.');
 }
-let packMode = 'legacy', packLevel = 9;
+let packMode = 'legacy', packLevel = 9, packProfile = true;
 function packOptions() {
-  return {codec: packMode === 'zstd' ? 'zstd' : 'lz4', runtime: packMode === 'legacy' ? 'legacy' : 'ng', level: packLevel};
+  return {codec: packMode === 'zstd' ? 'zstd' : 'lz4', runtime: packMode === 'legacy' ? 'legacy' : 'ng', level: packLevel,
+    profile: packProfile};
 }
 function selectPackMode(mode) {
   packMode = mode;
@@ -1174,6 +1175,8 @@ function packControls() {
     </select></label>
     <label>Level <input id="pack-level" type="number" min="1" max="${packMode === 'zstd' ? 22 : 12}" value="${packLevel}"
       style="width:70px;min-width:0" onchange="packLevel = Number(this.value)"></label>
+    <label title="Off: no TOML profile (yours in state/profiles or a bundled one); the packer's own scan decides what is packed. ampr-emu-ng always uses its own safety rules.">
+      <input type="checkbox" style="width:auto;min-width:0" ${packProfile ? 'checked' : ''} onchange="packProfile = this.checked"> Use TOML profile</label>
     <span class="mut">ampr-emu-ng: disable fakelib updates in ShadowMountPlus.</span></div>`;
 }
 function convertGame(id, codec) {
@@ -1187,7 +1190,8 @@ async function compress(id, send, image, options = packOptions()) {
   }
   if (opts.runtime === 'legacy' && !g.can_queue && !g.output) { alert(g.why || 'Use ampr-emu-ng for this game.'); return; }
   if (send && !s.ps5_ftp) { alert('Enter the PS5 address on the Remote tab first.'); tab('ps5'); return; }
-  const label = `${opts.codec.toUpperCase()} level ${opts.level} · ${opts.runtime === 'ng' ? 'ampr-emu-ng' : 'APR-EMU'}`;
+  const label = `${opts.codec.toUpperCase()} level ${opts.level} · ${opts.runtime === 'ng' ? 'ampr-emu-ng' : 'APR-EMU'}` +
+    (opts.runtime === 'legacy' && opts.profile === false ? ' · no TOML profile' : '');
   const note = data.running ? '\n\nStarts after the current job.' : '';
   const runtime = opts.runtime === 'ng' ? '\n\nDisable ShadowMountPlus fakelib updates so it keeps ampr-emu-ng.' : '';
   const then = image ? '\n\nThen make a verified exFAT image and send it to the PS5.' : send ? '\n\nSend the verified packed folder to the PS5.' : '';
