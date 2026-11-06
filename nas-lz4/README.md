@@ -14,6 +14,65 @@ Docker containers on the NAS. Nothing runs on the PS5 except the game.
 
 ![Web page](../.github/screenshot.png)
 
+## Zstd and ampr-emu-ng
+
+The game details sheet offers three compression modes:
+
+| Mode | Runtime installed in the output | Level |
+| --- | --- | --- |
+| LZ4 (existing) | APR-EMU PackedStdio 0.4.2.1 | 1–4 fast, 5–12 HC |
+| LZ4 with ampr-emu-ng | ampr-emu-ng 0.3.0 | 1–4 fast, 5–12 HC |
+| Zstd | ampr-emu-ng 0.3.0 | 1–22; suggested 5 |
+
+Select a mode and level, then **Compress selected format**. The existing
+Compress & send action uses the same selection. Bulk Compress all retains its
+existing LZ4 behavior. Finished outputs show their codec in the status and report.
+Originals are kept; a finished copy is never overwritten. One finished output
+per library entry is tracked: to change modes, remove that generated copy using
+the app first, while retaining the original.
+
+The NG modes use the pinned **PS5 Dump Forge 0.5.3 CLI**, install the pinned
+**ampr-emu-ng 0.3.0** release runtime, and pack all assets except system files.
+Zstd outputs use `-zstd`; LZ4 outputs use `-lz4`. They can be sent to the PS5 or
+wrapped in an exFAT image using the existing actions. Queue resume preserves the
+codec, runtime and level and refuses incompatible unfinished work.
+
+**On the PS5, mount with ShadowMountPlus and disable its fakelib update.**
+Otherwise ShadowMountPlus can replace `fakelib/libSceAmpr.sprx`, making the new
+packs unreadable. NAS Repair preserves NG and restores NG for a recorded NG job;
+it does not replace it with the legacy runtime or run the legacy loose-file repair
+on NG packs. Existing LZ4 copies retain the existing runtime until explicitly repacked.
+
+Every NG pack runs Forge with `--full-verify`: every output file is read back
+and compared. The optional restore test then unpacks and compares again, subject
+to the same configured size limit as LZ4. Verify on a finished NG output performs
+a full decode into temporary work space, so it needs room for the uncompressed
+files. Host verification does not establish console compatibility.
+
+CLI examples (inside the updated container):
+
+```sh
+ps5lz4 start PPSA01234 --codec zstd --runtime ng --level 5
+ps5lz4 start PPSA01234 --codec lz4 --runtime ng --level 9
+ps5lz4 start --resume
+ps5lz4 verify PPSA01234-zstd
+```
+
+The Docker build downloads a checksum-pinned Linux CLI for x86-64 or ARM64 and
+the checksum-pinned NG runtime. No tools are downloaded when a game is packed.
+Runtime source and attribution are installed under `/opt/ps5lz4/licenses/ps5-dump-forge`.
+The UI and worker containers must both use the updated image. Legacy community
+reports are not treated as NG/zstd compatibility evidence; NG/zstd play results
+are saved locally rather than submitted to the legacy LZ4 report list.
+
+Run the regression tests with a verified Forge binary:
+
+```sh
+FORGE_TEST_BINARY=/path/to/ps5-dump-forge python3 -m unittest discover -s tests/nas -v
+node tests/nas/test_pkg_groups.cjs
+```
+
+
 ## Install
 
 As root on the NAS (`sudo -i`):

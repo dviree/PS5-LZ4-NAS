@@ -503,7 +503,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
       <input id="c-q" placeholder="Search game or Title ID" oninput="renderComm()">
       <select id="c-f" onchange="renderComm()">
         <option value="">All</option><option value="works">Works</option>
-        <option value="problems">Problems (won't start / crashes)</option><option value="mine">Only my games</option>
+        <option value="problems">Problems (issues / won't start / crashes)</option><option value="mine">Only my games</option>
       </select>
       <select id="c-s" onchange="renderComm()">
         <option value="date">Latest report</option><option value="reports">Most reports</option><option value="name">Name</option>
@@ -616,6 +616,30 @@ async function loadPkgOnPs5() {
   renderPkgs(data);
 }
 const pkgShown = {};
+const pkgExpanded = new Set();
+function pkgGameGroups(packages, games = []) {
+  const groups = new Map(), rank = {Game: 0, App: 1, Update: 2, DLC: 3};
+  for (const p of packages) {
+    const tid = (p.title_id || '').trim().toUpperCase();
+    // Never combine unrelated packages without a valid Title ID.
+    const key = /^(PPSA|CUSA)\d{5}$/.test(tid) ? tid : 'pkg:' + p.id;
+    if (!groups.has(key)) groups.set(key, {key, tid, packages: []});
+    groups.get(key).packages.push(p);
+  }
+  for (const g of groups.values()) {
+    g.packages.sort((a, b) => (rank[a.category || 'Game'] ?? 4) - (rank[b.category || 'Game'] ?? 4)
+      || (a.name || '').localeCompare(b.name || '') || (b.version || '').localeCompare(a.version || '', undefined, {numeric: true}));
+    const base = g.packages.find(p => (p.category || 'Game') === 'Game');
+    const game = games.find(p => (p.title_id || '').toUpperCase() === g.tid);
+    g.name = (game && game.name) || (base && base.name) || g.tid || g.packages[0].name;
+  }
+  return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+function togglePkgGroup(k, key) {
+  const id = k + ':' + key;
+  if (pkgExpanded.has(id)) pkgExpanded.delete(id); else pkgExpanded.add(id);
+  renderPkgTab(data, k);
+}
 function renderPkgTab(d, k) {
   if (!d) return;
   const all = (d.pkgs || []).filter(p => !!p.ps4 === PKG_TABS[k].ps4), folders = d.pkg_folders || [];
@@ -635,7 +659,7 @@ function renderPkgTab(d, k) {
   document.getElementById(k + '-all').textContent = `⬇ Install all (${pk.length})`;
   const list = document.getElementById(k + '-list');
   if (!pk.length) { list.innerHTML = `<tr><td class="mut">${all.length ? 'No package matches.' : 'No .pkg files in these folders.'}</td></tr>`; return; }
-  list.innerHTML = '<tr><th>Package</th><th>Type</th><th class="num">Size</th><th>PS5</th><th></th></tr>' + pk.map(p => {
+  const packageRow = p => {
     const t = (d.transfers || {})[p.file], queued = (d.transfer_queue || []).includes('pkg:' + p.id), sending = tf && tf.game === p.file;
     const state = sending ? `<span class="pill p-run">⬆️ ${tf.total ? Math.floor(100 * tf.bytes / tf.total) : 0} %</span>`
       : queued ? '<span class="pill p-run">queued</span>'
@@ -651,7 +675,20 @@ function renderPkgTab(d, k) {
     return `<tr><td class="c-game"><img class="ico" alt="" loading="lazy" src="/api/pkg/icon?id=${encodeURIComponent(p.id)}" onerror="this.remove()"><span class="gname">${esc(p.name)}</span>
         <div class="why">${esc(p.title_id || '')}${p.version ? ' · v' + esc(p.version) : ''} · ${esc(p.file)} · ${esc(PKG_FOLDER[p.source] || p.source || '')}${p.same_as ? ` · <span class="mut">same as ${esc(p.same_as.split('/').pop())}</span>` : ''}${p.error ? ` · <span class="bad">${esc(p.error)}</span>` : ''}</div></td>
       <td><span class="pill p-no">${esc(p.category || 'Game')}</span></td><td class="num">${gb(p.size)}</td><td>${stateCell}</td><td>${btn}</td></tr>`;
-  }).join('');
+  };
+  list.innerHTML = '<thead><tr><th>Package</th><th>Type</th><th class="num">Size</th><th>PS5</th><th></th></tr></thead>' +
+    pkgGameGroups(pk, d.games || []).map(g => {
+      if (g.packages.length === 1) return '<tbody>' + packageRow(g.packages[0]) + '</tbody>';
+      const open = pkgExpanded.has(k + ':' + g.key);
+      const counts = {};
+      for (const p of g.packages) counts[p.category || 'Game'] = (counts[p.category || 'Game'] || 0) + 1;
+      const summary = Object.entries(counts).map(([type, n]) => `${n} ${type}`).join(' · ');
+      return `<tbody><tr class="pkg-group"><th colspan="5" style="text-align:left">
+        <button class="ghost" data-tab="${esc(k)}" data-group="${esc(g.key)}" aria-expanded="${open}"
+          onclick="togglePkgGroup(this.dataset.tab, this.dataset.group)">${open ? '▾' : '▸'} ${esc(g.name)} · ${g.packages.length} packages</button>
+        <span class="mut">${esc(g.tid)} · ${esc(summary)}</span></th></tr></tbody>
+        <tbody${open ? '' : ' hidden'}>${g.packages.map(packageRow).join('')}</tbody>`;
+    }).join('');
 }
 async function pkgInstallAll(k) {
   const s = data.settings || {}, btn = document.getElementById(k + '-all'), label = btn.textContent;
@@ -972,10 +1009,10 @@ function render() {
   const busy = d.running;
   document.getElementById('b-fix').disabled = false;
   document.getElementById('games').innerHTML =
-    '<tr><th>Game</th><th>Status</th><th class="num">Original</th><th class="num">LZ4</th><th class="num">Saved</th><th>PS5</th><th></th></tr>' +
+    '<tr><th>Game</th><th>Status</th><th class="num">Original</th><th class="num">Packed</th><th class="num">Saved</th><th>PS5</th><th></th></tr>' +
     d.games.map(g => {
       const v = g.running ? ['p-run', 'packing'] : g.queued ? ['p-run', 'queued'] :
-        g.verdict === 'LZ4' ? ['p-LZ4', 'LZ4'] : g.verdict === 'can be LZ4' ? ['p-can', 'can be LZ4'] :
+        g.verdict === 'LZ4' ? ['p-LZ4', g.pack_codec === 'zstd' ? 'Zstd' : 'LZ4'] : g.verdict === 'can be LZ4' ? ['p-can', 'can be LZ4'] :
         g.verdict === 'error' ? ['p-err', 'error'] : ['p-no', 'not LZ4'];
       const lz4 = g.verdict === 'LZ4' && g.output_bytes;
       const ps5 = !g.output_only && g.rel ? `<select onclick="event.stopPropagation()" data-game="${esc(g.id)}" onchange="this.blur();if(this.value)act('community',null,{game:this.dataset.game,result:this.value})">
@@ -989,7 +1026,7 @@ function render() {
         ? `<button class="sm pri" data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}" onclick="event.stopPropagation();push(this.dataset.id, this.dataset.name)">▶ Resume transfer</button>` : '';
       const why = g.verdict !== 'LZ4' && !g.running ? `<div class="why">${esc(g.why)}</div>` : '';
       const tx = txr && txr.state !== 'done' ? `<div class="cm">${xferText(txr)}</div>` : '';
-      return `<tr class="row" data-id="${esc(g.id)}" onclick="if(!event.target.closest('select,button,a'))openGame(this.dataset.id)"><td class="c-game"><img class="ico" alt="" loading="lazy" src="/api/icon?id=${encodeURIComponent(g.id)}" onerror="this.remove()"><span class="gname">${esc(g.name)}</span>${g.output_only ? '<span class="mine">LZ4 FOLDER</span>' : ''}${g.not_in_use ? '<span class="mine" title="Another copy of this game is in use (see Copies in its sheet)">NOT IN USE</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_EN[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div>${placeHtml(g)}<div class="cm">${community(g.community)}</div>${tx}${sendNext ? '<div class="cm"><span class="chip ok">⬆️ sent to the PS5 when packed</span></div>' : ''}${why}</td>
+      return `<tr class="row" data-id="${esc(g.id)}" onclick="if(!event.target.closest('select,button,a'))openGame(this.dataset.id)"><td class="c-game"><img class="ico" alt="" loading="lazy" src="/api/icon?id=${encodeURIComponent(g.id)}" onerror="this.remove()"><span class="gname">${esc(g.name)}</span>${g.output_only ? '<span class="mine">PACKED FOLDER</span>' : ''}${g.not_in_use ? '<span class="mine" title="Another copy of this game is in use (see Copies in its sheet)">NOT IN USE</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_EN[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div>${placeHtml(g)}<div class="cm">${community(g.community)}</div>${tx}${sendNext ? '<div class="cm"><span class="chip ok">⬆️ sent to the PS5 when packed</span></div>' : ''}${why}</td>
         <td class="c-status"><span class="pill ${v[0]}">${v[1]}</span></td>
         <td class="num c-src">${gb(g.source_bytes)}</td><td class="num c-out">${gb(g.output_bytes)}</td>
         <td class="num c-saved">${g.saved_percent != null ? `<b>${gb(g.source_bytes - g.output_bytes)}</b> saved · ${Math.round(g.saved_percent)} %<span class="mut mob"> · ${gb(g.source_bytes)} → ${gb(g.output_bytes)}</span>
@@ -1118,17 +1155,45 @@ function removeImage(on, name) {
 function imageStop() {
   act('image_stop', 'Stop making the exFAT image? The half-made image is thrown away; the LZ4 folder is not touched.');
 }
-async function compress(id, send, image) {
+let packMode = 'legacy', packLevel = 9;
+function packOptions() {
+  return {codec: packMode === 'zstd' ? 'zstd' : 'lz4', runtime: packMode === 'legacy' ? 'legacy' : 'ng', level: packLevel};
+}
+function selectPackMode(mode) {
+  packMode = mode;
+  packLevel = mode === 'zstd' ? 5 : 9;
+  const input = document.getElementById('pack-level');
+  if (input) { input.max = mode === 'zstd' ? 22 : 12; input.value = packLevel; }
+}
+function packControls() {
+  return `<div style="flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+    <label>Compression <select id="pack-mode" onchange="selectPackMode(this.value)">
+      <option value="legacy" ${packMode === 'legacy' ? 'selected' : ''}>LZ4 · APR-EMU (existing)</option>
+      <option value="ng" ${packMode === 'ng' ? 'selected' : ''}>LZ4 · ampr-emu-ng</option>
+      <option value="zstd" ${packMode === 'zstd' ? 'selected' : ''}>Zstd · ampr-emu-ng</option>
+    </select></label>
+    <label>Level <input id="pack-level" type="number" min="1" max="${packMode === 'zstd' ? 22 : 12}" value="${packLevel}"
+      style="width:70px;min-width:0" onchange="packLevel = Number(this.value)"></label>
+    <span class="mut">ampr-emu-ng: disable fakelib updates in ShadowMountPlus.</span></div>`;
+}
+function convertGame(id, codec) {
+  return compress(id, false, false, {codec, runtime: 'ng', level: codec === 'zstd' ? 5 : 9});
+}
+async function compress(id, send, image, options = packOptions()) {
   const g = (data.games || []).find(x => x.id === id) || {name: id};
-  const s = data.settings || {};
+  const s = data.settings || {}, opts = options;
+  if (!Number.isInteger(opts.level) || opts.level < 1 || opts.level > (opts.codec === 'zstd' ? 22 : 12)) {
+    alert('Choose a valid compression level.'); return;
+  }
+  if (opts.runtime === 'legacy' && !g.can_queue && !g.output) { alert(g.why || 'Use ampr-emu-ng for this game.'); return; }
   if (send && !s.ps5_ftp) { alert('Enter the PS5 address on the Remote tab first.'); tab('ps5'); return; }
-  const note = data.running ? '\n\nAnother game is being packed; this one starts when it is done.' : '';
-  const pfsc = g.kind === 'ffpfsc' ? `\n\nThis .ffpfsc image is already compressed (${gb(g.source_size)}). The LZ4 copy is usually about as large or larger, so it saves little or no space; Compress all leaves these out.` : '';
-  const then = image ? `\n\nThen an exFAT image of the LZ4 game is made and checked byte for byte, and the image is sent to ${s.ps5_ftp}${s.ps5_dest} by itself. Some games only start from an image.`
-    : send ? `\n\nWhen it is packed and checked, it is sent to ${s.ps5_ftp}${s.ps5_dest} by itself (queued if another transfer runs).` : '';
-  if (!confirm(`Compress ${g.name} with LZ4${send ? ' and send it to the PS5' : ''}?${pfsc}${note}${then}`)) return;
+  const label = `${opts.codec.toUpperCase()} level ${opts.level} · ${opts.runtime === 'ng' ? 'ampr-emu-ng' : 'APR-EMU'}`;
+  const note = data.running ? '\n\nStarts after the current job.' : '';
+  const runtime = opts.runtime === 'ng' ? '\n\nDisable ShadowMountPlus fakelib updates so it keeps ampr-emu-ng.' : '';
+  const then = image ? '\n\nThen make a verified exFAT image and send it to the PS5.' : send ? '\n\nSend the verified packed folder to the PS5.' : '';
+  if (!confirm(`Compress ${g.name} with ${label}?${note}${runtime}${then}`)) return;
   if (send) await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'send_after', game: id, image: !!image})});
-  act('start', null, {game: id});
+  act('start', null, {game: id, ...opts});
 }
 // The original project's site (it left GitHub on 2026-10-17): a new issue filled in
 // like its old report form, so the NAS can count it.
@@ -1159,6 +1224,7 @@ function ffpfscHtml(g, det) {
     `<div class="acts">${link}</div></div>`;
 }
 function communityHtml(g, det) {
+  if (g.pack_codec === 'zstd' || g.pack_runtime === 'ng') return '<div class="csec"><h4>Community reports</h4><div class="mut">The community list covers legacy LZ4. Results for zstd and ampr-emu-ng are saved locally and are not submitted as legacy LZ4 reports.</div></div>';
   if (!det) return '<div class="csec mut">Loading community reports…</div>';
   const c = det.community, web = det.community_web || ORIGIN_WEB, tid = det.title_id || g.title_id || '';
   const all = tid ? `<a href="${esc(web)}/issues?state=all&q=${encodeURIComponent(tid)}" target="_blank" rel="noopener">All reports</a>` : '';
@@ -1262,6 +1328,12 @@ function gameHtml(g, det) {
   if (w && w.error) rows.push(['Last error', `<span class="bad">${esc(w.error)}</span><div class="why">step ${esc(w.step || '')}</div>`]);
 
   const acts = [];
+  if (!g.output && !g.output_only && !g.running && !g.queued && !pendingFor(g.id)) {
+    acts.push(packControls());
+    acts.push(`<button class="pri" data-game="${esc(g.id)}" onclick="convertGame(this.dataset.game, 'zstd')" title="Zstd level 5 with ampr-emu-ng; keeps the original">Convert to Zstd</button>`,
+      `<button data-game="${esc(g.id)}" onclick="convertGame(this.dataset.game, 'lz4')" title="LZ4 level 9 with ampr-emu-ng; keeps the original">Convert to LZ4 (ampr-emu-ng)</button>`,
+      `<button class="ghost" data-game="${esc(g.id)}" onclick="compress(this.dataset.game, false)">Compress selected format</button>`);
+  }
   if (g.queued) acts.push(`<button class="danger" data-g="${esc(g.id)}" onclick="closeGame();queueRemove({game: this.dataset.g})">✕ Remove from queue</button>`);
   if (pendingFor(g.id)) acts.push(`<button class="danger" data-g="${esc(g.id)}" onclick="closeGame();queueRemove({file: ((data.requests.pending_list || []).find(r => r.action === 'start' && r.game === this.dataset.g) || {}).file})">✕ Cancel</button>`);
   if (pendingFor(g.id)) acts.push(`<span class="pill p-run">waiting to start</span><div class="why" style="flex-basis:100%">${esc(waitWhy())}</div>`);
@@ -1286,7 +1358,7 @@ function gameHtml(g, det) {
     ? `<button class="danger" data-g="${esc(g.id)}" onclick="deleteOriginal(this.dataset.g)">🗑 Delete original on NAS${g.verdict === 'LZ4' && (g.ps5 === 'works' || g.ps5 === 'issues') ? ' <small>(the LZ4 copy works on the PS5)</small>' : ''}</button>`
     : `<button class="ghost" onclick="alert(ORIG_OFF)">🗑 Delete original…</button>`);
   if (g.output && (g.verdict === 'LZ4' || g.output_only) && !g.running)
-    dels.push(`<button class="danger" data-g="${esc(g.id)}" data-n="${esc(g.name)}" onclick="deleteLz4(this.dataset.g, this.dataset.n)">🗑 Delete LZ4 copy on NAS</button>`);
+    dels.push(`<button class="danger" data-g="${esc(g.id)}" data-n="${esc(g.name)}" onclick="deleteLz4(this.dataset.g, this.dataset.n)">🗑 Delete packed copy on NAS</button>`);
   if (g.verdict !== 'LZ4' && !g.output_only && g.rel) {
     const key = g.rel.split('/').pop(), tro = (data.transfers || {})[key];
     acts.push(`<button class="${g.verdict === 'not LZ4' ? 'pri' : ''}" data-g="${esc(g.id)}" onclick="pushSrc(this.dataset.g)">${tro && tro.state === 'failed' ? '▶ Resume sending original' : tro && tro.state === 'done' ? 'Send original again' : 'Send original to PS5'}</button>`);
@@ -1965,8 +2037,11 @@ function ago(iso) {
 }
 async function loadComm(refresh) {
   try {
-    if (refresh) document.getElementById('c-sub').textContent = 'Fetching the reports from GitHub…';
-    comm = await (await fetch('/api/community' + (refresh ? '?refresh=1' : ''), {cache: 'no-store'})).json();
+    if (refresh) document.getElementById('c-sub').textContent = 'Fetching community reports…';
+    const r = await fetch('/api/community' + (refresh ? '?refresh=1' : ''), {cache: 'no-store'});
+    const next = await r.json();
+    if (!r.ok) throw new Error(next.error || r.status);
+    comm = next;
     renderComm();
   } catch (e) { document.getElementById('c-sub').textContent = 'Could not read the reports: ' + e; }
 }
@@ -1982,10 +2057,11 @@ function renderComm() {
     `${rows.length} games, ${total} reports from <a href="${esc(comm.web || ORIGIN_WEB)}/issues?state=all&labels=" target="_blank" rel="noopener">${esc(comm.repo)}</a>` +
     ` · ${{live: 'live from theghostonline.dev', repo: "from the original project's list", mirror: "from this fork's copy", bundled: 'from this image', image: 'from this image'}[comm.source] || ''}` +
     (comm.updated ? `, updated ${esc(ago(comm.updated))}` : '') +
+    (comm.refresh_error ? ` · <span class="bad">Refresh failed; showing saved reports: ${esc(comm.refresh_error)}</span>` : '') +
     ` · <button class="sm" onclick="loadComm(true)">Refresh now</button>`;
   if (q) rows = rows.filter(r => (r.name || '').toLowerCase().includes(q) || r.tid.toLowerCase().includes(q));
   if (f === 'works') rows = rows.filter(r => r.works);
-  if (f === 'problems') rows = rows.filter(r => r.noStart || r.crash);
+  if (f === 'problems') rows = rows.filter(r => r.issues || r.noStart || r.crash);
   if (f === 'mine') rows = rows.filter(r => mine.has(r.tid));
   const date = r => (r.lastReport || {}).date || '';
   rows.sort(sort === 'name' ? (a, b) => (a.name || '').localeCompare(b.name || '') :

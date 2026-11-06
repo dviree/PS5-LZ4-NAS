@@ -60,3 +60,18 @@ attribution term. The built app folder carries the framework's own `notices/`
 
 The `ORIGIN.md` file in each `third_party/` folder records where that copy came
 from and how it was checked.
+
+## PS5 Dump Forge and ampr-emu-ng (NAS packing)
+
+The NAS image includes the unmodified PS5 Dump Forge 0.5.3 CLI (GPL-3.0-or-later):
+https://github.com/quer3q/ps5-dump-forge/tree/v0.5.3
+
+Zstd and the optional LZ4 NG mode install the unmodified ampr-emu-ng 0.3.0 release
+runtime (GPL-3.0-or-later), SHA-256
+`5f39ca8ebe169aa15d8a8ba8ec2f9cd4195f509d55daaf4b4edbfa80b145035c`:
+https://github.com/quer3q/ampr-emu-ng/tree/v0.3.0
+
+`nas-lz4/install-forge.py` pins the release archive hashes and runtime provenance.
+The image includes Forge's license and dependency notices, NG's attribution, and
+NG's corresponding source archive under `/opt/ps5lz4/licenses/ps5-dump-forge`.
+Existing APR-EMU attribution above continues to apply to the legacy mode.

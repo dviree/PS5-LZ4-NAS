@@ -67,6 +67,10 @@ FREE_MARGIN = int(float(os.environ.get("PS5LZ4_FREE_MARGIN_GB", "20")) * 1024**3
 # Pinned APR-EMU PackedStdio runtime embedded in ampr_pack_cli.
 RUNTIME_SHA256 = "69e6c4d5e4f5fb83c9e01815db5861c4c75734acbf4595cafa50d4c218116d1a"
 RUNTIME_NAME = "APR-EMU PackedStdio 0.4.2.1"
+NG_SHA256 = "5f39ca8ebe169aa15d8a8ba8ec2f9cd4195f509d55daaf4b4edbfa80b145035c"
+NG_NAME = "ampr-emu-ng 0.3.0"
+NG_FILE = Path(os.environ.get("PS5LZ4_NG_RUNTIME", "/opt/ps5lz4/libSceAmpr-ng.sprx"))
+FORGE = os.environ.get("PS5LZ4_FORGE", "/usr/local/bin/ps5-dump-forge")
 RUNTIME_REL = "fakelib/libSceAmpr.sprx"
 RUNTIME_FILE = Path(os.environ.get("PS5LZ4_RUNTIME", "/opt/ps5lz4/libSceAmpr.sprx"))
 # Community game reports from the original project (compat/compat.json,
@@ -411,6 +415,8 @@ def ampr_status_folder(root: Path) -> tuple[str, str]:
     """('packed'|'compatible'|'incompatible', reason) for a game folder.
 
     Mirrors the PS5 engine (populate_lz4_state / title_imports_ampr)."""
+    if (root / "ampr_zstd.index").exists():
+        return "packed", "already zstd packed (ampr_zstd.index present)"
     if (root / "ampr_assets.index").exists():
         return "packed", "already LZ4 packed (ampr_assets.index present)"
     if glacier_folder(root):
@@ -460,7 +466,9 @@ def exfat_inspect(image: Path) -> dict:
             title_id, name = parse_param_json(b"".join(reader.read_file(pj)))
         total = sum(e.length for e in files.values())
         rt = prefix + "runtime/"
-        if get("ampr_assets.index"):
+        if get("ampr_zstd.index"):
+            status = ("packed", "already zstd packed (ampr_zstd.index present)")
+        elif get("ampr_assets.index"):
             status = ("packed", "already LZ4 packed (ampr_assets.index present)")
         elif glacier_names(k[len(rt):] for k in files if k.startswith(rt) and "/" not in k[len(rt):]):
             status = ("incompatible", GLACIER_WHY)
@@ -553,7 +561,11 @@ class Entry:
 
     @property
     def output(self) -> Path:
-        return OUTPUT / f"{self.id}-lz4"
+        codec = getattr(self, "pack_codec", None)
+        if codec is None:
+            rep = read_json(REPORTS / f"{self.id}.json", {}) or {}
+            codec = rep.get("pack_codec", "lz4")
+        return OUTPUT / f"{self.id}-{'zstd' if codec == 'zstd' else 'lz4'}"
 
     @property
     def work(self) -> Path:
@@ -680,7 +692,15 @@ def resolve_targets(args_targets: list[str], entries: list[Entry]) -> list[Entry
 
 class Job:
     def __init__(self, entry: Entry, level: int, restore_test: bool,
-                 require_vhash: bool):
+                 require_vhash: bool, codec: str = "lz4", runtime: str = "legacy"):
+        if codec not in ("lz4", "zstd") or runtime not in ("legacy", "ng"):
+            raise JobError("invalid codec or runtime")
+        if codec == "zstd" and runtime != "ng":
+            raise JobError("zstd requires ampr-emu-ng")
+        if not 1 <= level <= (22 if codec == "zstd" else 12):
+            raise JobError("compression level out of range")
+        self.codec, self.runtime = codec, runtime
+        entry.pack_codec = codec
         self.e = entry
         self.level = level
         self.restore_test = restore_test
@@ -876,6 +896,13 @@ class Job:
         if pj.is_file():
             tid, name = parse_param_json(pj.read_bytes())
         self.state.update(title_id=tid or self.e.title_id, title_name=name)
+        if self.runtime == "ng":
+            if is_packed(root):
+                raise Skip("source is already packed; unpack it before making a new copy")
+            if not (root / "eboot.bin").is_file():
+                raise Skip("no eboot.bin in source")
+            self.mark("check", ampr=NG_NAME, profile_path=None, profile="all assets except system files")
+            return
         if status != "compatible":
             raise Skip(reason)
         profile, desc = choose_profile(self.state["title_id"], name, root)
@@ -884,13 +911,23 @@ class Job:
 
     def step_pack(self, root: Path) -> Path:
         pack = self.work / "pack"
-        if self.done("pack") and (pack / "ampr_assets.index").is_file():
+        if self.done("pack") and is_packed(pack):
             self.log("resume: packs already built")
             return pack
         self.set_step("pack")
         remove_work_path(pack)
         _files, total = tree_bytes(root)
-        self.need_space(total, "LZ4 packs")
+        self.need_space(total, f"{self.codec.upper()} packs")
+        if self.runtime == "ng":
+            # Forge owns the codec, runtime injection, indexes and full read-back verification.
+            t0 = time.time()
+            self.run_tool(forge_command(root, pack, self.codec, self.level), "pack")
+            problem = lz4_format_problem(pack)
+            if problem or runtime_sha(pack) != NG_SHA256:
+                raise JobError(problem or "Forge installed an unexpected runtime")
+            self.mark("pack", pack_stats={"engine": "PS5 Dump Forge 0.5.3", "full_verify": True},
+                      pack_seconds=round(time.time() - t0))
+            return pack
         argv = [PACKER, "pack", str(root), str(pack), "--level", str(self.level),
                 "--workers", str(workers()), "--embedded-runtime",
                 "--install-runtime-if-missing", "--verify-loose", "--learn", str(PROFILES)]
@@ -912,6 +949,15 @@ class Job:
         if self.done("verify"):
             return
         self.set_step("verify")
+        if self.runtime == "ng":
+            problem = lz4_format_problem(pack)
+            if problem or not self.state.get("pack_stats", {}).get("full_verify"):
+                raise JobError(problem or "missing full verification from Forge")
+            self.mark("verify", verify_stats={"full_verify": True, "engine": "Forge"},
+                      pak_volumes=len(list(pack.glob("ampr_zstd-*.pak" if self.codec == "zstd" else "ampr_assets-*.pak"))),
+                      runtime_sha256=NG_SHA256)
+            self.log("verified: Forge read every output file back against the source; runtime SHA-256 matches")
+            return
         out = self.run_tool([PACKER, "verify", str(pack), str(root)], "verify")
         stats = json.loads(out.strip().splitlines()[-1])
         # The result must really be AMPR LZ4: manifest, data volumes, runtime.
@@ -946,7 +992,8 @@ class Job:
         restore = self.work / "restore"
         remove_work_path(restore)
         self.need_space(total, "restore test")
-        self.run_tool([PACKER, "unpack", str(pack), str(restore)], "restore")
+        self.run_tool(forge_command(pack, restore, self.codec, self.level, unpack=True) if self.runtime == "ng"
+                      else [PACKER, "unpack", str(pack), str(restore)], "restore")
         expected_extra = {"ampr_emu.index", RUNTIME_REL}
         same = 0
         problems: list[str] = []
@@ -1016,7 +1063,9 @@ class Job:
             "title_name": st.get("title_name"),
             "output": str(Path(HOST_OUTPUT) / e.output.name),
             "finished": now(),
-            "codec": f"LZ4 HC level {self.level}" if self.level >= 5 else f"LZ4 fast level {self.level}",
+            "codec": f"Zstd level {self.level}" if self.codec == "zstd" else f"LZ4 level {self.level}",
+            "pack_codec": self.codec,
+            "pack_runtime": self.runtime,
             "workers": workers(),
             "profile": st.get("profile"),
             "ampr": st.get("ampr"),
@@ -1044,6 +1093,12 @@ class Job:
             "verified_on_nas": True,
             "playable_on_ps5": "not tested: needs a console run (see README)",
         }
+        if self.runtime == "ng":
+            report["verification"].update(
+                pack_byte_compare="passed (PS5 Dump Forge --full-verify)",
+                full_verify="passed (every output file read back and compared by Forge)",
+                format=("AMPRZPK1 / AMPRZDT1" if self.codec == "zstd" else "AMPRPAK4 / AMPRDAT3"),
+                runtime=f"{NG_NAME} {NG_SHA256}")
         if any(boot.values()):
             report["boot_files"] = boot
         if report["image_bytes"]:
@@ -1057,12 +1112,16 @@ class Job:
         e = self.e
         self.work.mkdir(parents=True, exist_ok=True)
         self.state = read_json(self.state_path, {}) or {}
+        old_options = (self.state.get("codec", "lz4"), self.state.get("runtime", "legacy"), self.state.get("level", self.level))
+        if self.state.get("done") and old_options != (self.codec, self.runtime, self.level):
+            raise JobError("unfinished job uses different compression settings; resume with its original options")
+        self.state.update(codec=self.codec, runtime=self.runtime, level=self.level)
         self.state.setdefault("id", e.id)
         self.state.setdefault("source", e.rel)
         self.state.setdefault("started", now())
         self.state.pop("error", None)
         self.save()
-        self.log(f"start {e.kind} {e.rel} (LZ4 level {self.level}, {workers()} workers)")
+        self.log(f"start {e.kind} {e.rel} ({self.codec.upper()} level {self.level}, {self.runtime} runtime, {workers()} workers)")
         if self.state.get("done"):
             self.log(f"resuming after: {', '.join(self.state['done'])}")
         root = self.step_source()
@@ -1145,7 +1204,8 @@ def process_one(e: Entry, args) -> str:
         print(f"[{now()}] {e.id}: skipped, the folder {e.duplicate_of} has the same game "
               "(use --force-image to pack the image)", flush=True)
         return "ok"
-    job = Job(e, args.level, not args.no_restore_test, args.require_vhash)
+    job = Job(e, args.level, not args.no_restore_test, args.require_vhash,
+              getattr(args, "codec", "lz4"), getattr(args, "runtime", "legacy"))
     try:
         job.run()
         (REPORTS / f"{e.id}.skipped.json").unlink(missing_ok=True)
@@ -1275,6 +1335,8 @@ def cmd_start(args) -> int:
             targets = resolve_targets(args.targets, entries)
         q = {"created": now(), "remaining": [e.id for e in targets], "finished": [], "failed": [],
              "current": None, "options": {"level": args.level,
+                                          "codec": getattr(args, "codec", "lz4"),
+                                          "runtime": getattr(args, "runtime", "legacy"),
                                           "no_restore_test": args.no_restore_test,
                                           "require_vhash": args.require_vhash,
                                           "force_image": args.force_image}}
@@ -1289,7 +1351,8 @@ def cmd_start(args) -> int:
     opts = q.get("options", {})
     log = LOGS / f"queue-{_dt.datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
     argv = ["nohup", sys.executable, os.path.abspath(__file__), "run", "--from-queue",
-            "--level", str(opts.get("level", 9))]
+            "--level", str(opts.get("level", 9)), "--codec", opts.get("codec", "lz4"),
+            "--runtime", opts.get("runtime", "legacy")]
     for flag in ("no_restore_test", "require_vhash", "force_image"):
         if opts.get(flag):
             argv.append("--" + flag.replace("_", "-"))
@@ -1355,31 +1418,87 @@ def cmd_scan(args) -> int:
     return 0
 
 
+def packed_codec(game: Path) -> str:
+    return "zstd" if (game / "ampr_zstd.index").is_file() else "lz4"
+
+
+def packed_index(game: Path) -> Path:
+    return game / ("ampr_zstd.index" if packed_codec(game) == "zstd" else "ampr_assets.index")
+
+
+def is_packed(game: Path) -> bool:
+    return packed_index(game).is_file()
+
+
+def runtime_sha(game: Path) -> str:
+    rt = find_runtime(game)
+    return hashlib.sha256(rt.read_bytes()).hexdigest() if rt else ""
+
+
+def runtime_name(sha: str) -> str:
+    return NG_NAME if sha == NG_SHA256 else RUNTIME_NAME if sha == RUNTIME_SHA256 else f"unknown runtime ({sha[:12]})"
+
+
+def requires_ng(game: Path) -> bool:
+    rep = read_json(REPORTS / (re.sub(r"-(lz4|zstd)$", "", game.name) + ".json"), {}) or {}
+    return packed_codec(game) == "zstd" or rep.get("pack_runtime") == "ng" or runtime_sha(game) == NG_SHA256
+
+
+def runtime_ok(game: Path, sha: str) -> bool:
+    return sha == NG_SHA256 if requires_ng(game) else sha in (NG_SHA256, RUNTIME_SHA256)
+
+
+def compare_game_files(source: Path, decoded: Path) -> list[str]:
+    generated = {"ampr_emu.index", RUNTIME_REL, "ampr_commands.bin", "ampr_emu.log", "apr_emu.log"}
+    expected = {p.relative_to(source).as_posix(): p for p in source.rglob("*") if p.is_file()}
+    actual = {p.relative_to(decoded).as_posix(): p for p in decoded.rglob("*") if p.is_file()}
+    problems = []
+    for name in expected.keys() | actual.keys():
+        if name in generated:
+            continue
+        if name not in expected or name not in actual or not files_equal(expected[name], actual[name]):
+            problems.append(name)
+    return problems
+
+
+def forge_command(source: Path, output: Path, codec: str, level: int, unpack: bool = False) -> list[str]:
+    if codec not in ("lz4", "zstd") or not 1 <= level <= (22 if codec == "zstd" else 12):
+        raise JobError("invalid compression codec or level")
+    argv = [FORGE, "convert", str(source), "--to", "folder", "-o", str(output), "--full-verify", "--threads", str(workers())]
+    if unpack:
+        return argv + ["--zstd-unpack" if codec == "zstd" else "--lz4-unpack"]
+    if codec == "zstd":
+        return argv + ["--zstd-pack", "--zstd-level", str(level)]
+    return argv + ["--lz4-pack", "--lz4-runtime", "ng", "--lz4-level", str(level if level >= 5 else 0)]
+
+
 def lz4_format_problem(game: Path) -> str | None:
-    """None when the folder is a complete AMPR LZ4 game, else what is wrong."""
-    index = game / "ampr_assets.index"
+    """None when the folder is a complete supported AMPR packed game."""
+    zstd = packed_codec(game) == "zstd"
+    index = packed_index(game)
     if not index.is_file():
-        return "no ampr_assets.index (not LZ4-packed)"
+        return "no AMPR pack index"
     with open(index, "rb") as f:
         magic = f.read(8)
-    if magic != b"AMPRPAK4":
-        return f"ampr_assets.index has magic {magic!r}, expected AMPRPAK4"
-    paks = sorted(game.glob("ampr_assets-*.pak"))
+    expected = b"AMPRZPK1" if zstd else b"AMPRPAK4"
+    if magic != expected:
+        return f"{index.name} has magic {magic!r}, expected {expected!r}"
+    paks = sorted(game.glob("ampr_zstd-*.pak" if zstd else "ampr_assets-*.pak"))
     if not paks:
         return "no .pak volumes"
     for p in paks:
         with open(p, "rb") as f:
-            if f.read(8) != b"AMPRDAT3":
-                return f"{p.name} is not an AMPRDAT3 volume"
+            if f.read(8) != (b"AMPRZDT1" if zstd else b"AMPRDAT3"):
+                return f"{p.name} has the wrong pack volume format"
     runtime = find_runtime(game)
     if runtime is None:
         return f"{RUNTIME_REL} missing"
     sha = hashlib.sha256(runtime.read_bytes()).hexdigest()
-    if sha != RUNTIME_SHA256:
-        return f"{RUNTIME_REL} is not the PackedStdio runtime ({sha[:12]}); run: apr --fix"
+    if not runtime_ok(game, sha):
+        return f"{RUNTIME_REL} is not a supported {'ampr-emu-ng' if zstd else 'LZ4'} runtime ({sha[:12]})"
     # ampr_assets.index.runtime is optional: profiles without a [runtime]
     # section (e.g. Insomniac) leave APR-EMU on its default cache settings.
-    for side in ("ampr_assets.index.crc", "ampr_emu.index"):
+    for side in (("ampr_emu.index",) if zstd else ("ampr_assets.index.crc", "ampr_emu.index")):
         if not (game / side).is_file():
             return f"{side} missing"
     return None
@@ -1448,7 +1567,7 @@ def classify(e: "Entry", res: dict, cache: dict | None = None) -> tuple[str, str
     st = res["status"]
     if st == "done":
         problem = lz4_format_problem(e.output) if e.output.is_dir() else "output folder missing"
-        if not problem and e.kind == "folder" and glacier_folder(e.path):
+        if not problem and runtime_sha(e.output) != NG_SHA256 and e.kind == "folder" and glacier_folder(e.path):
             problem = GLACIER_WHY.replace("keep it unpacked", "delete this LZ4 copy and send the original")
         return ("LZ4", res["detail"], False) if not problem else ("error", problem, False)
     if st == "skipped":
@@ -1609,10 +1728,8 @@ def compat_status(text: str, title: str = "") -> str | None:
         return "noStart"
     if "works with issues" in t:
         return "issues"
-    if re.match(r"works?\b", t):
-        return "works"
     if re.search(r"won'?t (start|boot|load|launch)|can'?t (start|boot|load|launch)|cannot (start|boot|load|launch)"
-                 r"|(does|did)n'?t (start|boot|load|launch)|not (start|boot|load|launch)|black screen|freez|stuck", t):
+                 r"|(does|did)n'?t (start|boot|load|launch|work)|not (start|boot|load|launch|work)|black screen|freez|stuck", t):
         return "noStart"
     if "crash" in t:
         return "crash"
@@ -1639,14 +1756,18 @@ def compat_aggregate(issues: list[dict]) -> dict:
         if "compat" not in labels and not str(issue.get("title") or "").startswith("[Game report]"):
             continue
         fields = {}
-        parts = re.split(r"(?m)^### +(.+?)\s*$", issue.get("body") or "")
+        # Accept both the issue form's Markdown and manually pasted plain labels.
+        # Horizontal whitespace only: blank values must not consume the next label.
+        headings = "|".join(re.escape(k) for k in COMPAT_FIELDS)
+        parts = re.split(r"(?im)^(?:###[ \t]+)?(" + headings + r")[ \t]*:?[ \t]*\r?$",
+                         issue.get("body") or "")
         for i in range(1, len(parts) - 1, 2):
             key = COMPAT_FIELDS.get(parts[i].strip().lower())
             val = parts[i + 1].strip()
             if key and val not in ("", "_No response_", "None"):
                 fields[key] = val
         tid = clean(fields.get("titleId"), 16).upper()
-        status = compat_status(clean(fields.get("status"), 80), issue.get("title") or "")
+        status = compat_status(clean(fields.get("status"), 2000), issue.get("title") or "")
         if not re.fullmatch(r"[A-Z]{4}\d{5}", tid) or not status:
             continue
         # Reports moved over from GitHub start with their original issue, author (when known) and date.
@@ -1701,8 +1822,12 @@ def compat_refresh() -> dict:
             data = read_json(COMPAT_BUNDLED, None)
             if data and isinstance(data.get("games"), dict):
                 data["source"] = "bundled"
+        cached = compat_data()
+        if isinstance(cached.get("games"), dict) and (not data or cached.get("updated", "") >= data.get("updated", "")):
+            data = dict(cached)
         if not data or not isinstance(data.get("games"), dict):
             raise err
+        data["refresh_error"] = str(err)
         write_json(COMPAT_LIVE, data)
         return data
 
@@ -1812,6 +1937,9 @@ def cmd_community(args) -> int:
     print(f"saved: {e.id}: PS5 {label}")
     source = {"folder": "Folder", "exfat": "exFAT image", "ffpfsc": "Uncompressed .ffpfsc"}.get(e.kind, "")
     name = (rep.get("title_name") or e.id)[:60]
+    if rep.get("pack_codec") == "zstd" or rep.get("pack_runtime") == "ng":
+        print("result saved locally; this codec/runtime is not counted in the legacy LZ4 community reports")
+        return 0
     url = report_url(rep.get("title_id") or e.title_id, name, form,
                      game_version(e.output, *([e.path] if e.kind == "folder" else []),
                                   name=e.rel).get("version", ""),
@@ -1864,8 +1992,23 @@ def cmd_verify(args) -> int:
     target = Path(args.output)
     if not target.is_absolute():
         target = OUTPUT / args.output
-    if not (target / "ampr_assets.index").is_file():
-        raise SystemExit(f"{target} has no ampr_assets.index")
+    if not is_packed(target):
+        raise SystemExit(f"{target} has no packed index")
+    if requires_ng(target):
+        problem = lz4_format_problem(target)
+        if problem:
+            print(problem)
+            return 3
+        import tempfile
+        # Independent full decode; Forge validates every frame and compares all
+        # logical output bytes. Temporary files stay in the configured work area.
+        with tempfile.TemporaryDirectory(prefix="verify-ng-", dir=WORK) as tmp:
+            decoded = Path(tmp) / "decoded"
+            rc = subprocess.call(nice_prefix() + forge_command(target, decoded, packed_codec(target), 5, unpack=True))
+            if rc == 0 and args.source:
+                rc = 3 if compare_game_files(Path(args.source), decoded) else 0
+        print("verify passed" if rc == 0 else f"verify FAILED (exit {rc})")
+        return rc
     argv = [PACKER, "verify", str(target)] + ([args.source] if args.source else [])
     rc = subprocess.call(nice_prefix() + argv)
     rt = find_runtime(target)
@@ -2073,7 +2216,7 @@ def boot_files(root: Path, repair: bool) -> dict:
             else:
                 r["needed"].append("a PlayGo emulator in fakelib")
     # After the runtime rename. LZ4 packs list files that live inside the packs: skipped.
-    if not (root / "ampr_assets.index").is_file():
+    if not is_packed(root):
         miss = ampr_index_stale(root)
         if miss and repair:
             os.replace(root / "ampr_emu.index", root / "ampr_emu.index.stale")
@@ -2087,19 +2230,19 @@ def boot_files(root: Path, repair: bool) -> dict:
 def lz4_game_sig(g: Path) -> str:
     """Changes when the packs, the runtime or the top level of the folder change."""
     rt = find_runtime(g)
-    return file_sig(g, g / "ampr_assets.index", g / "ampr_assets.index.crc", rt or g / RUNTIME_REL)
+    return file_sig(g, packed_index(g), g / "ampr_assets.index.crc", rt or g / RUNTIME_REL)
 
 
 def cmd_apr(args) -> int:
-    """Check every LZ4 game: PackedStdio APR-EMU, on-disk files, the runtime folder
+    """Check every packed game: its matching AMPR runtime, on-disk files, the runtime folder
     name and PlayGo emulator a game needs to boot; --fix repairs them.
     Games whose files haven't changed since their last check reuse that result
     (state/ps5lz4.db) unless --full is given."""
     ensure_dirs()
     games = sorted(p for p in OUTPUT.iterdir()
-                   if p.is_dir() and (p / "ampr_assets.index").is_file())
+                   if p.is_dir() and is_packed(p))
     if not games:
-        print(f"no LZ4 games in {OUTPUT}")
+        print(f"no packed games in {OUTPUT}")
         return 0
     if args.fix:
         if not RUNTIME_FILE.is_file() or \
@@ -2121,7 +2264,7 @@ def cmd_apr(args) -> int:
             state = "MISSING APR-EMU"
         else:
             sha = hashlib.sha256(rt.read_bytes()).hexdigest()
-            state = "ok" if sha == RUNTIME_SHA256 else f"WRONG APR-EMU ({sha[:12]}, not PackedStdio)"
+            state = "ok" if runtime_ok(g, sha) else f"WRONG RUNTIME ({sha[:12]})"
         if state != "ok":
             ok = False
             if args.fix:
@@ -2129,7 +2272,11 @@ def cmd_apr(args) -> int:
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 os.chmod(dst.parent, 0o755)
                 tmp = dst.with_name(dst.name + ".tmp")
-                shutil.copyfile(RUNTIME_FILE, tmp)
+                runtime_file = NG_FILE if requires_ng(g) else RUNTIME_FILE
+                expected_sha = NG_SHA256 if requires_ng(g) else RUNTIME_SHA256
+                if not runtime_file.is_file() or hashlib.sha256(runtime_file.read_bytes()).hexdigest() != expected_sha:
+                    raise SystemExit("matching pinned runtime is missing; update the container")
+                shutil.copyfile(runtime_file, tmp)
                 os.chmod(tmp, 0o755)
                 os.replace(tmp, dst)
                 state += " -> FIXED"
@@ -2137,18 +2284,19 @@ def cmd_apr(args) -> int:
         # Files the PS5 looks for on disk (PlayGo markers, empty files, some
         # boot files) must exist next to the packs; packs made before
         # upstream 1.4.3 may hold them only inside. --fix writes them out.
-        out = subprocess.run([PACKER, "disk-files", str(g)] + (["--repair"] if args.fix else []),
-                             capture_output=True, text=True)
-        m = re.search(r"missing=(\d+) restored=(\d+)", out.stdout)
-        if m and int(m.group(1)):
-            state += f"; {m.group(1)} disk file(s) only in packs"
-            if args.fix:
-                state += f" -> {m.group(2)} restored"
-            else:
+        if runtime_sha(g) != NG_SHA256:
+            out = subprocess.run([PACKER, "disk-files", str(g)] + (["--repair"] if args.fix else []),
+                                 capture_output=True, text=True)
+            m = re.search(r"missing=(\d+) restored=(\d+)", out.stdout)
+            if m and int(m.group(1)):
+                state += f"; {m.group(1)} disk file(s) only in packs"
+                if args.fix:
+                    state += f" -> {m.group(2)} restored"
+                else:
+                    ok = False
+            elif not m:
+                state += f"; disk-file check failed: {(out.stderr or out.stdout).strip()[-120:]}"
                 ok = False
-        elif not m:
-            state += f"; disk-file check failed: {(out.stderr or out.stdout).strip()[-120:]}"
-            ok = False
         try:
             boot = boot_files(g, repair=args.fix)
         except OSError as err:
@@ -2209,20 +2357,20 @@ def cmd_remove(args) -> int:
     Its report goes too, so the game shows as 'can be LZ4' again."""
     ensure_dirs()
     out = output_for(args.game)
-    if out.parent != OUTPUT or not out.name.endswith("-lz4") or not (out / "ampr_assets.index").is_file():
+    if out.parent != OUTPUT or not out.name.endswith(("-lz4", "-zstd")) or not is_packed(out):
         raise SystemExit(f"{out} is not an LZ4 copy in {OUTPUT}")
     if under(out, LIBRARY):
         raise SystemExit(f"refusing to delete inside the library: {out}")
     running, _ = job_running()
     q = read_json(QUEUE_PATH, {}) or {}
-    if running and q.get("current") and out.name == f"{q['current']}-lz4":
+    if running and q.get("current") and out.name in (f"{q['current']}-lz4", f"{q['current']}-zstd"):
         raise SystemExit("that game is being packed right now; stop the job first")
     _files, size = tree_bytes(out)
     shutil.rmtree(out)
     for e in scan_library():
         if e.output == out:
             (REPORTS / f"{e.id}.json").unlink(missing_ok=True)
-    (REPORTS / f"{out.name[: -len('-lz4')]}.json").unlink(missing_ok=True)
+    (REPORTS / f"{out.name.rsplit('-', 1)[0]}.json").unlink(missing_ok=True)
     print(f"deleted {out.name} ({human(size)}) from {HOST_OUTPUT}; the original is untouched")
     return 0
 
@@ -2575,7 +2723,9 @@ def ps5_ftp_apr(path: str) -> dict:
     path = ps5_ftp_path(path)
     f = ps5_ftp_connect()
     try:
-        fl = next((i["name"] for i in ps5_ftp_list_conn(f, path) if i["dir"] and i["name"].lower() == "fakelib"), None)
+        entries = ps5_ftp_list_conn(f, path)
+        zstd = any(i["name"] == "ampr_zstd.index" for i in entries)
+        fl = next((i["name"] for i in entries if i["dir"] and i["name"].lower() == "fakelib"), None)
         if not fl:
             return {"path": None, "ok": False, "build": "missing: no fakelib folder"}
         lib = next((i["name"] for i in ps5_ftp_list_conn(f, f"{path}/{fl}")
@@ -2585,8 +2735,8 @@ def ps5_ftp_apr(path: str) -> dict:
         h = hashlib.sha256()
         f.retrbinary(f"RETR {path}/{fl}/{lib}", h.update)
         sha = h.hexdigest()
-        return {"path": f"{path}/{fl}/{lib}", "ok": sha == RUNTIME_SHA256,
-                "build": RUNTIME_NAME if sha == RUNTIME_SHA256 else f"another build ({sha[:12]}), not PackedStdio"}
+        return {"path": f"{path}/{fl}/{lib}", "ok": sha == NG_SHA256 if zstd else sha in (RUNTIME_SHA256, NG_SHA256),
+                "build": runtime_name(sha)}
     except ftplib.error_perm as err:
         raise ValueError(f"{path}: {err}")
     finally:
@@ -2644,9 +2794,9 @@ def ps5_ftp_icon(path: str) -> bytes | None:
 
 
 def nas_icon(game_id: str) -> bytes | None:
-    """sce_sys/icon0.png from a game's LZ4 folder, its source folder, or from
+    """sce_sys/icon0.png from a packed game folder, its source folder, or from
     inside its .exfat / .ffpfsc / .ffpfs image."""
-    cands = [OUTPUT / game_id, OUTPUT / f"{game_id}-lz4"]
+    cands = [OUTPUT / game_id, OUTPUT / f"{game_id}-lz4", OUTPUT / f"{game_id}-zstd"]
     image = None
     for e in scan_library():
         if e.id == game_id:
@@ -3385,7 +3535,8 @@ def ps5_games() -> dict:
                         names = {i["name"].lower(): i for i in ps5_ftp_list_conn(f, path)}
                     except ftplib.all_errors:
                         names = {}
-                    g["lz4"] = "ampr_assets.index" in names
+                    g["lz4"] = "ampr_assets.index" in names or "ampr_zstd.index" in names
+                    g["pack_codec"] = "zstd" if "ampr_zstd.index" in names else "lz4"
                     g["fakelib"] = "fakelib" in names
                     buf = bytearray()
                     try:
@@ -4151,8 +4302,8 @@ def launch_check(tid: str) -> dict:
             low = {n.lower() for n in names or []}
             if names is None:
                 notes.append(f"{root} can't be read over FTP")
-            elif "ampr_assets.index" not in low:
-                notes.append("not an LZ4 packed game (no ampr_assets.index): nothing to check for APR-EMU")
+            elif not {"ampr_assets.index", "ampr_zstd.index"} & low:
+                notes.append("not an AMPR packed game: no LZ4 or zstd index")
             else:
                 fl = {n.lower() for n in ps5_ftp_names(f, f"{root}/fakelib") or []}
                 if "libsceampr.sprx" not in fl:
@@ -4325,8 +4476,9 @@ def transfer_running() -> dict | None:
 
 def output_for(game: str) -> Path:
     """Resolve a library id/name or an LZ4 folder name to the LZ4 folder."""
-    for cand in (OUTPUT / game, OUTPUT / f"{game}-lz4", OUTPUT / f"{safe_name(game)}-lz4"):
-        if cand.is_dir() and (cand / "ampr_assets.index").is_file() and cand.parent == OUTPUT:
+    for cand in (OUTPUT / game, OUTPUT / f"{game}-lz4", OUTPUT / f"{safe_name(game)}-lz4",
+                 OUTPUT / f"{game}-zstd", OUTPUT / f"{safe_name(game)}-zstd"):
+        if cand.is_dir() and is_packed(cand) and cand.parent == OUTPUT:
             return cand
     for e in scan_library():
         if game in (e.id, e.rel, e.title_id) and e.output.is_dir():
@@ -4509,7 +4661,7 @@ def library_duplicates() -> list[dict]:
             items.append({"id": e.id, "rel": e.rel, "kind": e.kind, "version": ver, "size": size,
                           "used": not e.duplicate_of,
                           "path": str(Path(HOST_LIBRARY) / e.rel),
-                          "lz4": e.output.is_dir() and (e.output / "ampr_assets.index").is_file()})
+                          "lz4": e.output.is_dir() and is_packed(e.output)})
         newest = max(items, key=lambda i: (_ver_key(i["version"]), i["kind"] == "folder"))
         for i in items:
             i["newest"] = i is newest
@@ -4828,14 +4980,14 @@ def lz4_image_path(out: Path) -> Path:
 
 
 def cmd_make_exfat(args) -> int:
-    """Make an .exfat image of a finished LZ4 copy, next to it in the output folder."""
+    """Make an .exfat image of a finished packed copy, next to it in the output folder."""
     ensure_dirs()
     out = output_for(args.game)
     problem = lz4_format_problem(out)
     if problem:
         raise SystemExit(f"{out.name} is not a complete LZ4 game: {problem}")
     q = read_json(QUEUE_PATH, {}) or {}
-    if job_running()[0] and q.get("current") and out.name == f"{q['current']}-lz4":
+    if job_running()[0] and q.get("current") and out.name in (f"{q['current']}-lz4", f"{q['current']}-zstd"):
         raise SystemExit("that game is being packed right now")
     lock = _image_lock()
     key = out.name
@@ -4856,15 +5008,15 @@ def cmd_make_exfat(args) -> int:
 
 
 def cmd_remove_exfat(args) -> int:
-    """Delete the .exfat image of an LZ4 copy (the LZ4 folder stays)."""
+    """Delete a generated .exfat image while keeping its packed folder."""
     ensure_dirs()
-    name = args.game if args.game.endswith("-lz4") else output_for(args.game).name
+    name = args.game if args.game.endswith(("-lz4", "-zstd")) else output_for(args.game).name
     img = OUTPUT / f"{name}.exfat"
     if img.parent != OUTPUT or not img.is_file():
         raise SystemExit(f"no image {img.name} in {OUTPUT}")
     img.unlink()
     (IMAGES / f"{name}.json").unlink(missing_ok=True)
-    print(f"deleted {img.name}; the LZ4 folder {name} stays")
+    print(f"deleted {img.name}; the packed folder {name} stays")
     return 0
 
 
@@ -4880,8 +5032,9 @@ def images_data() -> dict:
             jobs[f.stem] = st
     ready = {}
     if OUTPUT.is_dir():
-        for f in OUTPUT.glob("*-lz4.exfat"):
-            ready[f.name[: -len(".exfat")]] = f.stat().st_size
+        for f in OUTPUT.glob("*.exfat"):
+            if f.name.endswith(("-lz4.exfat", "-zstd.exfat")):
+                ready[f.name[: -len(".exfat")]] = f.stat().st_size
     return {"jobs": jobs, "ready": ready}
 
 
@@ -5453,7 +5606,7 @@ def image_meta(path: Path) -> dict:
     if key in _img_meta:
         return _img_meta[key]
     m = TITLE_RE.search(path.name)
-    stem = re.sub(r"-lz4$", "", path.stem)
+    stem = re.sub(r"-(?:lz4|zstd)$", "", path.stem)
     stem = re.sub(r"\s*\[[^\]]*\]|\s*\([^)]*\)|\s*_[A-Z]{4}\d{5}_\s*", " ", stem).strip()
     info = {"title": stem or path.stem,
             "title_id": m.group(0).upper() if m else "", "icon": None}
@@ -5509,8 +5662,9 @@ def catalog_images() -> list[tuple[str, Path, str | None]]:
         if e.kind in ("exfat", "ffpfs", "ffpfsc"):
             out.append((f"img/lib/{e.id}", e.path, e.id))
     if OUTPUT.is_dir():
-        for f in sorted(OUTPUT.glob("*-lz4.exfat")):
-            out.append((f"img/out/{f.name}", f, f.name[: -len("-lz4.exfat")]))
+        for f in sorted(OUTPUT.glob("*.exfat")):
+            if f.name.endswith(("-lz4.exfat", "-zstd.exfat")):
+                out.append((f"img/out/{f.name}", f, re.sub(r"-(?:lz4|zstd)\.exfat$", "", f.name)))
     _cat_cache.update(at=time.time(), list=out)
     return out
 
@@ -5917,10 +6071,10 @@ def push_one(game: str, force: bool = False) -> int:
     if pkg:
         out = pkg_path(game[4:])  # a PS4 package, as one file
     elif image:
-        # An LZ4 copy's .exfat image from the output folder, as one file.
+        # A generated packed-game .exfat image from the output folder, as one file.
         out = OUTPUT / game[4:]
-        if "/" in game[4:] or not out.name.endswith("-lz4.exfat") or not out.is_file():
-            raise SystemExit(f"{game[4:]} is not an LZ4 image in the output folder")
+        if "/" in game[4:] or not out.name.endswith(("-lz4.exfat", "-zstd.exfat")) or not out.is_file():
+            raise SystemExit(f"{game[4:]} is not a packed-game image in the output folder")
     elif game.startswith("src:"):
         entry = next((x for x in scan_library() if x.id == game[4:]), None)
         if entry is None:
@@ -6284,6 +6438,23 @@ def work_progress(w: Path) -> tuple[int, int, str] | None:
         if m:
             best = (int(m[-1][0]), int(m[-1][1]), PROGRESS_PHASE.get(errf.stem, ""))
     st = read_json(w / "state.json", {}) or {}
+    if st.get("runtime") == "ng":
+        phase = str(st.get("step", "")).split(" ")[0]
+        path = w / f"{phase}.out"
+        try:
+            with path.open("rb") as f:
+                f.seek(max(0, f.seek(0, 2) - 16384))
+                for line in reversed(f.read().decode(errors="replace").splitlines()):
+                    try:
+                        event = json.loads(line)
+                    except ValueError:
+                        continue
+                    if event.get("kind") == "progress":
+                        best = (int(event.get("done", 0)), int(event.get("total", 0)),
+                                f"{st.get('codec', 'lz4')} {event.get('stage', phase)}")
+                        break
+        except OSError:
+            pass
     exp = st.get("expect")
     if best is None and exp and str(st.get("step", "")).startswith("source"):
         # Unpacking an image: how much of the expected size is on disk so far.
@@ -6341,9 +6512,9 @@ def job_eta(current: str, st: dict, prog, restore_test: bool = True) -> dict | N
 
 
 def lz4_folder_info(out: Path, cache: dict | None = None) -> dict:
-    """Size, file count and pack volumes of an LZ4 game folder (cached by mtime)."""
+    """Size, file count and pack volumes of a packed game folder (cached by mtime)."""
     try:
-        sig = f"{int(out.stat().st_mtime)}:{int((out / 'ampr_assets.index').stat().st_mtime)}"
+        sig = f"{int(out.stat().st_mtime)}:{int(packed_index(out).stat().st_mtime)}"
     except OSError:
         sig = None
     key = "out:" + str(out)
@@ -6352,7 +6523,7 @@ def lz4_folder_info(out: Path, cache: dict | None = None) -> dict:
         return hit["info"]
     files, total = tree_bytes(out)
     info = {"path": str(Path(HOST_OUTPUT) / out.name), "files": files, "bytes": total,
-            "paks": len(list(out.glob("ampr_assets-*.pak"))), "problem": lz4_format_problem(out)}
+            "pack_codec": packed_codec(out), "paks": len(list(out.glob("ampr_zstd-*.pak" if packed_codec(out) == "zstd" else "ampr_assets-*.pak"))), "problem": lz4_format_problem(out)}
     pj = out / "sce_sys" / "param.json"
     if pj.is_file():
         try:
@@ -6399,6 +6570,7 @@ def dashboard_data() -> dict:
                "can_queue": can, "running": e.id == current,
                "queued": e.id in (queue.get("remaining") or []) and running,
                "source_bytes": rep.get("source_bytes"), "output_bytes": rep.get("output_bytes"),
+               "pack_codec": rep.get("pack_codec", "lz4"), "pack_runtime": rep.get("pack_runtime", "legacy"),
                "saved_percent": rep.get("saved_percent"), "ps5": ps5_result(e.id), "finished": rep.get("finished"),
                "community": {k: g.get(k, 0) for k in ("works", "issues", "noStart", "crash", "reports")},
                "output": str(Path(HOST_OUTPUT) / e.output.name) if e.output.is_dir() else None}
@@ -6412,12 +6584,12 @@ def dashboard_data() -> dict:
     known = {e.output.name for e in entries}
     for out in sorted(OUTPUT.iterdir()) if OUTPUT.is_dir() else []:
         if out.name.startswith(".") or out.name in known or not out.is_dir() \
-                or not (out / "ampr_assets.index").is_file():
+                or not is_packed(out):
             continue
         info = lz4_folder_info(out, cache)
         rep = {}
         for f in REPORTS.glob("*.json"):
-            if f.name == out.name[: -len("-lz4")] + ".json":
+            if f.name == re.sub(r"-(lz4|zstd)$", "", out.name) + ".json":
                 rep = read_json(f, {}) or {}
         tid = (info.get("title_id") or rep.get("title_id") or "").upper()
         if not tid:
@@ -6430,6 +6602,7 @@ def dashboard_data() -> dict:
                      "verdict": "LZ4" if not problem else "error",
                      "why": "only in the LZ4 folder (the original is not in the library)" if not problem else problem,
                      "can_queue": False, "running": False, "queued": False, "output_only": True,
+                     "pack_codec": packed_codec(out), "pack_runtime": "ng" if runtime_sha(out) == NG_SHA256 else "legacy",
                      "source_bytes": rep.get("source_bytes"), "output_bytes": rep.get("output_bytes") or info["bytes"],
                      "saved_percent": rep.get("saved_percent"), "ps5": rep.get("ps5_result"),
                      "community": {k: g.get(k, 0) for k in ("works", "issues", "noStart", "crash", "reports")},
@@ -6568,7 +6741,7 @@ def game_detail(game_id: str) -> dict:
             break
     if out is None and (OUTPUT / game_id).is_dir():
         out = OUTPUT / game_id
-        rep = rep or read_json(REPORTS / f"{game_id[: -len('-lz4')]}.json") or {}
+        rep = rep or read_json(REPORTS / f"{game_id.rsplit('-', 1)[0]}.json") or {}
     cache = CheckDB()
     folder = lz4_folder_info(out, cache) if out and out.is_dir() else None
     cache.close()
@@ -6583,8 +6756,7 @@ def game_detail(game_id: str) -> dict:
         rt = find_runtime(out)
         if rt:
             sha = hashlib.sha256(rt.read_bytes()).hexdigest()
-            apr = {"path": str(Path(HOST_OUTPUT) / rt.relative_to(OUTPUT)), "ok": sha == RUNTIME_SHA256,
-                   "build": RUNTIME_NAME if sha == RUNTIME_SHA256 else f"another build ({sha[:12]})"}
+            apr = {"path": str(Path(HOST_OUTPUT) / rt.relative_to(OUTPUT)), "ok": runtime_ok(out, sha), "build": runtime_name(sha)}
         else:
             apr = {"path": None, "ok": False, "build": "missing"}
     src = next((e for e in scan_library() if e.id == game_id), None)
@@ -6607,6 +6779,11 @@ def cmd_dashboard(_args) -> int:
     return 0
 
 
+def queued_request(req: dict) -> dict:
+    # Keep compression options across the UI-container -> worker-container queue.
+    return {k: req[k] for k in ("action", "game", "result", "codec", "runtime", "level") if k in req}
+
+
 def run_request(req: dict) -> dict:
     action = req.get("action")
     if action not in UI_ACTIONS:
@@ -6618,6 +6795,14 @@ def run_request(req: dict) -> dict:
         if not game or game.startswith("-") or len(game) > 300:
             return {"ok": False, "output": "no game given"}
         argv.append(game)
+    if action == "start":
+        codec, runtime = req.get("codec", "lz4"), req.get("runtime", "legacy")
+        level = req.get("level", 5 if codec == "zstd" else 9)
+        if codec not in ("lz4", "zstd") or runtime not in ("legacy", "ng") or (codec == "zstd" and runtime != "ng"):
+            return {"ok": False, "output": "invalid compression mode"}
+        if type(level) is not int or not 1 <= level <= (22 if codec == "zstd" else 12):
+            return {"ok": False, "output": "invalid compression level"}
+        argv += ["--codec", codec, "--runtime", runtime, "--level", str(level)]
     if action == "community":
         result = req.get("result")
         if result not in PLAY_STATES:
@@ -7098,7 +7283,7 @@ def cmd_ui(args) -> int:
                         print(f"[{now()}] community reports not refreshed: {err}", flush=True)
                 data = compat_data()
                 body = {"repo": COMPAT_REPO, "web": ORIGIN_WEB, "updated": data.get("updated"), "source": data.get("source") or "image",
-                        "games": data.get("games") or {}}
+                        "games": data.get("games") or {}, "refresh_error": data.get("refresh_error")}
                 return self.send(200, json.dumps(body, ensure_ascii=False).encode())
             if self.path == "/api/dashboard":
                 with lock:
@@ -7456,7 +7641,7 @@ def cmd_ui(args) -> int:
                 return self.send(200, b'{"send_after":true}')
             if req.get("action") not in UI_ACTIONS:
                 return self.send(400, b'{"error":"unknown action"}')
-            req = {k: req.get(k) for k in ("action", "game", "result")}
+            req = queued_request(req)
             req["asked"] = now()
             name = f"{int(time.time() * 1000)}-{os.getpid()}"
             write_json(REQUESTS / f"{name}.req.json", req)
@@ -7502,8 +7687,11 @@ def main() -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def job_opts(sp):
+        sp.add_argument("--codec", choices=("lz4", "zstd"), default="lz4")
+        sp.add_argument("--runtime", choices=("legacy", "ng"), default="legacy",
+                        help="ng installs ampr-emu-ng; required for zstd")
         sp.add_argument("--level", type=int, default=int(os.environ.get("PS5LZ4_LEVEL", "9")),
-                        help="LZ4 level: 1-4 fast, 5-12 HC (default 9)")
+                        help="LZ4: 1-4 fast, 5-12 HC; zstd: 1-22 (suggested 5)")
         sp.add_argument("--no-restore-test", action="store_true",
                         help="skip the full unpack-and-compare step (not recommended)")
         sp.add_argument("--require-vhash", action="store_true",
@@ -7539,7 +7727,7 @@ def main() -> int:
     sp.set_defaults(func=cmd_status)
     sp = sub.add_parser("stop", help="stop the running job (resumable)")
     sp.set_defaults(func=cmd_stop)
-    sp = sub.add_parser("report", help="sizes and savings of finished games")
+    sp = sub.add_parser("report", help="sizes and savings of finished packed games")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_report)
     sp = sub.add_parser("verify", help="re-verify a finished output folder")
