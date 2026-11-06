@@ -1,0 +1,820 @@
+diff --git a/crates/ampr-sys/src/rt/hook.rs b/crates/ampr-sys/src/rt/hook.rs
+index c56c61a..603f050 100644
+--- a/crates/ampr-sys/src/rt/hook.rs
++++ b/crates/ampr-sys/src/rt/hook.rs
+@@ -32,9 +32,9 @@ const PROT_RX: c_int = sys::SCE_KERNEL_PROT_CPU_READ | sys::SCE_KERNEL_PROT_CPU_
+ const _: () = {
+     assert!(PAGE % TRAMP_SIZE == 0 && SLOTS_PER_PAGE <= 32);
+     assert!(POOL_COPY_PAGES <= 64 && TRAMP_PAGES == 4);
+-    // Debug builds add the 10 probe slots 100..=109 (rt/probe.rs); both fit
++    // Debug builds add the 8 probe slots 110..=117 (rt/probe.rs); all fit
+     // the 4 trampoline pages.
+-    assert!(HOOK_COUNT == 100 + 10 * cfg!(feature = "mem_report") as usize);
++    assert!(HOOK_COUNT == 110 + 8 * cfg!(feature = "mem_report") as usize);
+ };
+ 
+ // ---- detour state (guarded by HOOK_LOCK) -------------------------------------
+@@ -120,7 +120,12 @@ use super::pack::zstd_libc::{
+ use super::pack::{
+     posix_close_emul, posix_fstat_emul, posix_getdents_emul, posix_getdirentries_emul,
+     posix_lseek_emul, posix_pread_emul, posix_preadv_emul, posix_read_emul, posix_readv_emul,
+-    sceKernelClose_emul, sceKernelFstat_emul, sceKernelGetdents_emul, sceKernelGetdirentries_emul,
++    sceKernelAioCancelRequest_emul, sceKernelAioCancelRequests_emul,
++    sceKernelAioDeleteRequest_emul, sceKernelAioDeleteRequests_emul,
++    sceKernelAioPollRequest_emul, sceKernelAioPollRequests_emul,
++    sceKernelAioSubmitReadCommandsMultiple_emul, sceKernelAioSubmitReadCommands_emul,
++    sceKernelAioWaitRequest_emul, sceKernelAioWaitRequests_emul, sceKernelClose_emul,
++    sceKernelFstat_emul, sceKernelGetdents_emul, sceKernelGetdirentries_emul,
+     sceKernelLseek_emul, sceKernelPread_emul, sceKernelPreadv_emul, sceKernelRead_emul,
+     sceKernelReadv_emul,
+ };
+@@ -275,14 +280,24 @@ static HOOKS: Table<HookSpec, HOOK_COUNT> = Table(specs![
+     // original.
+     c"munmap" => munmap_emul, O;
+     c"sceKernelMunmap" => sceKernelMunmap_emul, O;
++    // Both pack formats: a packed file opened through plain open() is a
++    // virtual descriptor, so the kernel AIO entry points must understand it
++    // (rt/pack/aio.rs, aio_wait.rs). A batch with no virtual descriptor
++    // forwards to the original; a single-id submit groups its batch.
++    c"sceKernelAioSubmitReadCommands" => sceKernelAioSubmitReadCommands_emul, O;
++    c"sceKernelAioSubmitReadCommandsMultiple" => sceKernelAioSubmitReadCommandsMultiple_emul, O;
++    c"sceKernelAioPollRequest" => sceKernelAioPollRequest_emul, O;
++    c"sceKernelAioPollRequests" => sceKernelAioPollRequests_emul, O;
++    c"sceKernelAioWaitRequest" => sceKernelAioWaitRequest_emul, O;
++    c"sceKernelAioWaitRequests" => sceKernelAioWaitRequests_emul, O;
++    c"sceKernelAioCancelRequest" => sceKernelAioCancelRequest_emul, O;
++    c"sceKernelAioCancelRequests" => sceKernelAioCancelRequests_emul, O;
++    c"sceKernelAioDeleteRequest" => sceKernelAioDeleteRequest_emul, O;
++    c"sceKernelAioDeleteRequests" => sceKernelAioDeleteRequests_emul, O;
+     // Debug, both pack formats: pass-through observers of APIs the runtime
+     // does not serve for packed files (rt/probe.rs); each calls its own
+     // original.
+     #[cfg(feature = "mem_report")]
+-    c"sceKernelAioSubmitReadCommands" => probe::sceKernelAioSubmitReadCommands_probe, O;
+-    #[cfg(feature = "mem_report")]
+-    c"sceKernelAioSubmitReadCommandsMultiple" => probe::sceKernelAioSubmitReadCommandsMultiple_probe, O;
+-    #[cfg(feature = "mem_report")]
+     c"dup" => probe::dup_probe, O;
+     #[cfg(feature = "mem_report")]
+     c"dup2" => probe::dup2_probe, O;
+@@ -1473,9 +1488,10 @@ pub(crate) const fn observed_only(id: usize) -> bool {
+ /// (GitHub issue #2). A title with no packs gets the shared 78 only, as in
+ /// v0.2.0. Of the ids past 78, 84..96 also need their `ZSTD_LIBC_HOOKS`
+ /// bit (or, in debug builds, `observed_only`), 96 and 97
+-/// need `AMPR_ZSTD_MMAP` on, 98 and 99 need it at 1 (rt/pack/mmap.rs), and
+-/// 100..110 exist only in debug builds (rt/probe.rs). The knobs keep their
+-/// zstd names but apply to both formats.
++/// need `AMPR_ZSTD_MMAP` on, 98 and 99 need it at 1 (rt/pack/mmap.rs),
++/// 100..=109 are the AIO emulation in both builds, and 110..=117 exist
++/// only in debug builds (rt/probe.rs). The knobs keep their zstd names but
++/// apply to both formats.
+ fn hook_enabled(id: usize) -> bool {
+     if id < FALLBACK_SHARED.len() {
+         return true;
+diff --git a/crates/ampr-sys/src/rt/pack/aio.rs b/crates/ampr-sys/src/rt/pack/aio.rs
+index f04cac3..d71873a 100644
+--- a/crates/ampr-sys/src/rt/pack/aio.rs
++++ b/crates/ampr-sys/src/rt/pack/aio.rs
+@@ -147,6 +147,11 @@ pub unsafe fn sceKernelAioSubmitReadCommandsMultiple(
+     {
+         return SCE_KERNEL_ERROR_EINVAL;
+     }
++    // The job reads the manifest, which shutdown frees; a submit after the
++    // gate closed fails like a read of a gone mount.
++    let Some(_reader) = ManifestReader::enter() else {
++        return SCE_KERNEL_ERROR_EIO;
++    };
+     unsafe {
+         if !has_virtual_fd(requests, count) {
+             return match real_aio_submit() {
+@@ -599,3 +604,104 @@ pub unsafe fn sceKernelAioPollRequests(
+         0
+     }
+ }
++
++// ---- process-visible AIO entry points -----------------------------------------
++
++pub unsafe extern "C" fn sceKernelAioSubmitReadCommandsMultiple_emul(
++    requests: *mut SceKernelAioRWRequest,
++    count: c_int,
++    priority: c_int,
++    ids: *mut SceKernelAioSubmitId,
++) -> c_int {
++    unsafe { sceKernelAioSubmitReadCommandsMultiple(requests, count, priority, ids) }
++}
++
++/// Single-id submit: a virtual batch becomes one group id the caller can
++/// poll, wait, cancel and delete as a unit (each child stays in the tables).
++pub unsafe fn sceKernelAioSubmitReadCommands(
++    requests: *mut SceKernelAioRWRequest,
++    count: c_int,
++    priority: c_int,
++    id: *mut SceKernelAioSubmitId,
++) -> c_int {
++    unsafe {
++        if requests.is_null()
++            || id.is_null()
++            || count <= 0
++            || count as usize > SCE_KERNEL_AIO_REQUEST_NUM_MAX
++        {
++            return SCE_KERNEL_ERROR_EINVAL;
++        }
++        if !has_virtual_fd(requests, count) {
++            return match real_aio_submit_single() {
++                Some(f) => f(requests, count, priority, id),
++                None => SCE_KERNEL_ERROR_EIO,
++            };
++        }
++        const N: usize = SCE_KERNEL_AIO_REQUEST_NUM_MAX;
++        let state = pack_state();
++        let submission = PackSubmission::new(state);
++        if !submission.admitted() {
++            return SCE_KERNEL_ERROR_EBUSY;
++        }
++        let (group_index, group_generation) = {
++            let _lock = PACK_M.lock();
++            let index = allocate_virtual_aio_group_locked(state);
++            if index == INVALID_INDEX {
++                return SCE_KERNEL_ERROR_EAGAIN;
++            }
++            (index, (*state).virtual_aio_groups[index as usize].generation)
++        };
++        let mut children = [0 as SceKernelAioSubmitId; N];
++        let rc =
++            sceKernelAioSubmitReadCommandsMultiple(requests, count, priority, children.as_mut_ptr());
++        if rc != 0 {
++            let _lock = PACK_M.lock();
++            free_virtual_aio_group_locked(state, group_index);
++            return rc;
++        }
++        let published = {
++            let _lock = PACK_M.lock();
++            let group = &mut (*state).virtual_aio_groups[group_index as usize];
++            if !group.active || group.generation != group_generation {
++                false
++            } else {
++                let n = count as usize;
++                group.children[..n].copy_from_slice(&children[..n]);
++                group.child_count = n as u16;
++                *id = encode_virtual_aio_group(group_index, group_generation);
++                true
++            }
++        };
++        if !published {
++            let mut results = [0 as c_int; N];
++            let _ = sceKernelAioDeleteRequests(children.as_mut_ptr(), count, results.as_mut_ptr());
++            return SCE_KERNEL_ERROR_EIO;
++        }
++        0
++    }
++}
++
++pub unsafe extern "C" fn sceKernelAioSubmitReadCommands_emul(
++    requests: *mut SceKernelAioRWRequest,
++    count: c_int,
++    priority: c_int,
++    id: *mut SceKernelAioSubmitId,
++) -> c_int {
++    unsafe { sceKernelAioSubmitReadCommands(requests, count, priority, id) }
++}
++
++pub unsafe extern "C" fn sceKernelAioPollRequest_emul(
++    id: SceKernelAioSubmitId,
++    state_out: *mut c_int,
++) -> c_int {
++    unsafe { sceKernelAioPollRequest(id, state_out) }
++}
++
++pub unsafe extern "C" fn sceKernelAioPollRequests_emul(
++    ids: *mut SceKernelAioSubmitId,
++    count: c_int,
++    states: *mut c_int,
++) -> c_int {
++    unsafe { sceKernelAioPollRequests(ids, count, states) }
++}
+diff --git a/crates/ampr-sys/src/rt/pack/aio_wait.rs b/crates/ampr-sys/src/rt/pack/aio_wait.rs
+index 13f5f56..8158270 100644
+--- a/crates/ampr-sys/src/rt/pack/aio_wait.rs
++++ b/crates/ampr-sys/src/rt/pack/aio_wait.rs
+@@ -386,3 +386,305 @@ pub unsafe fn sceKernelAioDeleteRequest(id: SceKernelAioSubmitId, result_out: *m
+         0
+     }
+ }
++
++// ---- single-id and process entry points ---------------------------------------
++
++pub unsafe fn sceKernelAioWaitRequest(
++    id: SceKernelAioSubmitId,
++    state_out: *mut c_int,
++    usec: *mut SceKernelUseconds,
++) -> c_int {
++    unsafe {
++        if state_out.is_null() {
++            return SCE_KERNEL_ERROR_EINVAL;
++        }
++        if !has_virtual_aio_tag(id)
++            && !decode_virtual_aio_group(id, null_mut(), null_mut())
++        {
++            return match real_aio_wait_single() {
++                Some(f) => f(id, state_out, usec),
++                None => SCE_KERNEL_ERROR_EIO,
++            };
++        }
++        let mut id = id;
++        sceKernelAioWaitRequests(&raw mut id, 1, state_out, SCE_KERNEL_AIO_WAIT_AND, usec)
++    }
++}
++
++/// Cancel states of a group's children, aggregated like the kernel's.
++fn cancel_aggregate(child_states: &[c_int]) -> c_int {
++    let mut aggregate = SCE_KERNEL_AIO_STATE_COMPLETED;
++    for &st in child_states {
++        if st < 0 {
++            return st;
++        }
++        let child = st & !SCE_KERNEL_AIO_STATE_NOTIFIED;
++        if child == SCE_KERNEL_AIO_STATE_ABORTED {
++            aggregate = SCE_KERNEL_AIO_STATE_ABORTED;
++        } else if child == SCE_KERNEL_AIO_STATE_PROCESSING
++            && aggregate != SCE_KERNEL_AIO_STATE_ABORTED
++        {
++            aggregate = SCE_KERNEL_AIO_STATE_PROCESSING;
++        } else if child == SCE_KERNEL_AIO_STATE_SUBMITTED
++            && aggregate == SCE_KERNEL_AIO_STATE_COMPLETED
++        {
++            aggregate = SCE_KERNEL_AIO_STATE_SUBMITTED;
++        }
++    }
++    aggregate
++}
++
++/// Cancel marks the job and reports its state; a queued job that never
++/// reached a pipeline is completed as aborted at once.
++pub unsafe fn sceKernelAioCancelRequests(
++    ids: *mut SceKernelAioSubmitId,
++    count: c_int,
++    states: *mut c_int,
++) -> c_int {
++    unsafe {
++        if ids.is_null()
++            || states.is_null()
++            || count <= 0
++            || count as usize > SCE_KERNEL_AIO_ID_NUM_MAX
++        {
++            return SCE_KERNEL_ERROR_EINVAL;
++        }
++        const N: usize = SCE_KERNEL_AIO_REQUEST_NUM_MAX;
++        let n = count as usize;
++        let mut has_synthetic = false;
++        let mut has_group = false;
++        for i in 0..n {
++            let id = *ids.add(i);
++            has_synthetic |= has_virtual_aio_tag(id);
++            if !has_group && decode_virtual_aio_group(id, null_mut(), null_mut()) {
++                has_group = true;
++            }
++        }
++        if has_group {
++            for i in 0..n {
++                let rc = sceKernelAioCancelRequest(*ids.add(i), states.add(i));
++                if rc != 0 {
++                    return rc;
++                }
++            }
++            return 0;
++        }
++        if !has_synthetic {
++            return match real_aio_cancel() {
++                Some(f) => f(ids, count, states),
++                None => SCE_KERNEL_ERROR_EIO,
++            };
++        }
++        let state = pack_state();
++        let mut completed_queued = false;
++        let mut real_ids = [0 as SceKernelAioSubmitId; N];
++        let mut real_states = [0 as c_int; N];
++        let mut real_positions = [0usize; N];
++        let mut real_count = 0usize;
++        {
++            let _lock = PACK_M.lock();
++            for i in 0..n {
++                let id = *ids.add(i);
++                if !has_virtual_aio_tag(id) {
++                    real_positions[real_count] = i;
++                    real_ids[real_count] = id;
++                    real_count += 1;
++                    continue;
++                }
++                let mut index = 0u32;
++                let aio = lookup_virtual_aio_locked(state, id, &mut index);
++                if aio.is_null() {
++                    *states.add(i) = SCE_KERNEL_ERROR_ESRCH;
++                    continue;
++                }
++                (*aio).cancel_requested.store(true, Ordering::Release);
++                match (*aio).phase {
++                    VirtualAioPhase::Reserved => {
++                        complete_virtual_job(
++                            state,
++                            index,
++                            SCE_KERNEL_ERROR_ECANCELED as i64,
++                            SCE_KERNEL_AIO_STATE_ABORTED,
++                        );
++                        *states.add(i) = SCE_KERNEL_AIO_STATE_ABORTED;
++                        completed_queued = true;
++                    }
++                    VirtualAioPhase::Queued => {
++                        if (*aio).pipeline_index != INVALID_INDEX
++                            || !queue_remove_locked(state, index)
++                        {
++                            *states.add(i) = SCE_KERNEL_AIO_STATE_PROCESSING;
++                        } else {
++                            complete_virtual_job(
++                                state,
++                                index,
++                                SCE_KERNEL_ERROR_ECANCELED as i64,
++                                SCE_KERNEL_AIO_STATE_ABORTED,
++                            );
++                            *states.add(i) = SCE_KERNEL_AIO_STATE_ABORTED;
++                            completed_queued = true;
++                        }
++                    }
++                    VirtualAioPhase::WaitingCache => {
++                        queue_cache_waiter_locked(state, index, pack_telemetry_usecs());
++                        *states.add(i) = SCE_KERNEL_AIO_STATE_PROCESSING;
++                        completed_queued = true;
++                    }
++                    VirtualAioPhase::WaitingFd => {
++                        queue_fd_waiter_locked(state, index, pack_telemetry_usecs());
++                        *states.add(i) = SCE_KERNEL_AIO_STATE_PROCESSING;
++                        completed_queued = true;
++                    }
++                    VirtualAioPhase::Running | VirtualAioPhase::IoQueued => {
++                        *states.add(i) = SCE_KERNEL_AIO_STATE_PROCESSING;
++                    }
++                    VirtualAioPhase::Done => *states.add(i) = (*aio).completion_state,
++                    VirtualAioPhase::Free => *states.add(i) = SCE_KERNEL_ERROR_ESRCH,
++                }
++            }
++        }
++        if completed_queued {
++            QUEUE_CV.notify_all();
++        }
++        if real_count != 0 {
++            let Some(f) = real_aio_cancel() else {
++                return SCE_KERNEL_ERROR_EIO;
++            };
++            let rc = f(
++                real_ids.as_mut_ptr(),
++                real_count as c_int,
++                real_states.as_mut_ptr(),
++            );
++            if rc != 0 {
++                return rc;
++            }
++            for i in 0..real_count {
++                *states.add(real_positions[i]) = real_states[i];
++            }
++        }
++        0
++    }
++}
++
++pub unsafe fn sceKernelAioCancelRequest(
++    id: SceKernelAioSubmitId,
++    state_out: *mut c_int,
++) -> c_int {
++    unsafe {
++        if state_out.is_null() {
++            return SCE_KERNEL_ERROR_EINVAL;
++        }
++        if decode_virtual_aio_group(id, null_mut(), null_mut()) {
++            const N: usize = SCE_KERNEL_AIO_REQUEST_NUM_MAX;
++            let mut children = [0 as SceKernelAioSubmitId; N];
++            let child_count = match copy_group_children(id, &mut children) {
++                Ok(Some((count, _))) => count,
++                Ok(None) => {
++                    *state_out = SCE_KERNEL_ERROR_ESRCH;
++                    return 0;
++                }
++                Err(rc) => return rc,
++            };
++            let mut child_states = [0 as c_int; N];
++            let rc = sceKernelAioCancelRequests(
++                children.as_mut_ptr(),
++                child_count as c_int,
++                child_states.as_mut_ptr(),
++            );
++            if rc != 0 {
++                return rc;
++            }
++            *state_out = cancel_aggregate(&child_states[..child_count]);
++            return 0;
++        }
++        if !has_virtual_aio_tag(id) {
++            return match real_aio_cancel_single() {
++                Some(f) => f(id, state_out),
++                None => SCE_KERNEL_ERROR_EIO,
++            };
++        }
++        let mut first = id;
++        sceKernelAioCancelRequests(&raw mut first, 1, state_out)
++    }
++}
++
++pub unsafe extern "C" fn sceKernelAioWaitRequest_emul(
++    id: SceKernelAioSubmitId,
++    state_out: *mut c_int,
++    usec: *mut SceKernelUseconds,
++) -> c_int {
++    unsafe { sceKernelAioWaitRequest(id, state_out, usec) }
++}
++
++pub unsafe extern "C" fn sceKernelAioWaitRequests_emul(
++    ids: *mut SceKernelAioSubmitId,
++    count: c_int,
++    states: *mut c_int,
++    mode: u32,
++    usec: *mut SceKernelUseconds,
++) -> c_int {
++    unsafe { sceKernelAioWaitRequests(ids, count, states, mode, usec) }
++}
++
++pub unsafe extern "C" fn sceKernelAioCancelRequest_emul(
++    id: SceKernelAioSubmitId,
++    state_out: *mut c_int,
++) -> c_int {
++    unsafe { sceKernelAioCancelRequest(id, state_out) }
++}
++
++pub unsafe extern "C" fn sceKernelAioCancelRequests_emul(
++    ids: *mut SceKernelAioSubmitId,
++    count: c_int,
++    states: *mut c_int,
++) -> c_int {
++    unsafe { sceKernelAioCancelRequests(ids, count, states) }
++}
++
++pub unsafe extern "C" fn sceKernelAioDeleteRequest_emul(
++    id: SceKernelAioSubmitId,
++    result_out: *mut c_int,
++) -> c_int {
++    unsafe { sceKernelAioDeleteRequest(id, result_out) }
++}
++
++pub unsafe extern "C" fn sceKernelAioDeleteRequests_emul(
++    ids: *mut SceKernelAioSubmitId,
++    count: c_int,
++    results: *mut c_int,
++) -> c_int {
++    unsafe { sceKernelAioDeleteRequests(ids, count, results) }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn cancel_aggregate_matches_job_order() {
++        // A pending child wins over completed ones, an aborted one wins over
++        // processing, and a child error wins over everything.
++        assert_eq!(cancel_aggregate(&[SCE_KERNEL_AIO_STATE_COMPLETED]), SCE_KERNEL_AIO_STATE_COMPLETED);
++        assert_eq!(
++            cancel_aggregate(&[SCE_KERNEL_AIO_STATE_COMPLETED, SCE_KERNEL_AIO_STATE_SUBMITTED]),
++            SCE_KERNEL_AIO_STATE_SUBMITTED
++        );
++        assert_eq!(
++            cancel_aggregate(&[SCE_KERNEL_AIO_STATE_SUBMITTED, SCE_KERNEL_AIO_STATE_PROCESSING]),
++            SCE_KERNEL_AIO_STATE_PROCESSING
++        );
++        assert_eq!(
++            cancel_aggregate(&[SCE_KERNEL_AIO_STATE_PROCESSING, SCE_KERNEL_AIO_STATE_ABORTED]),
++            SCE_KERNEL_AIO_STATE_ABORTED
++        );
++        assert_eq!(
++            cancel_aggregate(&[SCE_KERNEL_AIO_STATE_ABORTED, SCE_KERNEL_ERROR_ECANCELED]),
++            SCE_KERNEL_ERROR_ECANCELED
++        );
++        // The notified bit is a pass-through detail, not a state.
++        assert_eq!(
++            cancel_aggregate(&[SCE_KERNEL_AIO_STATE_ABORTED | SCE_KERNEL_AIO_STATE_NOTIFIED]),
++            SCE_KERNEL_AIO_STATE_ABORTED
++        );
++    }
++}
+diff --git a/crates/ampr-sys/src/rt/pack/libkernel.rs b/crates/ampr-sys/src/rt/pack/libkernel.rs
+index fdd5b0a..43b06de 100644
+--- a/crates/ampr-sys/src/rt/pack/libkernel.rs
++++ b/crates/ampr-sys/src/rt/pack/libkernel.rs
+@@ -197,49 +197,71 @@ real_fn!(
+     real_aio_submit,
+     KernelAioSubmitFn,
+     g_real_aio_submit,
+-    c"sceKernelAioSubmitReadCommandsMultiple"
++    c"sceKernelAioSubmitReadCommandsMultiple",
++    sys::hook::sceKernelAioSubmitReadCommandsMultiple
+ );
+ real_fn!(
+     real_aio_submit_single,
+     KernelAioSubmitFn,
+     g_real_aio_submit_single,
+-    c"sceKernelAioSubmitReadCommands"
++    c"sceKernelAioSubmitReadCommands",
++    sys::hook::sceKernelAioSubmitReadCommands
+ );
+ real_fn!(
+     real_aio_poll_single,
+     KernelAioPollSingleFn,
+     g_real_aio_poll_single,
+-    c"sceKernelAioPollRequest"
++    c"sceKernelAioPollRequest",
++    sys::hook::sceKernelAioPollRequest
+ );
+ real_fn!(
+     real_aio_poll,
+     KernelAioPollFn,
+     g_real_aio_poll,
+-    c"sceKernelAioPollRequests"
++    c"sceKernelAioPollRequests",
++    sys::hook::sceKernelAioPollRequests
+ );
+ real_fn!(
+     real_aio_wait_single,
+     KernelAioWaitSingleFn,
+     g_real_aio_wait_single,
+-    c"sceKernelAioWaitRequest"
++    c"sceKernelAioWaitRequest",
++    sys::hook::sceKernelAioWaitRequest
+ );
+ real_fn!(
+     real_aio_wait,
+     KernelAioWaitFn,
+     g_real_aio_wait,
+-    c"sceKernelAioWaitRequests"
++    c"sceKernelAioWaitRequests",
++    sys::hook::sceKernelAioWaitRequests
+ );
+ real_fn!(
+     real_aio_delete_single,
+     KernelAioDeleteSingleFn,
+     g_real_aio_delete_single,
+-    c"sceKernelAioDeleteRequest"
++    c"sceKernelAioDeleteRequest",
++    sys::hook::sceKernelAioDeleteRequest
+ );
+ real_fn!(
+     real_aio_delete,
+     KernelAioDeleteFn,
+     g_real_aio_delete,
+-    c"sceKernelAioDeleteRequests"
++    c"sceKernelAioDeleteRequests",
++    sys::hook::sceKernelAioDeleteRequests
++);
++real_fn!(
++    real_aio_cancel_single,
++    KernelAioCancelSingleFn,
++    g_real_aio_cancel_single,
++    c"sceKernelAioCancelRequest",
++    sys::hook::sceKernelAioCancelRequest
++);
++real_fn!(
++    real_aio_cancel,
++    KernelAioCancelFn,
++    g_real_aio_cancel,
++    c"sceKernelAioCancelRequests",
++    sys::hook::sceKernelAioCancelRequests
+ );
+ 
+ pub(crate) unsafe fn close_physical_pack_fd(fd: c_int) -> c_int {
+diff --git a/crates/ampr-sys/src/rt/pack/mod.rs b/crates/ampr-sys/src/rt/pack/mod.rs
+index 9bf093e..9a1828c 100644
+--- a/crates/ampr-sys/src/rt/pack/mod.rs
++++ b/crates/ampr-sys/src/rt/pack/mod.rs
+@@ -771,7 +771,6 @@ pub(crate) type KernelAioPollSingleFn =
+     unsafe extern "C" fn(SceKernelAioSubmitId, *mut c_int) -> c_int;
+ pub(crate) type KernelAioPollFn =
+     unsafe extern "C" fn(*mut SceKernelAioSubmitId, c_int, *mut c_int) -> c_int;
+-#[allow(dead_code)]
+ pub(crate) type KernelAioWaitSingleFn =
+     unsafe extern "C" fn(SceKernelAioSubmitId, *mut c_int, *mut SceKernelUseconds) -> c_int;
+ pub(crate) type KernelAioWaitFn = unsafe extern "C" fn(
+@@ -785,6 +784,10 @@ pub(crate) type KernelAioDeleteSingleFn =
+     unsafe extern "C" fn(SceKernelAioSubmitId, *mut c_int) -> c_int;
+ pub(crate) type KernelAioDeleteFn =
+     unsafe extern "C" fn(*mut SceKernelAioSubmitId, c_int, *mut c_int) -> c_int;
++pub(crate) type KernelAioCancelSingleFn =
++    unsafe extern "C" fn(SceKernelAioSubmitId, *mut c_int) -> c_int;
++pub(crate) type KernelAioCancelFn =
++    unsafe extern "C" fn(*mut SceKernelAioSubmitId, c_int, *mut c_int) -> c_int;
+ 
+ // `resolve_cached` slots: null until amprResolveLibkernelFunction succeeds
+ // (a failed lookup is retried on the next call).
+@@ -797,7 +800,6 @@ pub(crate) static g_real_getdents: AtomicPtr<c_void> = AtomicPtr::new(null_mut()
+ pub(crate) static g_real_getdirentries: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
+ pub(crate) static g_real_pread: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
+ pub(crate) static g_real_lseek: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
+-#[allow(dead_code)]
+ pub(crate) static g_real_aio_submit_single: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
+ pub(crate) static g_real_aio_submit: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
+ pub(crate) static g_real_aio_poll_single: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
+@@ -807,6 +809,8 @@ pub(crate) static g_real_aio_wait_single: AtomicPtr<c_void> = AtomicPtr::new(nul
+ pub(crate) static g_real_aio_wait: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
+ pub(crate) static g_real_aio_delete_single: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
+ pub(crate) static g_real_aio_delete: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
++pub(crate) static g_real_aio_cancel_single: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
++pub(crate) static g_real_aio_cancel: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
+ 
+ // ---- runtime data layouts -----------------------------------------------------
+ // Every enum's first variant is 0 and `EMPTY` holds the default field
+diff --git a/crates/ampr-sys/src/rt/probe.rs b/crates/ampr-sys/src/rt/probe.rs
+index 679b4c5..c6a27b2 100644
+--- a/crates/ampr-sys/src/rt/probe.rs
++++ b/crates/ampr-sys/src/rt/probe.rs
+@@ -1,22 +1,21 @@
+ //! Debug-only pass-through observers for fully packed games, LZ4 or zstd
+ //! packs (every game file except the executables, sce_sys, sce_module and
+ //! the fakelib packed): they show on a console which file APIs the runtime
+-//! does not serve a game uses on packed files (game AIO, dup, poll, openat,
+-//! ...). Each calls its own original libkernel entry point
++//! does not serve a game uses on packed files (dup, poll, openat, ...; the
++//! kernel AIO entry points are served by rt/pack/aio.rs and aio_wait.rs
++//! instead). Each calls its own original libkernel entry point
+ //! (`sys::kernel_slot`, as rt/pack/zstd_libc.rs does) and never changes the
+ //! result; it only logs through `stats::fs_note`, so `/fsfail` lists
+ //! each distinct (op, file) once. The op letters are documented at
+ //! `FsEvents` in rt/stats.rs. Built only with `mem_report`; rt/hook.rs
+-//! installs the observers into slots 100..=109, and rt/index.rs
++//! installs the observers into slots 110..=117, and rt/index.rs
+ //! calls `probe_path` from the libc path hooks it installs as observers.
+ //! rt/pack/mmap.rs logs its b'X'/b'Y' events through `fd_path` and
+ //! `event_text`.
+ 
+ use super::index::{probe_file_path, probe_packed_path};
+ use super::pack::{
+-    has_virtual_fd, posix_missing_original, posix_read_missing, virtual_directory_fd_path,
+-    virtual_fd_file_id, SceKernelAioRWRequest, SceKernelAioSubmitId,
+-    SCE_KERNEL_AIO_REQUEST_NUM_MAX,
++    posix_missing_original, posix_read_missing, virtual_directory_fd_path, virtual_fd_file_id,
+ };
+ use super::stats;
+ use super::sys::{
+@@ -108,79 +107,6 @@ pub(crate) fn event_text(op: u8, how: u8, rc: i64, call: &[u8], t: &Text) {
+     stats::fs_event(op, how, rc, t.prefixed(call).ptr());
+ }
+ 
+-// ---- AIO ----------------------------------------------------------------------
+-
+-type AioSubmitFn = unsafe extern "C" fn(
+-    *mut SceKernelAioRWRequest,
+-    c_int,
+-    c_int,
+-    *mut SceKernelAioSubmitId,
+-) -> c_int;
+-
+-/// The path of the first virtual fd among `count` requests, if any.
+-unsafe fn aio_path(reqs: *const SceKernelAioRWRequest, count: c_int) -> Option<Text> {
+-    if reqs.is_null() || count <= 0 || count as usize > SCE_KERNEL_AIO_REQUEST_NUM_MAX {
+-        return None;
+-    }
+-    if !unsafe { has_virtual_fd(reqs, count) } {
+-        return None;
+-    }
+-    let first = (0..count as usize).find_map(|i| unsafe { fd_path((*reqs.add(i)).fd) });
+-    first.or_else(|| {
+-        let mut t = Text::new();
+-        t.push(VIRTUAL_FD);
+-        Some(t)
+-    })
+-}
+-
+-unsafe fn aio_submit(
+-    id: usize,
+-    call: &[u8],
+-    reqs: *mut SceKernelAioRWRequest,
+-    count: c_int,
+-    prio: c_int,
+-    ids: *mut SceKernelAioSubmitId,
+-) -> c_int {
+-    let rc = unsafe { kernel_slot::<AioSubmitFn>(id) }.map_or(SCE_KERNEL_ERROR_EIO, |f| unsafe {
+-        f(reqs, count, prio, ids)
+-    });
+-    // `reqs` is read only after the original accepted it, so a bad pointer
+-    // gets the original's error instead of a fault in the probe (Codex
+-    // review), as in `poll_probe`. The caller keeps the requests alive
+-    // until they complete, and the probe reads only their fd fields.
+-    let seen = if rc >= 0 {
+-        unsafe { aio_path(reqs, count) }
+-    } else {
+-        None
+-    };
+-    if let Some(t) = seen {
+-        note_text(b'I', HOW_VIRTUAL, rc.into(), call, &t);
+-    }
+-    rc
+-}
+-
+-#[allow(non_snake_case)]
+-pub(crate) unsafe extern "C" fn sceKernelAioSubmitReadCommands_probe(
+-    reqs: *mut SceKernelAioRWRequest,
+-    count: c_int,
+-    prio: c_int,
+-    ids: *mut SceKernelAioSubmitId,
+-) -> c_int {
+-    let id = sys::hook::sceKernelAioSubmitReadCommands;
+-    unsafe { aio_submit(id, b"AioSubmitRead", reqs, count, prio, ids) }
+-}
+-
+-#[allow(non_snake_case)]
+-pub(crate) unsafe extern "C" fn sceKernelAioSubmitReadCommandsMultiple_probe(
+-    reqs: *mut SceKernelAioRWRequest,
+-    count: c_int,
+-    prio: c_int,
+-    ids: *mut SceKernelAioSubmitId,
+-) -> c_int {
+-    let id = sys::hook::sceKernelAioSubmitReadCommandsMultiple;
+-    unsafe { aio_submit(id, b"AioSubmitReadMultiple", reqs, count, prio, ids) }
+-}
+-
+ // ---- dup, poll, select --------------------------------------------------------
+ 
+ type DupFn = unsafe extern "C" fn(c_int) -> c_int;
+diff --git a/crates/ampr-sys/src/rt/stats.rs b/crates/ampr-sys/src/rt/stats.rs
+index d4c98f7..868af49 100644
+--- a/crates/ampr-sys/src/rt/stats.rs
++++ b/crates/ampr-sys/src/rt/stats.rs
+@@ -290,10 +290,9 @@ pub(crate) fn now() -> u64 {
+ /// failure, path "mmap-fault sigaction" (the handler could not be
+ /// installed) or "mmap-fault fid=<hex> chunk=<hex>" (a chunk read or decode
+ /// failed in the handler). Pass-through probes for fully packed games, LZ4
+-/// or zstd packs (rt/probe.rs, logged by `fs_note` whatever the result): b'I'
+-/// sceKernelAioSubmitReadCommands(Multiple), b'D' dup/dup2, b'W'
+-/// poll/select, b'T' openat, b'F' fstatat, b'C' faccessat, b'N' readlink;
+-/// their path is the packed file's path (or the call name and `<virtual
++/// or zstd packs (rt/probe.rs, logged by `fs_note` whatever the result):
++/// b'D' dup/dup2, b'W' poll/select, b'T' openat, b'F' fstatat, b'C'
++/// faccessat, b'N' readlink; their path is the packed file's path (or the call name and `<virtual
+ /// fd>`) and their lookup letter b'p' a packed file, b'd' an indexed
+ /// directory, b'v' a virtual fd, and for b'W' select b'n': nfds past
+ /// FD_SETSIZE, path "select nfds=<n>" (a virtual fd cannot be in an fd_set,
+diff --git a/crates/ampr-sys/src/rt/sys.rs b/crates/ampr-sys/src/rt/sys.rs
+index 425161a..439e90a 100644
+--- a/crates/ampr-sys/src/rt/sys.rs
++++ b/crates/ampr-sys/src/rt/sys.rs
+@@ -444,32 +444,43 @@ pub mod hook {
+     // (rt/pack/mmap.rs). Both builds.
+     pub const munmap: usize = 98;
+     pub const sceKernelMunmap: usize = 99;
+-    // 100..=109: debug-only pass-through probes of fully packed games, both
+-    // formats (rt/probe.rs); release builds have no such slots.
+-    #[cfg(feature = "mem_report")]
++    // 100..=109: kernel AIO, both builds. A packed file opened through plain
++    // open() is a virtual descriptor, so the AIO entry points must understand
++    // it (rt/pack/aio.rs, aio_wait.rs); a batch without a virtual descriptor
++    // forwards to the original. A single-id submit groups its batch.
+     pub const sceKernelAioSubmitReadCommands: usize = 100;
+-    #[cfg(feature = "mem_report")]
+     pub const sceKernelAioSubmitReadCommandsMultiple: usize = 101;
++    pub const sceKernelAioPollRequest: usize = 102;
++    pub const sceKernelAioPollRequests: usize = 103;
++    pub const sceKernelAioWaitRequest: usize = 104;
++    pub const sceKernelAioWaitRequests: usize = 105;
++    pub const sceKernelAioCancelRequest: usize = 106;
++    pub const sceKernelAioCancelRequests: usize = 107;
++    pub const sceKernelAioDeleteRequest: usize = 108;
++    pub const sceKernelAioDeleteRequests: usize = 109;
++    // 110..=117: debug-only pass-through probes of fully packed games, both
++    // formats (rt/probe.rs); release builds have no such slots, and the AIO
++    // emulation above replaces the two AIO probes.
+     #[cfg(feature = "mem_report")]
+-    pub const dup: usize = 102;
++    pub const dup: usize = 110;
+     #[cfg(feature = "mem_report")]
+-    pub const dup2: usize = 103;
++    pub const dup2: usize = 111;
+     #[cfg(feature = "mem_report")]
+-    pub const poll: usize = 104;
++    pub const poll: usize = 112;
+     #[cfg(feature = "mem_report")]
+-    pub const select: usize = 105;
++    pub const select: usize = 113;
+     #[cfg(feature = "mem_report")]
+-    pub const openat: usize = 106;
++    pub const openat: usize = 114;
+     #[cfg(feature = "mem_report")]
+-    pub const fstatat: usize = 107;
++    pub const fstatat: usize = 115;
+     #[cfg(feature = "mem_report")]
+-    pub const faccessat: usize = 108;
++    pub const faccessat: usize = 116;
+     #[cfg(feature = "mem_report")]
+-    pub const readlink: usize = 109;
++    pub const readlink: usize = 117;
+     #[cfg(feature = "mem_report")]
+-    pub const COUNT: usize = 110;
++    pub const COUNT: usize = 118;
+     #[cfg(not(feature = "mem_report"))]
+-    pub const COUNT: usize = 100;
++    pub const COUNT: usize = 110;
+ }
+ 
+ /// Original (pre-detour) libkernel entry points, indexed by `hook::*`, and
