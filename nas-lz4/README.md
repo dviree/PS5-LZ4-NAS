@@ -853,3 +853,23 @@ cd /volume2/docker/ps5-lz4
 
 This refuses to interrupt an active pack job. No archive or original is deleted.
 The runtime build and Docker publication are separate from a physical PS5 play test.
+
+### Combined James branch fixes
+
+The image combines `fix/low-virtual-fds` at
+`83464d46972f913054831917abfa2851c85cb2f6` with the kernel-AIO changes from
+`fix/lz4-packed-open-boot` at `fe97dce63ce1790081c4f539b0f9b4efc4b91a1b`.
+The latter branch diverges from the former; switching to it alone would lose
+the low-descriptor and indexed-directory fixes. The Rust changes relative to
+common ancestor `cd0c11efeedec45f2ed01715ff33c00898d40240` were merged onto
+the low-descriptor source, retaining its descriptor-table lookup.
+
+`nas-lz4/patches/ampr-emu-ng-kernel-aio.patch` is the resulting patch, SHA-256
+`a60e1e38a64cafc7d416f54dc5b1aa73423a521e040caddcbc4da15e68ab4068`.
+The Docker build applies it with no fuzz, runs the combined workspace's host
+tests and verifies its release PRX/SPRX. The runtime manifest records both
+commits, the patch hash and the resulting binary hash. The corresponding
+source is the included `source.tar.gz` plus `kernel-aio.patch`: extract the
+archive, apply `patch -p1 < kernel-aio.patch`, then use `ps5/build-docker.sh`.
+The same runtime reads both LZ4 and zstd packs; this does not establish
+compatibility with every game without a console test.

@@ -85,3 +85,9 @@ Both the source archive and upstream LICENSE are included in the image under
 `/opt/ps5lz4/licenses/ampr-emu-ng-83464d4/`. The source archive SHA-256 is
 `511a720c6587562ed53751832e68e7a5122dc8008fe2f322a803507daa5d6c79`.
 The binary is built from this source, not downloaded as an unpinned branch asset.
+
+The NG runtime additionally incorporates James St-Pierre's kernel-AIO changes
+from commit `fe97dce63ce1790081c4f539b0f9b4efc4b91a1b`, merged onto the
+low-descriptor source. The GPL-3.0-or-later patch and reproduction instructions
+are in `nas-lz4/patches/ampr-emu-ng-kernel-aio.patch` and `nas-lz4/README.md`.
+The image ships the patch beside the corresponding source archive and license.
