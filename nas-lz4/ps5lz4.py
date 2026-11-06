@@ -2032,7 +2032,7 @@ def cmd_community(args) -> int:
                      game_version(e.output, *([e.path] if e.kind == "folder" else []),
                                   name=e.rel).get("version", ""),
                      ((rep.get("codec") or "").split() or [""])[-1], source,
-                     os.environ.get("PS5LZ4_FIRMWARE", ""), lz4c_version() or f"ps5-lz4 NAS {VERSION}")
+                     os.environ.get("PS5LZ4_FIRMWARE", ""), lz4c_version() or f"ps5lz4zstd NAS {VERSION}")
     print("share it with the community (open on your phone or computer, add firmware, submit):")
     print(url)
     return 0

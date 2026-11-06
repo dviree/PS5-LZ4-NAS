@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>ps5-lz4</title>
+<title>ps5lz4zstd</title>
 <style>
 :root{--btn1:#9b7bf7;--btn2:#5b5cf0;--btnglow:rgba(99,82,240,.3);--pri:linear-gradient(135deg,#b06cf7,#7c3aed 45%,#4f6cf5);--ghost:linear-gradient(135deg,#a39cc4,#7b739f);--hero:linear-gradient(135deg,#8b5cf6,#6366f1 55%,#3b82f6);--bg:#f3f1fb;--bgimg:radial-gradient(900px 520px at 0% -8%,rgba(167,139,250,.22),transparent 60%),radial-gradient(800px 520px at 100% 0%,rgba(96,165,250,.16),transparent 60%);--card:#ffffff;--line:#ebe7f7;--txt:#1f1937;--mut:#6f6890;--ok:#16794c;--okbg:#e2f5eb;--acc:#6d4ff0;--acc2:#3b82f6;--accbg:#efeaff;--warn:#9a6200;--warnbg:#fdf2d8;--bad:#c5340d;--badbg:#fdebe5;--chip:#f1edfc;--nd:rgba(99,82,240,.22);--nl:transparent;--shadow:0 12px 32px -14px rgba(91,60,200,.28),0 2px 6px rgba(60,40,140,.06);--inset:inset 0 0 0 1px #e3ddf6;--hdr:rgba(243,241,251,.85);--solid:#ffffff;--cardline:transparent;--blur:none}
 :root[data-theme="dark"]{--btn1:#a78bfa;--btn2:#7c3aed;--btnglow:rgba(124,58,237,.32);--pri:linear-gradient(135deg,#c084fc,#9333ea 50%,#6d28d9);--ghost:linear-gradient(135deg,#6d5a9e,#4c3d7a);--hero:linear-gradient(135deg,#6d28d9,#9333ea 55%,#a78bfa);--bgimg:none;--shadow:7px 7px 16px var(--nd),-7px -7px 16px var(--nl);--inset:inset 3px 3px 7px var(--nd),inset -3px -3px 7px var(--nl);--bg:#211a38;--card:#211a38;--line:#30275080;--txt:#ece8fa;--mut:#a097c2;--ok:#43c08f;--okbg:#1d3a31;--acc:#a78bfa;--acc2:#c084fc;--accbg:#33285a;--warn:#e7ad46;--warnbg:#3b3120;--bad:#f2807a;--badbg:#42262c;--chip:#211a38;--nd:rgba(8,5,20,.65);--nl:rgba(70,58,115,.38);--hdr:rgba(33,26,56,.88);--solid:#241c3e;--cardline:transparent;--blur:none}
@@ -203,7 +203,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
 <body>
 <header>
   <div class="themes" id="themes" title="Theme"><button data-t="glass" onclick="setTheme(this.dataset.t)">✨ Glass</button><button data-t="light" onclick="setTheme(this.dataset.t)">☀️ Light</button><button data-t="dark" onclick="setTheme(this.dataset.t)">🌙 Dark</button></div>
-  <div class="brand"><div class="logo">LZ4</div><div><h1>ps5-lz4</h1><span class="sub" id="sub"></span></div></div>
+  <div class="brand"><div class="logo">LZ4</div><div><h1>ps5lz4zstd</h1><span class="sub" id="sub"></span></div></div>
   <a class="storelink" href="/store" title="Open the store view, made for the PS5 browser and a controller">🛒 Store</a><span class="sp"></span>
   <div class="hacts">
   <button class="two" id="b-resume" hidden onclick="act('resume')">Continue queue<small>resume interrupted packing</small></button>
@@ -1204,7 +1204,7 @@ function reportLink(web, tid, name, status, extra = {}) {
   try { fw = (localStorage.getItem('fw') || '').trim(); } catch (e) {}
   const rows = [['Title ID', tid], ['Game', name], ['How does it run?', forms[status] || ''], ['Game version', extra.version || ''],
     ['LZ4 level', extra.level || ''], ['Packed from', extra.source || ''], ['Firmware', fw],
-    ['LZ4 Compression version', (data && data.lz4c_version) || 'ps5-lz4 NAS'], ['Notes', '']];
+    ['LZ4 Compression version', (data && data.lz4c_version) || 'ps5lz4zstd NAS'], ['Notes', '']];
   const body = rows.map(([k, v]) => `### ${k}\n\n${v || '_No response_'}`).join('\n\n');
   return `${web || ORIGIN_WEB}/issues/new?title=` + encodeURIComponent(`[Game report] ${name}${status ? ': ' + forms[status] : ''}`) +
     '&body=' + encodeURIComponent(body);
@@ -2390,7 +2390,7 @@ try {
   if (['comm', 'ps5', 'ftp', 'act', 'pg', 'pkg', 'ps4'].includes(saved)) tab(saved);
 } catch (e) {}
 </script>
-<footer class="mut" style="text-align:center;padding:16px;font-size:12px">ps5-lz4 ·
+<footer class="mut" style="text-align:center;padding:16px;font-size:12px">ps5lz4zstd ·
   <a href="https://github.com/dviree/PS5-LZ4-NAS" target="_blank" rel="noopener">source code</a> (GPL-3.0; Remote Play pairing
   is ported from <a href="https://github.com/streetpea/chiaki-ng" target="_blank" rel="noopener">chiaki-ng</a>, AGPL-3.0)</footer>
 </body>

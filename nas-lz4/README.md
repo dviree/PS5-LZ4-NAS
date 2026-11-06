@@ -1,4 +1,6 @@
-# ps5-lz4: LZ4 HC packing of PS5 games on a NAS
+# ps5lz4zstd: LZ4 HC packing of PS5 games on a NAS
+
+(The containers, folders and Docker image are still called `ps5-lz4`.)
 
 All extraction, LZ4 compression, verification and file handling happen in
 Docker containers on the NAS. Nothing runs on the PS5 except the game.
