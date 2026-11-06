@@ -41,10 +41,11 @@ import sys
 import time
 from pathlib import Path
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 LIBRARY = Path(os.environ.get("PS5LZ4_LIBRARY", "/library"))
 OUTPUT = Path(os.environ.get("PS5LZ4_OUTPUT", "/output"))
+ZSTD_OUTPUT = Path(os.environ["PS5LZ4_ZSTD_OUTPUT"]) if os.environ.get("PS5LZ4_ZSTD_OUTPUT") else None
 STATE = Path(os.environ.get("PS5LZ4_STATE", "/state"))
 WORK = OUTPUT / ".ps5lz4-work"
 PACKER = os.environ.get("PS5LZ4_PACKER", "/usr/local/bin/ampr_pack_cli")
@@ -60,6 +61,7 @@ PREFERRED = STATE / "preferred.json"  # Title ID -> the library copy chosen with
 # The same folders as the NAS sees them, for reports.
 HOST_LIBRARY = os.environ.get("PS5LZ4_HOST_LIBRARY", str(LIBRARY))
 HOST_OUTPUT = os.environ.get("PS5LZ4_HOST_OUTPUT", str(OUTPUT))
+HOST_ZSTD_OUTPUT = os.environ.get("PS5LZ4_HOST_ZSTD_OUTPUT")
 HOST_STATE = os.environ.get("PS5LZ4_HOST_STATE", "/volume2/docker/ps5-lz4/state"
                             if str(STATE) == "/state" else str(STATE))
 FREE_MARGIN = int(float(os.environ.get("PS5LZ4_FREE_MARGIN_GB", "20")) * 1024**3)
@@ -213,11 +215,45 @@ def under(path: Path, root: Path) -> bool:
         return False
 
 
+def zstd_output() -> Path:
+    return ZSTD_OUTPUT if ZSTD_OUTPUT is not None else OUTPUT
+
+
+def output_roots() -> list[Path]:
+    return list(dict.fromkeys((OUTPUT, zstd_output())))
+
+
+def output_items(pattern: str = "*") -> list[Path]:
+    return sorted(p for root in output_roots() if root.is_dir() for p in root.glob(pattern))
+
+
+def output_item(name: str) -> Path:
+    # Existing outputs win, including Zstd copies created in the old shared folder.
+    for root in output_roots():
+        if (root / name).exists():
+            return root / name
+    return (zstd_output() if name.endswith(("-zstd", "-zstd.exfat")) else OUTPUT) / name
+
+
+def host_output_path(path: Path) -> str:
+    roots = [(zstd_output(), HOST_ZSTD_OUTPUT or (HOST_OUTPUT if ZSTD_OUTPUT is None else str(zstd_output()))),
+             (OUTPUT, HOST_OUTPUT)]
+    for root, host in roots:
+        if under(path, root):
+            return str(Path(host) / path.relative_to(root))
+    raise ValueError(f"not a generated output: {path}")
+
+
+def zstd_stage() -> Path:
+    return zstd_output() / ".ps5lz4-zstd-stage"
+
+
 def remove_work_path(path: Path) -> None:
     """rm -rf, but only inside the work area; never the library or output."""
     if not path.exists() and not path.is_symlink():
         return
-    if not under(path, WORK) or os.path.abspath(path) == os.path.abspath(WORK):
+    if not any(under(path, root) and os.path.abspath(path) != os.path.abspath(root)
+               for root in (WORK, zstd_stage())):
         raise RuntimeError(f"refusing to delete outside the work area: {path}")
     if under(path, LIBRARY):
         raise RuntimeError(f"refusing to delete inside the library: {path}")
@@ -568,7 +604,8 @@ class Entry:
         if codec is None:
             rep = read_json(REPORTS / f"{self.id}.json", {}) or {}
             codec = rep.get("pack_codec", "lz4")
-        return OUTPUT / f"{self.id}-{'zstd' if codec == 'zstd' else 'lz4'}"
+        name = f"{self.id}-{'zstd' if codec == 'zstd' else 'lz4'}"
+        return output_item(name)
 
     @property
     def work(self) -> Path:
@@ -747,7 +784,7 @@ class Job:
         self.save()
 
     def need_space(self, nbytes: int, what: str) -> None:
-        free = free_bytes(OUTPUT)
+        free = free_bytes(self.e.output.parent)
         if free < nbytes + FREE_MARGIN:
             raise JobError(f"not enough free space for {what}: need {human(nbytes)} "
                            f"+ {human(FREE_MARGIN)} margin, {human(free)} free on the output volume")
@@ -904,7 +941,8 @@ class Job:
                 raise Skip("source is already packed; unpack it before making a new copy")
             if not (root / "eboot.bin").is_file():
                 raise Skip("no eboot.bin in source")
-            self.mark("check", ampr=NG_NAME, profile_path=None, profile="all assets except system files")
+            self.mark("check", ampr=NG_NAME, profile_path=str(PROFILES / "nas-ng.toml"),
+                      profile="NG safety rules: system files, PlayGo and boot files stay loose")
             return
         if status != "compatible":
             raise Skip(reason)
@@ -913,7 +951,8 @@ class Job:
         self.log(f"compatible: {reason}; profile: {desc}")
 
     def step_pack(self, root: Path) -> Path:
-        pack = self.work / "pack"
+        pack = zstd_stage() / self.e.id / "pack" if self.codec == "zstd" else self.work / "pack"
+        pack.parent.mkdir(parents=True, exist_ok=True)
         if self.done("pack") and is_packed(pack):
             self.log("resume: packs already built")
             return pack
@@ -924,7 +963,7 @@ class Job:
         if self.runtime == "ng":
             # Forge owns the codec, runtime injection, indexes and full read-back verification.
             t0 = time.time()
-            self.run_tool(forge_command(root, pack, self.codec, self.level), "pack")
+            self.run_tool(forge_command(root, pack, self.codec, self.level, profile=self.state.get("profile_path")), "pack")
             install_ng_runtime(pack)
             problem = lz4_format_problem(pack)
             if problem or runtime_sha(pack) != NG_SHA256:
@@ -1065,7 +1104,7 @@ class Job:
             "source_kind": e.kind,
             "title_id": st.get("title_id"),
             "title_name": st.get("title_name"),
-            "output": str(Path(HOST_OUTPUT) / e.output.name),
+            "output": host_output_path(e.output),
             "finished": now(),
             "codec": f"Zstd level {self.level}" if self.codec == "zstd" else f"LZ4 level {self.level}",
             "pack_codec": self.codec,
@@ -1507,12 +1546,15 @@ def compare_game_files(source: Path, decoded: Path) -> list[str]:
     return problems
 
 
-def forge_command(source: Path, output: Path, codec: str, level: int, unpack: bool = False) -> list[str]:
+def forge_command(source: Path, output: Path, codec: str, level: int, unpack: bool = False,
+                  profile: str | None = None) -> list[str]:
     if codec not in ("lz4", "zstd") or not 1 <= level <= (22 if codec == "zstd" else 12):
         raise JobError("invalid compression codec or level")
     argv = [FORGE, "convert", str(source), "--to", "folder", "-o", str(output), "--full-verify", "--threads", str(workers())]
     if unpack:
         return argv + ["--zstd-unpack" if codec == "zstd" else "--lz4-unpack"]
+    if profile:
+        argv += ["--pack-profile", profile]
     if codec == "zstd":
         return argv + ["--zstd-pack", "--zstd-level", str(level)]
     return argv + ["--lz4-pack", "--lz4-runtime", "ng", "--lz4-level", str(level if level >= 5 else 0)]
@@ -1685,8 +1727,8 @@ def cmd_lz4(args) -> int:
         c = community_text(e.title_id or "", games)
         if c:
             print(f"{'':12} {'':9}  {c}")
-    for out in sorted(OUTPUT.glob("*-lz4")):
-        if out.is_dir() and not any(e.output == out for e in entries):
+    for out in output_items():
+        if out.is_dir() and is_packed(out) and not any(e.output == out for e in entries):
             problem = lz4_format_problem(out)
             counts["LZ4" if not problem else "error"] += 1
             print(f"{'LZ4' if not problem else 'error':12} {'-':9}  {out.name}  "
@@ -2037,7 +2079,7 @@ def cmd_verify(args) -> int:
     ensure_dirs()
     target = Path(args.output)
     if not target.is_absolute():
-        target = OUTPUT / args.output
+        target = output_item(args.output)
     if not is_packed(target):
         raise SystemExit(f"{target} has no packed index")
     if requires_ng(target):
@@ -2161,7 +2203,7 @@ def find_playgo_emu(root: Path) -> Path | None:
     p = PLAYGO_DIR / PLAYGO_LIB
     if is_playgo_emu(p):
         return p
-    for base in (OUTPUT, LIBRARY):
+    for base in (*output_roots(), LIBRARY):
         try:
             games = sorted(x for x in base.iterdir() if x.is_dir() and not x.name.startswith("."))
         except OSError:
@@ -2285,8 +2327,7 @@ def cmd_apr(args) -> int:
     Games whose files haven't changed since their last check reuse that result
     (state/ps5lz4.db) unless --full is given."""
     ensure_dirs()
-    games = sorted(p for p in OUTPUT.iterdir()
-                   if p.is_dir() and is_packed(p))
+    games = [p for p in output_items() if p.is_dir() and is_packed(p)]
     if not games:
         print(f"no packed games in {OUTPUT}")
         return 0
@@ -2407,7 +2448,7 @@ def cmd_remove(args) -> int:
     Its report goes too, so the game shows as 'can be LZ4' again."""
     ensure_dirs()
     out = output_for(args.game)
-    if out.parent != OUTPUT or not out.name.endswith(("-lz4", "-zstd")) or not is_packed(out):
+    if out.parent not in output_roots() or not out.name.endswith(("-lz4", "-zstd")) or not is_packed(out):
         raise SystemExit(f"{out} is not an LZ4 copy in {OUTPUT}")
     if under(out, LIBRARY):
         raise SystemExit(f"refusing to delete inside the library: {out}")
@@ -2846,7 +2887,7 @@ def ps5_ftp_icon(path: str) -> bytes | None:
 def nas_icon(game_id: str) -> bytes | None:
     """sce_sys/icon0.png from a packed game folder, its source folder, or from
     inside its .exfat / .ffpfsc / .ffpfs image."""
-    cands = [OUTPUT / game_id, OUTPUT / f"{game_id}-lz4", OUTPUT / f"{game_id}-zstd"]
+    cands = [output_item(game_id), output_item(f"{game_id}-lz4"), output_item(f"{game_id}-zstd")]
     image = None
     for e in scan_library():
         if e.id == game_id:
@@ -3795,7 +3836,7 @@ def ps5_verify_start(path: str) -> dict:
     reports it."""
     path = ps5_ftp_path(path)
     name = path.rsplit("/", 1)[1]
-    local = OUTPUT / name
+    local = output_item(name)
     if not local.is_dir():
         local = next((e.path for e in scan_library() if e.path.is_dir() and e.path.name == name), None)
     if not local:
@@ -4526,9 +4567,9 @@ def transfer_running() -> dict | None:
 
 def output_for(game: str) -> Path:
     """Resolve a library id/name or an LZ4 folder name to the LZ4 folder."""
-    for cand in (OUTPUT / game, OUTPUT / f"{game}-lz4", OUTPUT / f"{safe_name(game)}-lz4",
-                 OUTPUT / f"{game}-zstd", OUTPUT / f"{safe_name(game)}-zstd"):
-        if cand.is_dir() and is_packed(cand) and cand.parent == OUTPUT:
+    for name in (game, f"{game}-lz4", f"{safe_name(game)}-lz4", f"{game}-zstd", f"{safe_name(game)}-zstd"):
+        cand = output_item(name)
+        if cand.is_dir() and is_packed(cand) and cand.parent in output_roots():
             return cand
     for e in scan_library():
         if game in (e.id, e.rel, e.title_id) and e.output.is_dir():
@@ -5026,7 +5067,7 @@ def _image_lock():
 
 
 def lz4_image_path(out: Path) -> Path:
-    return OUTPUT / f"{out.name}.exfat"
+    return out.parent / f"{out.name}.exfat"
 
 
 def cmd_make_exfat(args) -> int:
@@ -5042,7 +5083,7 @@ def cmd_make_exfat(args) -> int:
     lock = _image_lock()
     key = out.name
     try:
-        size = exfat_build(out, lz4_image_path(out), key, WORK / f"img-{out.name}")
+        size = exfat_build(out, lz4_image_path(out), key, (zstd_stage() / f"img-{out.name}" if out.parent != OUTPUT else WORK / f"img-{out.name}"))
     except ImageStopped:
         image_state(key, state="stopped", error="stopped; press again to start over")
         return 1
@@ -5052,7 +5093,7 @@ def cmd_make_exfat(args) -> int:
     finally:
         lock.close()
     image_state(key, state="done", done=size, total=size, finished=now(), bytes=size,
-                image=str(Path(HOST_OUTPUT) / lz4_image_path(out).name))
+                image=host_output_path(lz4_image_path(out)))
     print(f"{lz4_image_path(out).name}: {human(size)}, every file checked byte for byte against {out.name}")
     return 0
 
@@ -5061,8 +5102,8 @@ def cmd_remove_exfat(args) -> int:
     """Delete a generated .exfat image while keeping its packed folder."""
     ensure_dirs()
     name = args.game if args.game.endswith(("-lz4", "-zstd")) else output_for(args.game).name
-    img = OUTPUT / f"{name}.exfat"
-    if img.parent != OUTPUT or not img.is_file():
+    img = output_item(f"{name}.exfat")
+    if img.parent not in output_roots() or not img.is_file():
         raise SystemExit(f"no image {img.name} in {OUTPUT}")
     img.unlink()
     (IMAGES / f"{name}.json").unlink(missing_ok=True)
@@ -5081,8 +5122,8 @@ def images_data() -> dict:
                 st["state"] = "interrupted"
             jobs[f.stem] = st
     ready = {}
-    if OUTPUT.is_dir():
-        for f in OUTPUT.glob("*.exfat"):
+    if any(root.is_dir() for root in output_roots()):
+        for f in output_items("*.exfat"):
             if f.name.endswith(("-lz4.exfat", "-zstd.exfat")):
                 ready[f.name[: -len(".exfat")]] = f.stat().st_size
     return {"jobs": jobs, "ready": ready}
@@ -5711,8 +5752,8 @@ def catalog_images() -> list[tuple[str, Path, str | None]]:
     for e in scan_library():
         if e.kind in ("exfat", "ffpfs", "ffpfsc"):
             out.append((f"img/lib/{e.id}", e.path, e.id))
-    if OUTPUT.is_dir():
-        for f in sorted(OUTPUT.glob("*.exfat")):
+    if any(root.is_dir() for root in output_roots()):
+        for f in output_items("*.exfat"):
             if f.name.endswith(("-lz4.exfat", "-zstd.exfat")):
                 out.append((f"img/out/{f.name}", f, re.sub(r"-(?:lz4|zstd)\.exfat$", "", f.name)))
     _cat_cache.update(at=time.time(), list=out)
@@ -6122,7 +6163,7 @@ def push_one(game: str, force: bool = False) -> int:
         out = pkg_path(game[4:])  # a PS4 package, as one file
     elif image:
         # A generated packed-game .exfat image from the output folder, as one file.
-        out = OUTPUT / game[4:]
+        out = output_item(game[4:])
         if "/" in game[4:] or not out.name.endswith(("-lz4.exfat", "-zstd.exfat")) or not out.is_file():
             raise SystemExit(f"{game[4:]} is not a packed-game image in the output folder")
     elif game.startswith("src:"):
@@ -6572,7 +6613,7 @@ def lz4_folder_info(out: Path, cache: dict | None = None) -> dict:
     if hit and sig and hit.get("sig") == sig:
         return hit["info"]
     files, total = tree_bytes(out)
-    info = {"path": str(Path(HOST_OUTPUT) / out.name), "files": files, "bytes": total,
+    info = {"path": host_output_path(out), "files": files, "bytes": total,
             "pack_codec": packed_codec(out), "paks": len(list(out.glob("ampr_zstd-*.pak" if packed_codec(out) == "zstd" else "ampr_assets-*.pak"))), "problem": lz4_format_problem(out)}
     pj = out / "sce_sys" / "param.json"
     if pj.is_file():
@@ -6623,7 +6664,7 @@ def dashboard_data() -> dict:
                "pack_codec": rep.get("pack_codec", "lz4"), "pack_runtime": rep.get("pack_runtime", "legacy"),
                "saved_percent": rep.get("saved_percent"), "ps5": ps5_result(e.id), "finished": rep.get("finished"),
                "community": {k: g.get(k, 0) for k in ("works", "issues", "noStart", "crash", "reports")},
-               "output": str(Path(HOST_OUTPUT) / e.output.name) if e.output.is_dir() else None}
+               "output": host_output_path(e.output) if e.output.is_dir() else None}
         if verdict == "LZ4" and rep:
             totals["lz4"] += 1
             totals["source"] += rep.get("source_bytes", 0)
@@ -6632,7 +6673,7 @@ def dashboard_data() -> dict:
     # LZ4 games in the output folder without a source in the library
     # (original removed, or packed somewhere else).
     known = {e.output.name for e in entries}
-    for out in sorted(OUTPUT.iterdir()) if OUTPUT.is_dir() else []:
+    for out in output_items():
         if out.name.startswith(".") or out.name in known or not out.is_dir() \
                 or not is_packed(out):
             continue
@@ -6789,8 +6830,8 @@ def game_detail(game_id: str) -> dict:
         if e.id == game_id:
             out = e.output
             break
-    if out is None and (OUTPUT / game_id).is_dir():
-        out = OUTPUT / game_id
+    if out is None and output_item(game_id).is_dir():
+        out = output_item(game_id)
         rep = rep or read_json(REPORTS / f"{game_id.rsplit('-', 1)[0]}.json") or {}
     cache = CheckDB()
     folder = lz4_folder_info(out, cache) if out and out.is_dir() else None
@@ -6806,7 +6847,7 @@ def game_detail(game_id: str) -> dict:
         rt = find_runtime(out)
         if rt:
             sha = hashlib.sha256(rt.read_bytes()).hexdigest()
-            apr = {"path": str(Path(HOST_OUTPUT) / rt.relative_to(OUTPUT)), "ok": runtime_ok(out, sha), "build": runtime_name(sha)}
+            apr = {"path": host_output_path(rt), "ok": runtime_ok(out, sha), "build": runtime_name(sha)}
         else:
             apr = {"path": None, "ok": False, "build": "missing"}
     src = next((e for e in scan_library() if e.id == game_id), None)

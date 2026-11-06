@@ -873,3 +873,25 @@ source is the included `source.tar.gz` plus `kernel-aio.patch`: extract the
 archive, apply `patch -p1 < kernel-aio.patch`, then use `ps5/build-docker.sh`.
 The same runtime reads both LZ4 and zstd packs; this does not establish
 compatibility with every game without a console test.
+
+## Separate Zstd output on the NAS
+
+New installs store Zstd outputs under `/volume1/games/ps5zstd` while the existing
+LZ4 output setting is preserved. Docker mounts this as `/output-zstd`, writable
+for the worker and read-only for the UI. `PS5LZ4_ZSTD_OUTPUT` selects that container
+path; `PS5LZ4_HOST_ZSTD_OUTPUT` is the path shown in reports. Without the setting,
+older configurations continue to use the original output folder.
+
+Existing installations can use `nas-lz4/configure-zstd-output.sh`. It checks that
+no packing job is running, backs up `.env`, creates the directory with the NAS
+user's ownership and adds a Compose override used by subsequent normal updates.
+It pulls the current image and recreates the two services. Existing games are
+not moved. Both old and new locations remain visible, transferable and repairable.
+Zstd exFAT images stay beside their Zstd folders. Zstd packs are staged on the
+Zstd output mount so publishing is an atomic rename even with separate binds.
+
+LZ4 NG and Zstd NG use `profiles/nas-ng.toml`: the same PlayGo and boot-file
+exclusions as the legacy LZ4 packer. This includes the Ghost of Yotei fix for
+`cache_ps5/` and `sounds/scream/_generated/`, plus Northlight `*.rmdtoc`.
+The exclusions apply to newly packed copies; old copies must be repacked from
+the original to get these loose files. Console behavior still needs a play test.

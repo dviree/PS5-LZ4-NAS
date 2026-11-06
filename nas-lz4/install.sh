@@ -14,6 +14,7 @@ LIBRARY="${LIBRARY:-/volume1/games/roms/ps5}"
 PS4_LIBRARY="${PS4_LIBRARY:-/volume1/games/roms/ps4}"  # PS4 .pkg files (optional, read-only)
 PKG_LIBRARY="${PKG_LIBRARY:-/volume1/games/backport-updates-dlc}"  # more .pkg files: updates, DLC, backports (optional, read-only)
 OUTPUT="${OUTPUT:-/volume1/games/ps5-lz4}"
+ZSTD_OUTPUT="${ZSTD_OUTPUT:-/volume1/games/ps5zstd}"
 BASE="${BASE:-/volume2/docker/ps5-lz4}"
 NAS_USER="${NAS_USER:-}"   # empty: the owner of the game library (or of an earlier install)
 IMAGE="${IMAGE:-ghcr.io/dviree/ps5-lz4:latest}"   # Watchtower keeps it updated
@@ -159,8 +160,8 @@ fi
 
 # ---------------------------------------------------------------- install
 say "Installing into $BASE"
-mkdir -p "$BASE/state" "$BASE/logs" "$BASE/reports" "$OUTPUT"
-chown "$PUID:$PGID" "$BASE/state" "$BASE/logs" "$BASE/reports" "$OUTPUT"
+mkdir -p "$BASE/state" "$BASE/logs" "$BASE/reports" "$OUTPUT" "$ZSTD_OUTPUT"
+chown "$PUID:$PGID" "$BASE/state" "$BASE/logs" "$BASE/reports" "$OUTPUT" "$ZSTD_OUTPUT"
 install -d -o "$PUID" -g "$PGID" "$OUTPUT/.ps5lz4-work"
 # RAR archives in the library are extracted here (the rest of the library
 # stays read-only for the containers).
@@ -185,6 +186,7 @@ PUID=$PUID
 PGID=$PGID
 LIBRARY=$LIBRARY
 OUTPUT=$OUTPUT
+ZSTD_OUTPUT=$ZSTD_OUTPUT
 BASE=$BASE
 CONTAINER=$CONTAINER
 IMAGE=$IMAGE
@@ -213,6 +215,8 @@ services:
       PGID: "$PGID"
       PS5LZ4_HOST_LIBRARY: "$LIBRARY"
       PS5LZ4_HOST_OUTPUT: "$OUTPUT"
+      PS5LZ4_ZSTD_OUTPUT: "/output-zstd"
+      PS5LZ4_HOST_ZSTD_OUTPUT: "$ZSTD_OUTPUT"
       PS5LZ4_HOST_STATE: "$BASE/state"
       PS5LZ4_HOST_PS4_LIBRARY: "$PS4_LIBRARY"
       PS5LZ4_LEVEL: "$LEVEL"
@@ -223,6 +227,7 @@ services:
       - "$LIBRARY:/library$LIB_MODE"
       - "$LIBRARY/_extracted:/library/_extracted"
       - "$OUTPUT:/output"
+      - "$ZSTD_OUTPUT:/output-zstd"
       - "$BASE/state:/state"
       - "$BASE/logs:/state/logs"
       - "$BASE/reports:/state/reports"
@@ -248,6 +253,8 @@ services:
     environment:
       PS5LZ4_HOST_LIBRARY: "$LIBRARY"
       PS5LZ4_HOST_OUTPUT: "$OUTPUT"
+      PS5LZ4_ZSTD_OUTPUT: "/output-zstd"
+      PS5LZ4_HOST_ZSTD_OUTPUT: "$ZSTD_OUTPUT"
       PS5LZ4_HOST_STATE: "$BASE/state"
       PS5LZ4_HOST_PS4_LIBRARY: "$PS4_LIBRARY"
       PS5LZ4_HOST_PKG_LIBRARY: "$PKG_LIBRARY"
@@ -259,6 +266,7 @@ services:
 $PS4_MOUNT
 $PKG_MOUNT
       - "$OUTPUT:/output:ro"
+      - "$ZSTD_OUTPUT:/output-zstd:ro"
       - "$BASE/state:/state"
       - "$BASE/logs:/state/logs:ro"
       - "$BASE/reports:/state/reports:ro"
@@ -293,15 +301,15 @@ else
     --label com.centurylinklabs.watchtower.enable="$WATCHTOWER" \
     --label com.centurylinklabs.watchtower.lifecycle.pre-update=/usr/local/bin/ps5lz4-busy \
     -e PUID="$PUID" -e PGID="$PGID" \
-    -e PS5LZ4_HOST_LIBRARY="$LIBRARY" -e PS5LZ4_HOST_OUTPUT="$OUTPUT" \
+    -e PS5LZ4_HOST_LIBRARY="$LIBRARY" -e PS5LZ4_HOST_OUTPUT="$OUTPUT" -e PS5LZ4_ZSTD_OUTPUT=/output-zstd -e PS5LZ4_HOST_ZSTD_OUTPUT="$ZSTD_OUTPUT" \
     -e PS5LZ4_LEVEL="$LEVEL" -e PS5LZ4_FREE_MARGIN_GB="$FREE_MARGIN_GB" -e TZ="$TZ_NAME" \
-    -v "$LIBRARY:/library:ro" -v "$LIBRARY/_extracted:/library/_extracted" -v "$OUTPUT:/output" -v "$BASE/state:/state" \
+    -v "$LIBRARY:/library:ro" -v "$LIBRARY/_extracted:/library/_extracted" -v "$OUTPUT:/output" -v "$ZSTD_OUTPUT:/output-zstd" -v "$BASE/state:/state" \
     -v "$BASE/logs:/state/logs" -v "$BASE/reports:/state/reports" \
     "$IMAGE" >/dev/null
   docker run -d --name "$CONTAINER-ui" --restart unless-stopped --init --user "$PUID:$PGID" \
     -p "$UI_PORT:5921" -p "$CATALOG_PORT:9898" --label com.centurylinklabs.watchtower.enable="$WATCHTOWER" \
-    -e PS5LZ4_HOST_LIBRARY="$LIBRARY" -e PS5LZ4_HOST_OUTPUT="$OUTPUT" -e PS5LZ4_LEVEL="$LEVEL" -e TZ="$TZ_NAME" \
-    -v "$LIBRARY:/library:ro" -v "$OUTPUT:/output:ro" -v "$BASE/state:/state" \
+    -e PS5LZ4_HOST_LIBRARY="$LIBRARY" -e PS5LZ4_HOST_OUTPUT="$OUTPUT" -e PS5LZ4_ZSTD_OUTPUT=/output-zstd -e PS5LZ4_HOST_ZSTD_OUTPUT="$ZSTD_OUTPUT" -e PS5LZ4_LEVEL="$LEVEL" -e TZ="$TZ_NAME" \
+    -v "$LIBRARY:/library:ro" -v "$OUTPUT:/output:ro" -v "$ZSTD_OUTPUT:/output-zstd:ro" -v "$BASE/state:/state" \
     -v "$BASE/logs:/state/logs:ro" -v "$BASE/reports:/state/reports:ro" ${PS4_RUN[@]+"${PS4_RUN[@]}"} ${PKG_RUN[@]+"${PKG_RUN[@]}"} \
     "$IMAGE" ps5lz4 ui --port 5921 >/dev/null
 fi

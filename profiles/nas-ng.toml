@@ -1,0 +1,20 @@
+# Shared NAS safety rules for LZ4 NG and Zstd NG.
+# Matches src/ampr_pack.c k_keep_on_disk: PS5/PlayGo checks bypass the runtime.
+[pack]
+default_action = "compress"
+
+[[rule]]
+action = "loose"
+include = [
+  "cache_ps5/pgc_*_dummy_file",
+  "cache_ps5/playgo.pgm",
+  "cache_ps5/load_menu_catalog.log",
+  "cache_ps5/all_shaders.texmeshman",
+  "cache_ps5/game.sprig.packman",
+  "cache_ps5/game.sprig.texmeshman",
+  "cache_ps5/pulse.sprig.texmeshman",
+  "sounds/scream/_generated/buss_config.bus",
+  "sounds/scream/_generated/distance_model.dml",
+  "sounds/scream/_generated/group_mix.gmx",
+  "*.rmdtoc",
+]
