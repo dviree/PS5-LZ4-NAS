@@ -918,3 +918,29 @@ exclusions as the legacy LZ4 packer. This includes the Ghost of Yotei fix for
 `cache_ps5/` and `sounds/scream/_generated/`, plus Northlight `*.rmdtoc`.
 The exclusions apply to newly packed copies; old copies must be repacked from
 the original to get these loose files. Console behavior still needs a play test.
+
+
+## Game TOML profiles in the web UI
+
+Open **Zstd**, find a game and press **TOML profile** (also available in the
+My games detail sheet). Load a `.toml` file or paste its contents, then press
+**Save TOML**. Invalid TOML leaves the previous file intact. Uploads are limited
+to 256 KiB; put patterns directly in `include` / `exclude` arrays rather than
+referencing companion list files. Existing profiles installed with companion
+lists still work.
+
+The profile is saved in `state/profiles/<TITLEID>.toml`, shared across versions
+of that title. Games without a title ID get a profile bound to the exact library
+entry. The saved profile is selected for both legacy LZ4 and NG jobs when
+**Use TOML profile** is enabled. New NG jobs now honor the selected custom or
+bundled game profile instead of always using only the NAS safety profile.
+
+For LZ4 NG and Zstd NG, mandatory NAS rules are appended after the game's rules:
+the Ghost of Yotei boot files, PlayGo markers, Northlight tables, modules and
+system files stay loose. Empty placeholders also stay loose. These protections
+remain active when **Use TOML profile** is off or a custom profile requests
+compression of every file. Runtime injection, boot repair and PS5 permissions
+still run before publication. An interrupted NG job retains its profile snapshot;
+edits apply to the next job. Existing packed copies are never rewritten by
+saving a profile: repack from the original to apply changes.
+
