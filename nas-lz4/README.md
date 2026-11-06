@@ -835,10 +835,11 @@ Mark the result on the web page and share it with the community.
 
 ## Runtime fixes and Docker update
 
-NG outputs now use James St-Pierre's pinned commit
-`83464d46972f913054831917abfa2851c85cb2f6` from
-https://github.com/jamesst20/ampr-emu-ng/tree/fix/low-virtual-fds .
-This includes reserved low descriptors and read-only indexed-directory opens.
+NG outputs now use ampr-emu-ng `main` at
+`4e951ecb0cc9b59dcf7a8989937d5c5bbb0a4505` from https://github.com/quer3q/ampr-emu-ng
+(v0.3.1 plus James St-Pierre's `fix/low-virtual-fds`, merged upstream as PR #16).
+This includes reserved low descriptors, read-only indexed-directory opens, and
+packed fds kept out of the 50-fd budget with stale fd mappings guarded.
 The Docker build runs the runtime's host tests and PS5 PRX verifier, records the
 built binary's SHA-256 in `ng-runtime.json`, and includes its corresponding source.
 Forge's verified packs receive this runtime before publication; the runtime's
@@ -858,8 +859,8 @@ The runtime build and Docker publication are separate from a physical PS5 play t
 
 ### Combined James branch fixes
 
-The image combines `fix/low-virtual-fds` at
-`83464d46972f913054831917abfa2851c85cb2f6` with the kernel-AIO changes from
+The image combines upstream `main` at
+`4e951ecb0cc9b59dcf7a8989937d5c5bbb0a4505` with the kernel-AIO changes from
 `fix/lz4-packed-open-boot` at `fe97dce63ce1790081c4f539b0f9b4efc4b91a1b`.
 The latter branch diverges from the former; switching to it alone would lose
 the low-descriptor and indexed-directory fixes. The Rust changes relative to

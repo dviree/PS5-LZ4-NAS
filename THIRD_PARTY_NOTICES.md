@@ -79,11 +79,11 @@ Existing APR-EMU attribution above continues to apply to the legacy mode.
 ### James St-Pierre runtime fixes
 
 NG packing and repair use ampr-emu-ng commit
-`83464d46972f913054831917abfa2851c85cb2f6` from
-https://github.com/jamesst20/ampr-emu-ng (GPL-3.0-or-later).
-Both the source archive and upstream LICENSE are included in the image under
-`/opt/ps5lz4/licenses/ampr-emu-ng-83464d4/`. The source archive SHA-256 is
-`511a720c6587562ed53751832e68e7a5122dc8008fe2f322a803507daa5d6c79`.
+`4e951ecb0cc9b59dcf7a8989937d5c5bbb0a4505` (main after v0.3.1, with James St-Pierre's
+low-descriptor fixes merged) from https://github.com/quer3q/ampr-emu-ng
+(GPL-3.0-or-later). The build checks out exactly that commit; a source archive made
+from it and the upstream LICENSE are included in the image under
+`/opt/ps5lz4/licenses/ampr-emu-ng-4e951ec/`.
 The binary is built from this source, not downloaded as an unpinned branch asset.
 
 The NG runtime additionally incorporates James St-Pierre's kernel-AIO changes
