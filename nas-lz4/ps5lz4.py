@@ -6022,13 +6022,6 @@ def catalog_server() -> None:
             self.end_headers()
 
         def do_GET(self):
-            if self.path.startswith("/api/profile?"):
-                from urllib.parse import parse_qs, urlparse
-                gid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
-                try:
-                    return self.send(200, json.dumps(game_profile(gid)).encode())
-                except (ValueError, OSError) as err:
-                    return self.send(400, json.dumps({"error": str(err)}).encode())
             path = self.path.split("?")[0]
             if path == "/catalog":
                 return self._json(pkg_catalog())
@@ -7308,6 +7301,13 @@ def cmd_ui(args) -> int:
         def do_GET(self):
             if self.path in ("/", "/index.html"):
                 return self.send(200, UI_HTML.encode(), "text/html")
+            if self.path.startswith("/api/profile?"):
+                from urllib.parse import parse_qs, urlparse
+                gid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+                try:
+                    return self.send(200, json.dumps(game_profile(gid)).encode())
+                except (ValueError, OSError) as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if self.path in ("/store", "/store/"):
                 return self.send(200, STORE_HTML.encode(), "text/html")
             if self.path.startswith("/api/game?"):

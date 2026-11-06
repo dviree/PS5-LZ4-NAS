@@ -5,6 +5,10 @@ import unittest
 from unittest.mock import patch
 import re
 import tomllib
+import contextlib
+import io
+import json
+from types import SimpleNamespace
 from test_community import app
 
 
@@ -132,6 +136,27 @@ class EditableProfileTests(unittest.TestCase):
         loose = [p for r in safety['rule'] if r['action'] == 'loose' for p in r['include']]
         self.assertTrue(fixes)
         self.assertEqual(set(fixes) - set(loose), set())
+
+    def test_ui_http_routes_load_and_save_game_profile(self):
+        with patch.object(app, 'ensure_dirs'), patch.object(app, 'REQUESTS', self.root/'requests'), \
+             patch('threading.Thread'), patch('http.server.ThreadingHTTPServer') as server, \
+             contextlib.redirect_stdout(io.StringIO()):
+            app.cmd_ui(SimpleNamespace(port=0))
+        handler_type = server.call_args.args[1]
+        handler = handler_type.__new__(handler_type)
+        handler.send = __import__('unittest.mock', fromlist=['Mock']).Mock()
+        handler.path = '/api/profile?id=' + __import__('urllib.parse', fromlist=['quote']).quote(self.entry.id)
+        handler.do_GET()
+        code, payload = handler.send.call_args.args
+        self.assertEqual(code, 200)
+        self.assertEqual(json.loads(payload)['game'], self.entry.id)
+        body = json.dumps({'action': 'profile_save', 'game': self.entry.id, 'content': self.text}).encode()
+        handler.path = '/api/action'
+        handler.headers = {'Content-Length': str(len(body))}
+        handler.rfile = io.BytesIO(body)
+        handler.do_POST()
+        self.assertEqual(handler.send.call_args.args[0], 200)
+        self.assertEqual(app.game_profile(self.entry.id)['content'], self.text)
 
 
 if __name__ == "__main__":
