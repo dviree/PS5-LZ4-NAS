@@ -6795,6 +6795,7 @@ def dashboard_data() -> dict:
     return {"running": running, "job": job, "queue": queue.get("remaining") or [],
             "interrupted": (not running) and bool(queue.get("remaining")),
             "free_bytes": free_bytes(OUTPUT), "games": rows, "totals": totals, "failed": failed,
+            "zstd_output_host": host_output_path(zstd_output()),
             "lz4c_version": lz4c_version(),
             "delete_originals": DELETE_ORIGINALS,
             "archives": _safe(scan_archives, []),
@@ -7951,3 +7952,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
