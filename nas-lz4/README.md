@@ -830,3 +830,26 @@ Mark the result on the web page and share it with the community.
   <game>-lz4/           finished LZ4 games
   .ps5lz4-work/         work folders (empty after successful jobs)
 ```
+
+## Runtime fixes and Docker update
+
+NG outputs now use James St-Pierre's pinned commit
+`83464d46972f913054831917abfa2851c85cb2f6` from
+https://github.com/jamesst20/ampr-emu-ng/tree/fix/low-virtual-fds .
+This includes reserved low descriptors and read-only indexed-directory opens.
+The Docker build runs the runtime's host tests and PS5 PRX verifier, records the
+built binary's SHA-256 in `ng-runtime.json`, and includes its corresponding source.
+Forge's verified packs receive this runtime before publication; the runtime's
+AMPRIDX3 size/mtime record is updated without changing packed-file records.
+NAS Repair (`ps5lz4 apr --fix`) upgrades existing NG copies to this build.
+It preserves legacy LZ4 copies. ShadowMountPlus fakelib updates must remain off.
+
+After the new image is published, update both NAS containers with:
+
+```sh
+cd /volume2/docker/ps5-lz4
+./lz4-ps5.sh update
+```
+
+This refuses to interrupt an active pack job. No archive or original is deleted.
+The runtime build and Docker publication are separate from a physical PS5 play test.

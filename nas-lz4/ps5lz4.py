@@ -67,8 +67,11 @@ FREE_MARGIN = int(float(os.environ.get("PS5LZ4_FREE_MARGIN_GB", "20")) * 1024**3
 # Pinned APR-EMU PackedStdio runtime embedded in ampr_pack_cli.
 RUNTIME_SHA256 = "69e6c4d5e4f5fb83c9e01815db5861c4c75734acbf4595cafa50d4c218116d1a"
 RUNTIME_NAME = "APR-EMU PackedStdio 0.4.2.1"
-NG_SHA256 = "5f39ca8ebe169aa15d8a8ba8ec2f9cd4195f509d55daaf4b4edbfa80b145035c"
-NG_NAME = "ampr-emu-ng 0.3.0"
+NG_UPSTREAM_SHA256 = "5f39ca8ebe169aa15d8a8ba8ec2f9cd4195f509d55daaf4b4edbfa80b145035c"
+NG_MANIFEST = Path(os.environ.get("PS5LZ4_NG_MANIFEST", "/opt/ps5lz4/ng-runtime.json"))
+_ng_build = json.loads(NG_MANIFEST.read_text()) if NG_MANIFEST.is_file() else {}
+NG_SHA256 = _ng_build.get("sha256", NG_UPSTREAM_SHA256)
+NG_NAME = _ng_build.get("name", "ampr-emu-ng 0.3.0")
 NG_FILE = Path(os.environ.get("PS5LZ4_NG_RUNTIME", "/opt/ps5lz4/libSceAmpr-ng.sprx"))
 FORGE = os.environ.get("PS5LZ4_FORGE", "/usr/local/bin/ps5-dump-forge")
 RUNTIME_REL = "fakelib/libSceAmpr.sprx"
@@ -922,6 +925,7 @@ class Job:
             # Forge owns the codec, runtime injection, indexes and full read-back verification.
             t0 = time.time()
             self.run_tool(forge_command(root, pack, self.codec, self.level), "pack")
+            install_ng_runtime(pack)
             problem = lz4_format_problem(pack)
             if problem or runtime_sha(pack) != NG_SHA256:
                 raise JobError(problem or "Forge installed an unexpected runtime")
@@ -1436,16 +1440,58 @@ def runtime_sha(game: Path) -> str:
 
 
 def runtime_name(sha: str) -> str:
-    return NG_NAME if sha == NG_SHA256 else RUNTIME_NAME if sha == RUNTIME_SHA256 else f"unknown runtime ({sha[:12]})"
+    return NG_NAME if sha == NG_SHA256 else "ampr-emu-ng 0.3.0" if sha == NG_UPSTREAM_SHA256 else RUNTIME_NAME if sha == RUNTIME_SHA256 else f"unknown runtime ({sha[:12]})"
 
 
 def requires_ng(game: Path) -> bool:
     rep = read_json(REPORTS / (re.sub(r"-(lz4|zstd)$", "", game.name) + ".json"), {}) or {}
-    return packed_codec(game) == "zstd" or rep.get("pack_runtime") == "ng" or runtime_sha(game) == NG_SHA256
+    return packed_codec(game) == "zstd" or rep.get("pack_runtime") == "ng" or runtime_sha(game) in (NG_SHA256, NG_UPSTREAM_SHA256)
 
 
 def runtime_ok(game: Path, sha: str) -> bool:
-    return sha == NG_SHA256 if requires_ng(game) else sha in (NG_SHA256, RUNTIME_SHA256)
+    return sha in (NG_SHA256, NG_UPSTREAM_SHA256) if requires_ng(game) else sha in (NG_SHA256, NG_UPSTREAM_SHA256, RUNTIME_SHA256)
+
+
+def update_runtime_index(root: Path, runtime: Path) -> None:
+    """Change only the loose runtime record; retain all packed-file records/hash slots."""
+    index = root / "ampr_emu.index"
+    buf = bytearray(index.read_bytes())
+    if len(buf) < 48 or buf[:8] != b"AMPRIDX3" or struct.unpack_from("<II", buf, 8) != (3, 24):
+        raise JobError("unsupported AMPR runtime index")
+    count, path_bytes = struct.unpack_from("<QQ", buf, 16)
+    blob = 48 + count * 24
+    if blob > len(buf) or path_bytes > len(buf) - blob:
+        raise JobError("truncated AMPR runtime index")
+    target = ("/app0/" + runtime.relative_to(root).as_posix()).encode()
+    found = 0
+    for i in range(count):
+        record = 48 + i * 24
+        off, length = struct.unpack_from("<II", buf, record)
+        if off + length >= path_bytes or buf[blob + off + length] != 0:
+            raise JobError("invalid AMPR index path")
+        if bytes(buf[blob + off:blob + off + length]) == target:
+            st = runtime.stat()
+            struct.pack_into("<Qq", buf, record + 8, st.st_size, int(st.st_mtime))
+            found += 1
+    if found != 1:
+        raise JobError("AMPR index must contain exactly one runtime record")
+    temp = index.with_suffix(".tmp")
+    temp.write_bytes(buf)
+    os.replace(temp, index)
+
+
+def install_ng_runtime(root: Path) -> None:
+    if runtime_sha(root) == NG_SHA256:
+        return
+    if not NG_FILE.is_file() or hashlib.sha256(NG_FILE.read_bytes()).hexdigest() != NG_SHA256:
+        raise JobError("built ampr-emu-ng runtime is missing or corrupt")
+    runtime = find_runtime(root) or root / RUNTIME_REL
+    runtime.parent.mkdir(parents=True, exist_ok=True)
+    temporary = runtime.with_suffix(".tmp")
+    shutil.copyfile(NG_FILE, temporary)
+    temporary.chmod(0o755)
+    os.replace(temporary, runtime)
+    update_runtime_index(root, runtime)
 
 
 def compare_game_files(source: Path, decoded: Path) -> list[str]:
@@ -2265,6 +2311,8 @@ def cmd_apr(args) -> int:
         else:
             sha = hashlib.sha256(rt.read_bytes()).hexdigest()
             state = "ok" if runtime_ok(g, sha) else f"WRONG RUNTIME ({sha[:12]})"
+            if args.fix and requires_ng(g) and sha != NG_SHA256:
+                state = "NG runtime upgrade needed"
         if state != "ok":
             ok = False
             if args.fix:
@@ -2279,12 +2327,14 @@ def cmd_apr(args) -> int:
                 shutil.copyfile(runtime_file, tmp)
                 os.chmod(tmp, 0o755)
                 os.replace(tmp, dst)
+                if requires_ng(g):
+                    update_runtime_index(g, dst)
                 state += " -> FIXED"
                 ok = True
         # Files the PS5 looks for on disk (PlayGo markers, empty files, some
         # boot files) must exist next to the packs; packs made before
         # upstream 1.4.3 may hold them only inside. --fix writes them out.
-        if runtime_sha(g) != NG_SHA256:
+        if not requires_ng(g):
             out = subprocess.run([PACKER, "disk-files", str(g)] + (["--repair"] if args.fix else []),
                                  capture_output=True, text=True)
             m = re.search(r"missing=(\d+) restored=(\d+)", out.stdout)
@@ -2735,7 +2785,7 @@ def ps5_ftp_apr(path: str) -> dict:
         h = hashlib.sha256()
         f.retrbinary(f"RETR {path}/{fl}/{lib}", h.update)
         sha = h.hexdigest()
-        return {"path": f"{path}/{fl}/{lib}", "ok": sha == NG_SHA256 if zstd else sha in (RUNTIME_SHA256, NG_SHA256),
+        return {"path": f"{path}/{fl}/{lib}", "ok": sha in (NG_SHA256, NG_UPSTREAM_SHA256) if zstd else sha in (RUNTIME_SHA256, NG_SHA256, NG_UPSTREAM_SHA256),
                 "build": runtime_name(sha)}
     except ftplib.error_perm as err:
         raise ValueError(f"{path}: {err}")

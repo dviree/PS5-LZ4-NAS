@@ -75,3 +75,13 @@ https://github.com/quer3q/ampr-emu-ng/tree/v0.3.0
 The image includes Forge's license and dependency notices, NG's attribution, and
 NG's corresponding source archive under `/opt/ps5lz4/licenses/ps5-dump-forge`.
 Existing APR-EMU attribution above continues to apply to the legacy mode.
+
+### James St-Pierre runtime fixes
+
+NG packing and repair use ampr-emu-ng commit
+`83464d46972f913054831917abfa2851c85cb2f6` from
+https://github.com/jamesst20/ampr-emu-ng (GPL-3.0-or-later).
+Both the source archive and upstream LICENSE are included in the image under
+`/opt/ps5lz4/licenses/ampr-emu-ng-83464d4/`. The source archive SHA-256 is
+`511a720c6587562ed53751832e68e7a5122dc8008fe2f322a803507daa5d6c79`.
+The binary is built from this source, not downloaded as an unpinned branch asset.

@@ -2,6 +2,28 @@
 # Build from the repository root:
 #   docker build -t ps5-lz4:local -f nas-lz4/Dockerfile .
 
+# Pinned James St-Pierre branch: low reserved fds + read-only virtual directories.
+FROM rust:1.99.0-slim-trixie@sha256:24e632c09342c20abf8312cf4f61430a911c01ed3a5e4c02b87292b1c39c5273 AS ng-runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates clang-19 lld-19 llvm-19 make curl unzip python3 \
+    && rm -rf /var/lib/apt/lists/*
+ENV PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk LLVM_CONFIG=/usr/bin/llvm-config-19
+ENV PATH=/usr/lib/llvm-19/bin:$PATH
+ENV RUSTUP_TOOLCHAIN=1.99.0 RUSTUP_AUTO_INSTALL=0
+RUN curl -fsSL --retry 3 https://github.com/ps5-payload-dev/sdk/releases/download/v0.43/ps5-payload-sdk.zip -o /tmp/sdk.zip \
+    && echo 'a9cc9929f21b2b2c5d5b309f3bab4997067c45281c0622cf4838b1aecba66fcb  /tmp/sdk.zip' | sha256sum -c - \
+    && unzip -q /tmp/sdk.zip -d /opt && rm /tmp/sdk.zip
+RUN rustup component add rust-src
+WORKDIR /runtime
+RUN curl -fsSL --retry 3 https://codeload.github.com/jamesst20/ampr-emu-ng/tar.gz/83464d46972f913054831917abfa2851c85cb2f6 -o source.tar.gz \
+    && echo '511a720c6587562ed53751832e68e7a5122dc8008fe2f322a803507daa5d6c79  source.tar.gz' | sha256sum -c - \
+    && mkdir source && tar -xzf source.tar.gz --strip-components=1 -C source
+WORKDIR /runtime/source
+RUN cargo test --workspace --locked \
+    && make verify AMPR_GIT_REV=83464d4 \
+    && cp out/release/libSceAmpr.sprx /runtime/libSceAmpr-ng.sprx \
+    && python3 -c 'import hashlib,json;from pathlib import Path;p=Path("/runtime/libSceAmpr-ng.sprx");Path("/runtime/ng-runtime.json").write_text(json.dumps({"name":"ampr-emu-ng 83464d4 (low-fd fixes)","commit":"83464d46972f913054831917abfa2851c85cb2f6","sha256":hashlib.sha256(p.read_bytes()).hexdigest()}))'
+
 FROM python:3.12-slim-bookworm AS build
 RUN apt-get update \
  && apt-get install -y --no-install-recommends gcc libc6-dev make \
@@ -36,6 +58,10 @@ RUN pip install --no-cache-dir "mkpfs==${MKPFS_VERSION}" \
 COPY --from=build /src/build/host/ampr_pack_cli /usr/local/bin/ampr_pack_cli
 COPY --from=forge /usr/local/bin/ps5-dump-forge /usr/local/bin/ps5-dump-forge
 COPY --from=forge /opt/ps5lz4/ /opt/ps5lz4/
+COPY --from=ng-runtime /runtime/libSceAmpr-ng.sprx /opt/ps5lz4/libSceAmpr-ng.sprx
+COPY --from=ng-runtime /runtime/ng-runtime.json /opt/ps5lz4/ng-runtime.json
+COPY --from=ng-runtime /runtime/source.tar.gz /opt/ps5lz4/licenses/ampr-emu-ng-83464d4/source.tar.gz
+COPY --from=ng-runtime /runtime/source/LICENSE /opt/ps5lz4/licenses/ampr-emu-ng-83464d4/LICENSE
 COPY profiles /opt/ps5lz4/profiles
 COPY compat/compat.json /opt/ps5lz4/compat.json
 COPY nas-lz4/ps5lz4.py /opt/ps5lz4/ps5lz4.py

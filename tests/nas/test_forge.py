@@ -118,3 +118,36 @@ class ForgeIntegrationTests(unittest.TestCase):
         app.boot_files(out, repair=True)
         self.assertEqual((out/'ampr_emu.index').read_bytes(), before)
         self.assertFalse((out/'ampr_emu.index.stale').exists())
+
+class RuntimeIndexTests(unittest.TestCase):
+    def test_replacement_updates_runtime_record_only(self):
+        import struct
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime = root / app.RUNTIME_REL
+            runtime.parent.mkdir()
+            runtime.write_bytes(b'updated runtime')
+            paths = [b'/app0/data/packed.bin', ('/app0/' + app.RUNTIME_REL).encode()]
+            strings = b'\0'.join(paths) + b'\0'
+            header = bytearray(48)
+            header[:8] = b'AMPRIDX3'
+            struct.pack_into('<IIQQ', header, 8, 3, 24, 2, len(strings))
+            first = struct.pack('<IIQq', 0, len(paths[0]), 12345, 1)
+            second = struct.pack('<IIQq', len(paths[0])+1, len(paths[1]), 1, 1)
+            before = bytes(header) + first + second + strings + b'HASH-TABLE'
+            index = root / 'ampr_emu.index'
+            index.write_bytes(before)
+            app.update_runtime_index(root, runtime)
+            after = index.read_bytes()
+            self.assertEqual(before[:80], after[:80])
+            self.assertEqual(before[96:], after[96:])
+            self.assertEqual(struct.unpack_from('<Q', after, 80)[0], len(b'updated runtime'))
+
+    def test_invalid_index_fails_without_rewriting_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            index = root / 'ampr_emu.index'
+            index.write_bytes(b'invalid')
+            with self.assertRaises(app.JobError):
+                app.update_runtime_index(root, root / app.RUNTIME_REL)
+            self.assertEqual(index.read_bytes(), b'invalid')
