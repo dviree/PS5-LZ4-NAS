@@ -34,6 +34,19 @@ assert.ok(can(games.source, 'legacy') && can(games.source, 'zstd') && can(games.
 assert.ok(!can(games.legacyNo, 'legacy') && can(games.legacyNo, 'zstd') && can(games.legacyNo, 'ng'));
 assert.ok(!can(games.zstdDone, 'zstd') && !can(games.lz4Done, 'ng') && can(games.lz4Done, 'zstd'));
 assert.ok(!can(games.running, 'zstd') && !can(games.folder, 'zstd'));
+// The Compress dialog sends what was picked in it.
+const ctx2 = vm.createContext({document: {getElementById: () => null, body: {insertAdjacentHTML() {}}}, data: {games: [], settings: {}},
+  packMode: 'legacy', packLevel: 9, packProfile: true, savePackPrefs() {}, renderFmtBar() {}, localStorage: {getItem: () => null, setItem() {}},
+  compress: (...a) => { ctx2.sent = a; }});
+vm.runInContext(html.slice(html.indexOf('// The Compress dialog:'), html.indexOf('function convertGame(id, codec)')), ctx2);
+vm.runInContext("pk = {id: 'g', g: {can_queue: false}, mode: 'ng', level: 9, profile: true, remember: false}; pkPick('zstd')", ctx2);
+assert.equal(vm.runInContext('pk.level', ctx2), 5);
+vm.runInContext("pkPick('lz4')", ctx2);
+assert.equal(vm.runInContext('pk.mode', ctx2), 'ng');  // APR-EMU can't run it: LZ4 means LZ4 NG
+vm.runInContext("pkPick('zstd'); pk.remember = true; pkGo(true)", ctx2);
+assert.deepEqual(JSON.parse(JSON.stringify(ctx2.sent)), ['g', true, false, {codec: 'zstd', runtime: 'ng', level: 5, profile: true}, false]);
+assert.equal(vm.runInContext('packSkip && packMode', ctx2), 'zstd');
+console.log('Compress dialog tests passed');
 console.log('Format switch tests passed');
 
 (async () => {

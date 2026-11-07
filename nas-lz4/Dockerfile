@@ -54,10 +54,11 @@ RUN python3 /tmp/install-forge.py
 FROM python:3.12-slim-bookworm
 ARG MKPFS_VERSION=1.1.0
 # unrar (RARLAB's freeware, from Debian non-free): extracts multi-part RAR5
-# archives in the library, checking every file's CRC.
+# archives in the library, checking every file's CRC. lz4 and zstd: the
+# Compress dialog's size estimates from a sample of the game.
 RUN sed -i 's/^Components: main$/Components: main non-free/' /etc/apt/sources.list.d/debian.sources \
  && apt-get update \
- && apt-get install -y --no-install-recommends unrar libstdc++6 \
+ && apt-get install -y --no-install-recommends unrar libstdc++6 lz4 zstd \
  && rm -rf /var/lib/apt/lists/* \
  && unrar | head -1
 RUN pip install --no-cache-dir "mkpfs==${MKPFS_VERSION}" \

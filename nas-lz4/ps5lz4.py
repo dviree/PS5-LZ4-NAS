@@ -778,6 +778,101 @@ def upload_profile(game_id: str, files) -> dict:
     return set_profile_choice(entry.id, {"kind": "nas", "name": tomls[0]})
 
 
+_estimates: dict = {}
+
+
+def pack_speeds() -> dict:
+    """Bytes per second the NAS packed at, per mode (median of its reports)."""
+    seen: dict = {}
+    for f in REPORTS.glob("*.json"):
+        r = read_json(f, {}) or {}
+        secs, size = r.get("pack_seconds"), r.get("source_bytes")
+        if not (isinstance(secs, (int, float)) and secs > 0 and isinstance(size, int) and size > 0):
+            continue
+        mode = "zstd" if r.get("pack_codec") == "zstd" else "ng" if r.get("pack_runtime") == "ng" else "legacy"
+        seen.setdefault(mode, []).append(size / secs)
+    return {k: sorted(v)[len(v) // 2] for k, v in seen.items()}
+
+
+def estimate_game(game_id: str) -> dict:
+    """LZ4 HC and Zstd sizes of a game, from a sample of its files (64 spots
+    spread by size, 512 KiB each, compressed with the lz4 and zstd tools at
+    the page's levels), and how long a pack took here per mode."""
+    entry = profile_entry(game_id)
+    st = entry.path.stat()
+    key = (str(entry.path), st.st_mtime_ns, st.st_size)
+    if key in _estimates:
+        return {**_estimates[key], "speed": pack_speeds()}
+    spot = 512 * 1024
+    if entry.path.is_dir():
+        files = []
+        for p in sorted(entry.path.rglob("*")):
+            try:
+                if p.is_file() and not p.is_symlink():
+                    files.append((p, p.stat().st_size))
+            except OSError:
+                pass
+        def read(item, off):
+            with open(item[0], "rb") as fh:
+                fh.seek(off)
+                return fh.read(spot)
+    elif entry.path.suffix.lower() == ".exfat":
+        from mkpfs.exfat import ExfatReader  # pinned MkPFS 1.1.0
+        fh = open(entry.path, "rb")
+        reader = ExfatReader(fh)
+        files = [(e, e.length) for e in reader.iter_files()]
+        def read(item, off):  # an image is read from each file's start
+            out = b""
+            for chunk in reader.read_file(item[0]):
+                out += chunk
+                if len(out) >= spot:
+                    break
+            return out[:spot]
+    else:
+        raise ValueError("no estimate for a .ffpfsc or .ffpfs: it is compressed or packed already; "
+                         "the result is shown after packing")
+    total = sum(n for _, n in files)
+    if not total:
+        raise ValueError("the game has no data to sample")
+    sample, step, pos, i, acc, spots = [], total / 64, total / 128, 0, 0, set()
+    while pos < total and i < len(files) and len(sample) < 64:
+        while i < len(files) and acc + files[i][1] <= pos:
+            acc += files[i][1]
+            i += 1
+        if i >= len(files):
+            break
+        off = max(0, min(int(pos - acc), files[i][1] - spot)) if entry.path.is_dir() else 0
+        off -= off % spot
+        if (i, off) not in spots:  # a small game: no spot twice
+            spots.add((i, off))
+            sample.append(read(files[i], off))
+        pos += step
+    if not entry.path.is_dir():
+        fh.close()
+    raw = b"".join(sample)
+    if not raw:
+        raise ValueError("the game has no data to sample")
+    import tempfile
+    # Each 256 KiB piece on its own, as the packs compress chunks independently
+    # (one stream would find repeats across samples that no pack can use).
+    with tempfile.TemporaryDirectory() as tmp:
+        pieces = [Path(tmp) / f"{n:05d}" for n in range(0, len(raw), 256 * 1024)]
+        for n, f in enumerate(pieces):
+            f.write_bytes(raw[n * 256 * 1024:(n + 1) * 256 * 1024])
+        def packed(argv, ext):
+            out = subprocess.run(argv + [str(f) for f in pieces], capture_output=True, timeout=300)
+            if out.returncode != 0:
+                raise ValueError(f"{argv[0]} failed: {out.stderr.decode(errors='replace')[:200]}")
+            return sum(f.with_name(f.name + ext).stat().st_size for f in pieces)
+        ratio_lz4 = packed(["lz4", "-9", "-B4", "-m", "-q"], ".lz4") / len(raw)  # HC, 64 KiB blocks like the packs
+        ratio_zstd = packed(["zstd", "-5", "-q"], ".zst") / len(raw)
+    res = {"source_bytes": total, "sample_bytes": len(raw), "files": len(files),
+           "lz4": {"bytes": min(total, int(total * ratio_lz4))}, "zstd": {"bytes": min(total, int(total * ratio_zstd))},
+           "method": f"{len(sample)} sample{'s' if len(sample) != 1 else ''}, {human(len(raw))}"}
+    _estimates[key] = res
+    return {**res, "speed": pack_speeds()}
+
+
 def game_profile(game_id: str) -> dict:
     entry = profile_entry(game_id)
     path, description = choose_profile(entry.title_id, entry.name or entry.id, entry.path, entry.id, entry.path)
@@ -7426,6 +7521,12 @@ def cmd_ui(args) -> int:
         def do_GET(self):
             if self.path in ("/", "/index.html"):
                 return self.send(200, UI_HTML.encode(), "text/html")
+            if self.path.startswith("/api/estimate?"):
+                from urllib.parse import parse_qs, urlparse
+                try:
+                    return self.send(200, json.dumps(estimate_game((parse_qs(urlparse(self.path).query).get("id") or [""])[0])).encode())
+                except (ValueError, OSError, subprocess.SubprocessError) as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if self.path.startswith("/api/profile?"):
                 from urllib.parse import parse_qs, urlparse
                 gid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]

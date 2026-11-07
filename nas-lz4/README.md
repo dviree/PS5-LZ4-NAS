@@ -927,8 +927,16 @@ the original to get these loose files. Console behavior still needs a play test.
 Compress buttons use: **⚡ LZ4** (APR-EMU 0.4.2.1, loads fastest), **🗜 Zstd**
 (ampr-emu-ng, smallest) or **🧪 LZ4 NG** (the same LZ4 packs, read by
 ampr-emu-ng instead of APR-EMU, for games APR-EMU can't run), with its level and
-**TOML profile**. The page remembers the choice. Each game's button and status
-follow it; a game that can't be packed that way says what can. **Compress all**
+**TOML profile**. The page remembers the choice. A game's Compress button opens
+the **Compress dialog**: LZ4 and Zstd side by side, each with its size
+estimated from a sample of the game (64 spots of 512 KiB, each 256 KiB piece
+compressed on its own with the `lz4` and `zstd` tools, as the packs do; a
+folder or `.exfat`, not an already compressed `.ffpfsc`), the pack time from
+earlier packs on this NAS, the community reports (APR-EMU only) and the
+runtime. LZ4 runs on APR-EMU or ampr-emu-ng (NG); Zstd is recommended when it
+saves at least 1 GB or 5 % more. **Remember for every game** skips the dialog
+from then on (**Ask each time** brings it back). Each game's button and status
+follow the choice; a game that can't be packed that way says what can. **Compress all**
 packs LZ4. For Zstd and LZ4 NG, turn off fakelib updates in ShadowMountPlus so
 it keeps ampr-emu-ng.
 

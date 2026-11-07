@@ -87,6 +87,17 @@ tr.row{cursor:pointer}tr.row td{transition:background .12s}tr.row:hover td{backg
 .topt .ti{font-size:20px}.topt .tn{font-weight:600;overflow-wrap:anywhere}.topt .sp{flex:1}
 .tomldrop{display:block;border:2px dashed var(--line);border-radius:14px;padding:16px;text-align:center;cursor:pointer;margin-top:12px}
 .tomldrop.over{border-color:#38bdf8;background:rgba(56,189,248,.08)}
+.pkdlg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:200;padding:16px}
+.pkbox{width:780px;max-width:100%;max-height:100%;overflow:auto;background:var(--card,rgba(40,25,90,.98));backdrop-filter:blur(18px);border:1px solid var(--line);border-radius:20px;padding:22px}
+.pkcards{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+@media (max-width:640px){.pkcards{grid-template-columns:1fr}}
+.pkcard{border:2px solid var(--line);border-radius:16px;padding:16px;position:relative;cursor:pointer}
+.pkcard.on{border-color:#38bdf8;background:rgba(56,189,248,.08)}
+.pkcard h3{margin:0 0 2px;font-size:18px}.pkcard .big{font-size:26px;font-weight:800;margin:8px 0 2px}
+.pkcard .row{display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:5px 0;border-top:1px solid var(--line)}
+.pkrec{position:absolute;top:-11px;right:14px;background:#22c55e;color:#04210f;font-size:11px;font-weight:800;padding:3px 9px;border-radius:99px}
+.pkbar{height:8px;border-radius:9px;background:rgba(255,255,255,.12);overflow:hidden;margin:6px 0}.pkbar i{display:block;height:100%}
+.pkrt{display:inline-flex;gap:4px;margin-top:6px}.pkrt button{padding:3px 9px;font-size:11.5px;border-radius:8px}
 .pill.p-rar{background:linear-gradient(135deg,#f59e0b,#b45309);color:#fff}
 details.sav{margin-top:12px;border-top:1px solid var(--line);padding-top:8px}details.sav summary{display:flex;gap:8px;align-items:center;cursor:pointer;flex-wrap:wrap}
 button.send-on{background:linear-gradient(135deg,#34d399,#059669);color:#fff;border-color:rgba(255,255,255,.3)}
@@ -1051,7 +1062,7 @@ function render() {
       const other = !canPack(g) && !g.output_only && !g.running && !g.queued && ['zstd', 'ng'].some(m => m !== packMode && canPack(g, m));
       const toml = !g.output_only ? `<button class="sm ghost" data-game="${esc(g.id)}" onclick="event.stopPropagation();openProfile(this.dataset.game)" title="See or edit this game's TOML profile">TOML</button>` : '';
       const action = waiting ? `<span class="pill p-run" title="${esc(waitWhy())}">waiting</span>` : canPack(g)
-        ? `<div class="rowbtns"><button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game, ${send})" title="Compress with ${esc(fmt.name)}${send ? ', then send it to the PS5 by itself' : ''}">${fmt.icon} ${esc(fmt.name)}${send ? ' &amp; send' : ''}</button>${toml}</div>`
+        ? `<div class="rowbtns"><button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();packDialog(this.dataset.game, ${send})" title="Compress with ${esc(fmt.name)}${send ? ', then send it to the PS5 by itself' : ''}">${fmt.icon} ${esc(fmt.name)}${send ? ' &amp; send' : ''}</button>${toml}</div>`
         : other ? `<div class="rowbtns"><span class="mut" style="font-size:12px">${packMode === 'legacy' ? 'needs Zstd or LZ4 NG' : 'already packed this way'}</span>${toml}</div>`
         : txr && txr.state === 'failed' && !d.transfer
         ? `<button class="sm pri" data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}" onclick="event.stopPropagation();push(this.dataset.id, this.dataset.name)">▶ Resume transfer</button>` : '';
@@ -1205,6 +1216,7 @@ function renderFmtBar() {
       onchange="packLevel = Number(this.value); savePackPrefs()"></label>
     <label class="mut" title="Off: no TOML profile; the packer's own scan decides what is packed"><input type="checkbox" style="width:auto;min-width:0"
       ${packProfile ? 'checked' : ''} onchange="packProfile = this.checked; savePackPrefs()"> TOML profile</label>
+    ${typeof packSkip !== 'undefined' && packSkip ? '<button class="sm ghost" onclick="askEachTime()" title="Show the Compress dialog again">Ask each time</button>' : ''}
     <span class="mut">${packMode === 'legacy' ? 'The Compress buttons below use this. Compress all packs LZ4.'
       : 'The Compress buttons below use this. Turn off fakelib updates in ShadowMountPlus so it keeps ampr-emu-ng.'}</span></div>`;
 }
@@ -1332,10 +1344,89 @@ function packControls() {
       <input type="checkbox" style="width:auto;min-width:0" ${packProfile ? 'checked' : ''} onchange="packProfile = this.checked"> Use TOML profile</label>
     <span class="mut">ampr-emu-ng: disable fakelib updates in ShadowMountPlus.</span></div>`;
 }
+// The Compress dialog: LZ4 and Zstd side by side with sizes estimated from a
+// sample of the game, pack time from earlier packs here, and the runtime each needs.
+let packSkip = false;
+try { packSkip = localStorage.getItem('packSkip') === '1'; } catch (e) {}
+let pk = null;
+function packDialog(id, send) {
+  const g = (data.games || []).find(x => x.id === id);
+  if (!g) return;
+  if (packSkip) return compress(id, send && !!(data.settings || {}).ps5_ftp, false, packOptions(), true);
+  pk = {id, g, est: null, err: '', mode: packMode, level: packLevel, profile: packProfile, remember: false};
+  if (pk.mode === 'legacy' && !g.can_queue) pk.mode = 'ng';
+  document.body.insertAdjacentHTML('beforeend', '<div class="pkdlg" id="pkdlg" onclick="if(event.target===this)closePack()"><div class="pkbox" id="pkbox"></div></div>');
+  renderPack();
+  fetch('/api/estimate?id=' + encodeURIComponent(id), {cache: 'no-store'}).then(r => r.json().then(j => [r.ok, j]))
+    .then(([ok, j]) => { if (pk && pk.id === id) { if (ok) pk.est = j; else pk.err = j.error || 'no estimate'; renderPack(); } })
+    .catch(e => { if (pk && pk.id === id) { pk.err = e.message; renderPack(); } });
+}
+function closePack() { pk = null; const d = document.getElementById('pkdlg'); if (d) d.remove(); }
+function pkTime(sec) { return sec == null ? 'unknown yet' : sec < 90 ? '≈ 1 min' : sec < 5400 ? `≈ ${Math.round(sec / 60)} min` : `≈ ${(sec / 3600).toFixed(1)} h`; }
+function renderPack() {
+  const box = document.getElementById('pkbox');
+  if (!box || !pk) return;
+  const {g, est} = pk, src = (est && est.source_bytes) || g.source_bytes || g.source_size || 0;
+  const speed = (est && est.speed) || {};
+  const card = (key, title, sub, bytes, colour, rows, extra, after = '') => {
+    const on = key === 'zstd' ? pk.mode === 'zstd' : pk.mode !== 'zstd';
+    const saves = bytes && src ? Math.round(100 * (1 - bytes / src)) : null;
+    return `<div class="pkcard${on ? ' on' : ''}" role="radio" aria-checked="${on}" tabindex="0" onclick="pkPick('${key}')">${extra}
+      <h3>${title}</h3><div class="mut">${sub}</div>${after}
+      <div class="big">${bytes ? '≈ ' + gb(bytes) : pk.err ? '–' : '…'}</div>
+      <div class="mut">${saves != null ? `saves ${saves} %` : pk.err ? esc(pk.err) : 'estimating from a sample…'}</div>
+      <div class="pkbar"><i style="width:${bytes && src ? Math.max(2, 100 * bytes / src) : 0}%;background:${colour}"></i></div>
+      ${rows.map(([k, v]) => `<div class="row"><span>${k}</span><b>${v}</b></div>`).join('')}</div>`;
+  };
+  const lz4b = est && est.lz4.bytes, zb = est && est.zstd.bytes, lzMode = pk.mode === 'zstd' ? (g.can_queue ? 'legacy' : 'ng') : pk.mode;
+  const extraSave = lz4b && zb ? lz4b - zb : 0, rec = extraSave > Math.max(1 << 30, 0.05 * src) ? 'zstd' : lz4b ? 'lz4' : '';
+  const c = g.community || {}, reports = c.reports ? `<span class="good">✅ ${c.works || 0} works</span> of ${c.reports}` : '<span class="mut">no reports yet</span>';
+  const recBadge = k => rec === k ? `<span class="pkrec">RECOMMENDED${k === 'zstd' ? ' · saves ' + gb(extraSave) + ' more' : ''}</span>` : '';
+  const rt = `<div class="pkrt" onclick="event.stopPropagation()"><button class="sm ${lzMode === 'legacy' ? 'pri' : 'ghost'}" ${g.can_queue ? '' : 'disabled title="APR-EMU cannot run this game"'} onclick="pkPick('legacy')">APR-EMU</button><button class="sm ${lzMode === 'ng' ? 'pri' : 'ghost'}" onclick="pkPick('ng')">ampr-emu-ng (NG)</button></div>`;
+  const max = pk.mode === 'zstd' ? 22 : 12, ng = pk.mode !== 'legacy', send = !!(data.settings || {}).ps5_ftp;
+  box.innerHTML = `<h2 style="margin:0">Compress ${esc(g.name)}</h2>
+    <div class="mut">${esc(g.title_id || '')} · ${esc(KIND_EN[g.kind] || g.kind || '')}${src ? ' · ' + gb(src) : ''}${est ? ' · estimated from ' + esc(est.method) : ''}</div>
+    <div class="pkcards">
+      ${card('lz4', '⚡ LZ4', lzMode === 'legacy' ? 'APR-EMU 0.4.2.1' : 'ampr-emu-ng (LZ4 NG)', lz4b, '#8b5cf6',
+        [['Loading', 'fastest'], ['Pack time', pkTime(src && speed[lzMode] ? src / speed[lzMode] : null)],
+         ['Community', lzMode === 'legacy' ? reports : '<span class="mut">covers APR-EMU only</span>'], ['Runtime', lzMode === 'legacy' ? 'APR-EMU' : 'ampr-emu-ng']], recBadge('lz4'), rt)}
+      ${card('zstd', '🗜 Zstd', 'ampr-emu-ng', zb, '#38bdf8',
+        [['Loading', 'a little slower'], ['Pack time', pkTime(src && speed.zstd ? src / speed.zstd : null)],
+         ['Community', '<span class="mut">covers APR-EMU only</span>'], ['Runtime', 'ampr-emu-ng']], recBadge('zstd'))}
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center">
+      <label class="mut">Level <input type="range" min="1" max="${max}" value="${Math.min(pk.level, max)}" oninput="pk.level = Number(this.value); this.nextElementSibling.textContent = this.value"> <b>${Math.min(pk.level, max)}</b></label>
+      <label class="mut"><input type="checkbox" style="width:auto;min-width:0" ${pk.profile ? 'checked' : ''} onchange="pk.profile = this.checked"> TOML profile</label>
+      <label class="mut" title="Compress buttons then start straight away with this choice; Ask each time above the library brings this back"><input type="checkbox" style="width:auto;min-width:0" ${pk.remember ? 'checked' : ''} onchange="pk.remember = this.checked"> Remember for every game</label>
+      <span style="flex:1"></span><button class="ghost" onclick="closePack()">Cancel</button>
+      <button class="${send ? '' : 'pri'}" onclick="pkGo(false)">Compress</button>${send ? '<button class="pri" onclick="pkGo(true)">Compress &amp; send</button>' : ''}</div>
+    ${ng ? '<div class="why" style="margin-top:10px">ampr-emu-ng: turn off fakelib updates in ShadowMountPlus so it keeps ampr-emu-ng.</div>' : ''}
+    <div class="why">Estimates come from a sample of the game's files; the real size shows after packing.</div>`;
+}
+function pkPick(key) {
+  if (!pk) return;
+  const before = pk.mode;
+  pk.mode = key === 'zstd' ? 'zstd' : key === 'lz4' ? (pk.mode === 'zstd' ? (pk.g.can_queue ? 'legacy' : 'ng') : pk.mode) : key;
+  if ((before === 'zstd') !== (pk.mode === 'zstd')) pk.level = pk.mode === 'zstd' ? 5 : 9;
+  renderPack();
+}
+function pkGo(send) {
+  if (!pk) return;
+  const {id, mode, level, profile, remember} = pk;
+  const opts = {codec: mode === 'zstd' ? 'zstd' : 'lz4', runtime: mode === 'legacy' ? 'legacy' : 'ng', level, profile};
+  if (remember) {
+    packMode = mode; packLevel = level; packProfile = profile; packSkip = true;
+    savePackPrefs(); try { localStorage.setItem('packSkip', '1'); } catch (e) {}
+    renderFmtBar();
+  }
+  closePack();
+  compress(id, send, false, opts, false);
+}
+function askEachTime() { packSkip = false; try { localStorage.removeItem('packSkip'); } catch (e) {} renderFmtBar(); }
 function convertGame(id, codec) {
   return compress(id, false, false, {codec, runtime: 'ng', level: codec === 'zstd' ? 5 : 9});
 }
-async function compress(id, send, image, options = packOptions()) {
+async function compress(id, send, image, options = packOptions(), ask = true) {
   const g = (data.games || []).find(x => x.id === id) || {name: id};
   const s = data.settings || {}, opts = options;
   if (!Number.isInteger(opts.level) || opts.level < 1 || opts.level > (opts.codec === 'zstd' ? 22 : 12)) {
@@ -1348,7 +1439,7 @@ async function compress(id, send, image, options = packOptions()) {
   const note = data.running ? '\n\nStarts after the current job.' : '';
   const runtime = opts.runtime === 'ng' ? '\n\nDisable ShadowMountPlus fakelib updates so it keeps ampr-emu-ng.' : '';
   const then = image ? '\n\nThen make a verified exFAT image and send it to the PS5.' : send ? '\n\nSend the verified packed folder to the PS5.' : '';
-  if (!confirm(`Compress ${g.name} with ${label}?${note}${runtime}${then}`)) return;
+  if (ask && !confirm(`Compress ${g.name} with ${label}?${note}${runtime}${then}`)) return;
   if (send) await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'send_after', game: id, image: !!image})});
   act('start', null, {game: id, ...opts});
 }
