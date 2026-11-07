@@ -8,6 +8,37 @@ from test_community import app
 
 
 class CopyRuntimeTests(unittest.TestCase):
+    def test_refreshes_legacy_folder_cache_without_pack_codec(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            with patch.object(app, "DB_PATH", base / "checks.db"), \
+                    patch.object(app, "CHECKS_PATH", base / "checks.json"), \
+                    patch.object(app, "OUTPUT", base), patch.object(app, "HOST_OUTPUT", str(base)):
+                for codec, index_name, magic in (("lz4", "ampr_assets.index", b"AMPRPAK4"),
+                                                 ("zstd", "ampr_zstd.index", b"AMPRZPK1")):
+                    with self.subTest(codec=codec):
+                        out = base / f"G-{codec}"
+                        out.mkdir()
+                        index = out / index_name
+                        index.write_bytes(magic)
+                        key = "out:" + str(out)
+                        sig = f"{int(out.stat().st_mtime)}:{int(index.stat().st_mtime)}"
+                        cache = app.CheckDB()
+                        cache[key] = {"sig": sig, "info": {"path": str(out), "files": 1,
+                                                           "bytes": len(magic), "paks": 0,
+                                                           "problem": "no .pak volumes"}}
+                        cache.close()
+
+                        cache = app.CheckDB()
+                        info = app.lz4_folder_info(out, cache)
+                        cache.close()
+                        self.assertEqual(info["pack_codec"], codec)
+
+                        cache = app.CheckDB()
+                        with patch.object(app, "tree_bytes", side_effect=AssertionError("cache miss")):
+                            self.assertEqual(app.lz4_folder_info(out, cache), info)
+                        cache.close()
+
     def test_requires_ng_reads_only_this_copys_report(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)

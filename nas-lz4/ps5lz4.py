@@ -7018,7 +7018,8 @@ def lz4_folder_info(out: Path, cache: dict | None = None) -> dict:
         sig = None
     key = "out:" + str(out)
     hit = (cache or {}).get(key)
-    if hit and sig and hit.get("sig") == sig:
+    # Older cached folder summaries did not store the pack codec.
+    if hit and sig and hit.get("sig") == sig and "pack_codec" in hit["info"]:
         return hit["info"]
     files, total = tree_bytes(out)
     info = {"path": host_output_path(out), "files": files, "bytes": total,
