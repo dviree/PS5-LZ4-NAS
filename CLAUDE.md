@@ -1,5 +1,36 @@
 # Notes for Claude Code
 
+## Memory files (read first, update last)
+
+- **SNAPSHOT.md**: where the code stands (pieces, pipeline, key functions, state,
+  pins). Read it at the start instead of scanning the repo.
+- **BACKLOG.md**: bugs found, stubs, ideas, and the `>RESUME HERE` block for work
+  that spans sessions. Start there; put new findings there, not only in chat.
+- When a task is done (pushed and checked), update all three: CLAUDE.md (new
+  standing rules), BACKLOG.md (resume point, done/open items), SNAPSHOT.md (what
+  changed in the layout). Keep them short.
+
+## Standing rules from the owner
+
+- Chat in Swedish; product, UI, repo and docs text in English. Short answers.
+- Push to `nas-build`, then `main`. No force-push without permission. Commit
+  trailers as the session gives them; no model IDs in commits.
+- No real game names in the repo (Title IDs only), no personal data.
+- Never delete or overwrite original games; deletes only with
+  `DELETE_ORIGINALS=yes`. Keep temporary data after a failed run.
+- Don't change other Docker containers or NAS settings.
+- Tell "verified on the NAS" apart from "playable on the PS5".
+- Packs are always made from the original: folder/exFAT → LZ4 or folder/exFAT →
+  Zstd, never LZ4 → Zstd.
+- LZ4 is always packed by theghostonline's packer (`ampr_pack_cli`), LZ4 NG too
+  (ampr-emu-ng replaces APR-EMU after the verify); PS5 Dump Forge packs Zstd only.
+- Third-party code (theghostonline, quer3q, James St-Pierre) only after review
+  and the owner's OK. Don't route around proxy 403s.
+- After a feature, give the update command:
+  `cd /volume2/docker/ps5-lz4 && ./lz4-ps5.sh update --force`
+  (after the `Build NAS image` run on `nas-build` is green).
+- Show mockups/screenshots before building larger UI changes when asked.
+
 ## Mandatory Trail-Code workflow
 
 Always use [Trail-Code](https://github.com/trailhq/Trail-Code) as the primary codebase
