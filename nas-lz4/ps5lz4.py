@@ -486,6 +486,12 @@ def _chain(first: bytes, rest):
     yield from rest
 
 
+def exfat_game_prefix(files: dict) -> str:
+    if "eboot.bin" in files:
+        return ""
+    return min((k[:-len("eboot.bin")] for k in files if k.endswith("/eboot.bin")), default="")
+
+
 def exfat_inspect(image: Path) -> dict:
     """Title, name, size and AMPR status read straight from an .exfat image."""
     from mkpfs.exfat import ExfatReader  # pinned MkPFS 1.1.0
@@ -493,10 +499,7 @@ def exfat_inspect(image: Path) -> dict:
     with open(image, "rb") as fh:
         reader = ExfatReader(fh)
         files = {e.rel_path.lower(): e for e in reader.iter_files()}
-        prefix = ""
-        if "eboot.bin" not in files:
-            roots = sorted(k[: -len("eboot.bin")] for k in files if k.endswith("/eboot.bin"))
-            prefix = roots[0] if roots else ""
+        prefix = exfat_game_prefix(files)
         def get(rel: str):
             return files.get((prefix + rel).lower())
         title_id = name = ""
@@ -1036,8 +1039,8 @@ def scan_library() -> list[Entry]:
                       file=sys.stderr)
 
     walk(LIBRARY, 0)
-    # An already-extracted folder wins over an image of the same game.
-    folders = {e.title_id: e for e in entries if e.kind == "folder" and e.title_id}
+    # An unpacked folder wins over an image of the same game.
+    folders = {e.title_id: e for e in entries if e.kind == "folder" and e.title_id and not is_packed(e.path)}
     for e in entries:
         if e.kind != "folder" and e.title_id in folders:
             e.duplicate_of = folders[e.title_id].rel
@@ -6101,7 +6104,7 @@ def image_meta(path: Path) -> dict:
     """Title, title ID and cover of a library image (an .exfat is read inside;
     other images go by name), cached by size and time."""
     st = path.stat()
-    key = (str(path), st.st_size, int(st.st_mtime))
+    key = (str(path), st.st_size, st.st_mtime_ns)
     if key in _img_meta:
         return _img_meta[key]
     m = TITLE_RE.search(path.name)
@@ -6125,6 +6128,11 @@ def image_meta(path: Path) -> dict:
                 src, fh, _name = opened
             reader = ExfatReader(src)
             files = {e.rel_path.lower(): e for e in reader.iter_files()}
+            prefix = exfat_game_prefix(files)
+            if prefix + "ampr_zstd.index" in files:
+                info["pack_codec"] = "zstd"
+            elif prefix + "ampr_assets.index" in files:
+                info["pack_codec"] = "lz4"
             pj = next((e for k, e in files.items() if k.endswith("sce_sys/param.json")), None)
             if pj:
                 raw = b"".join(reader.read_file(pj))
@@ -7042,13 +7050,21 @@ def dashboard_data() -> dict:
     cache = CheckDB()
     games = compat_games()
     rows, totals = [], {"lz4": 0, "source": 0, "output": 0}
+    source_copies = []
     entries = scan_library()
     current = queue.get("current") if running else None
     for e in entries:
+        if e.kind == "folder":
+            source_codec = packed_codec(e.path) if is_packed(e.path) else None
+        else:
+            source_codec = _safe(lambda: image_meta(e.path).get("pack_codec"), None)
         res = result_for(e)
-        if e.duplicate_of and res["status"] != "done":
+        if e.duplicate_of and res["status"] != "done" and not source_codec:
             continue
-        verdict, why, can = classify(e, res, cache)
+        if source_codec:
+            verdict, why, can = ("Zstd" if source_codec == "zstd" else "LZ4"), "already packed", False
+        else:
+            verdict, why, can = classify(e, res, cache)
         skey = "size:" + str(e.path)
         try:
             ssig = f"{int(e.path.stat().st_mtime)}"
@@ -7063,6 +7079,7 @@ def dashboard_data() -> dict:
         rep = read_json(REPORTS / f"{e.id}.json") or {}
         g = games.get((e.title_id or "").upper()) or {}
         row = {"id": e.id, "rel": e.rel, "source_path": str(Path(HOST_LIBRARY) / e.rel), "kind": e.kind,
+               "source_codec": source_codec,
                "not_in_use": bool(e.duplicate_of),
                "source_size": src_size, "title_id": e.title_id,
                "name": rep.get("title_name") or e.name or nice_folder_name(e, games),
@@ -7074,7 +7091,18 @@ def dashboard_data() -> dict:
                "saved_percent": rep.get("saved_percent"), "ps5": ps5_result(e.id), "finished": rep.get("finished"),
                "community": {k: g.get(k, 0) for k in ("works", "issues", "noStart", "crash", "reports")},
                "output": host_output_path(e.output) if e.output.is_dir() else None}
-        if verdict == "LZ4" and rep:
+        if source_codec:
+            runtime = None
+            if e.kind == "folder":
+                sha = _safe(lambda: runtime_sha(e.path), "")
+                if sha:
+                    runtime = "ng" if sha in (NG_SHA256, NG_UPSTREAM_SHA256) else "legacy"
+            source_copies.append({"id": f"src:{e.id}", "game": e.id, "codec": source_codec,
+                                  "runtime": runtime, "name": row["name"], "title_id": e.title_id,
+                                  "path": row["source_path"], "bytes": src_size, "ps5": row["ps5"],
+                                  "kind": e.kind, "transfer_name": e.path.name,
+                                  "busy": row["running"]})
+        elif verdict == "LZ4" and rep:
             totals["lz4"] += 1
             totals["source"] += rep.get("source_bytes", 0)
             totals["output"] += rep.get("output_bytes", 0)
@@ -7131,6 +7159,8 @@ def dashboard_data() -> dict:
                        "ps5": ps5_result(e.id) if e and same else None,
                        "finished": rep.get("finished") if same else None, "problem": info["problem"],
                        "busy": bool(running and current and out.name in (f"{current}-lz4", f"{current}-zstd"))})
+    managed_paths = {c["path"] for c in copies}
+    copies.extend(c for c in source_copies if c["path"] not in managed_paths)
     cache.close()
     job = None
     if running and current:

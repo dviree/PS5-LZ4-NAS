@@ -916,7 +916,7 @@ async function pushSrc(gid) {
   const what = g.kind === 'folder' ? 'the game folder' : `the ${KIND_EN[g.kind] || g.kind} file`;
   act('push', (t && t.state === 'failed'
       ? `Resume sending ${g.name}? It continues where it stopped.`
-      : `Send ${g.name} to the PS5 as it is (${what}, ${gb(g.source_size || g.source_bytes)}), not LZ4-packed?\n\nTo: ${s.ps5_dest}/${key}`) +
+      : `Send ${g.name} to the PS5 as it is (${what}, ${gb(g.source_size || g.source_bytes)})?\n\nTo: ${s.ps5_dest}/${key}`) +
     (g.kind !== 'folder' ? '\n\nShadowMountPlus mounts the image from there.' : '') +
     (g.verdict === 'can be LZ4' ? '\n\nThis game can be LZ4-packed first to save space on the PS5.' : ''), {game: 'src:' + g.id});
 }
@@ -1055,9 +1055,9 @@ function render() {
   renderLibTabs(d);
   document.getElementById('games').innerHTML =
     '<tr><th>Game</th><th>Status</th><th class="num">Original</th><th class="num">Packed</th><th class="num">Saved</th><th>PS5</th><th></th></tr>' +
-    d.games.filter(g => !g.output_only).map(g => {
+    originalGames(d).map(g => {
       const v = g.running ? ['p-run', 'packing'] : g.queued ? ['p-run', 'queued'] :
-        g.verdict === 'LZ4' ? ['p-LZ4', g.pack_codec === 'zstd' ? 'Zstd' : 'LZ4'] : canPack(g) && !g.output ? ['p-can', 'can be ' + PACK_FMT[packMode].name] :
+        g.verdict === 'LZ4' ? ['p-no', 'Original'] : canPack(g) && !g.output ? ['p-can', 'can be ' + PACK_FMT[packMode].name] :
         g.verdict === 'can be LZ4' ? ['p-can', 'can be LZ4'] :
         g.verdict === 'error' ? ['p-err', 'error'] : ['p-no', 'not LZ4'];
       const lz4 = g.verdict === 'LZ4' && g.output_bytes;
@@ -1232,10 +1232,11 @@ function renderFmtBar() {
 let libTab = 'orig';
 try { libTab = localStorage.getItem('libTab') || 'orig'; } catch (e) {}
 function setLibTab(t) { libTab = t; try { localStorage.setItem('libTab', t); } catch (e) {} if (data) renderLibTabs(data); }
+function originalGames(d) { return (d.games || []).filter(g => !g.output_only && !g.source_codec); }
 function renderLibTabs(d) {
   const el = document.getElementById('libtabs');
   if (!el) return;
-  const copies = d.copies || [], n = {orig: (d.games || []).filter(g => !g.output_only).length + (d.archives || []).length,
+  const copies = d.copies || [], n = {orig: originalGames(d).length + (d.archives || []).length,
     lz4: copies.filter(c => c.codec !== 'zstd').length, zstd: copies.filter(c => c.codec === 'zstd').length};
   const tabs = [['orig', '📁 Folder / exFAT'], ['lz4', '⚡ LZ4'], ['zstd', '🗜 Zstd']];
   el.innerHTML = tabs.map(([k, label]) => `<button role="tab" aria-selected="${libTab === k}" class="${libTab === k ? 'on' : ''}" onclick="setLibTab('${k}')">${label} <span class="n">${n[k]}</span></button>`).join('');
@@ -1248,18 +1249,19 @@ function renderLibTabs(d) {
 }
 function copiesHtml(d, kind) {
   const list = (d.copies || []).filter(c => (c.codec === 'zstd') === (kind === 'zstd'));
-  const head = `<div class="mut" style="margin-bottom:6px">${kind === 'zstd' ? 'Zstd' : 'LZ4'} copies, made from the originals. Pack new ones in Folder / exFAT.</div>`;
+  const head = `<div class="mut" style="margin-bottom:6px">${kind === 'zstd' ? 'Zstd' : 'LZ4'} copies. Pack originals in Folder / exFAT.</div>`;
   if (!list.length) return head + `<div class="mut">No ${kind === 'zstd' ? 'Zstd' : 'LZ4'} copies yet.</div>`;
   return head + list.map(c => {
-    const v = (d.verifies || {})[c.id] || {}, tx = (d.transfers || {})[c.id];
-    const rt = c.codec === 'zstd' || c.runtime === 'ng' ? 'ampr-emu-ng' : 'APR-EMU 0.4.2.1';
+    const v = (d.verifies || {})[c.id] || {}, tx = (d.transfers || {})[c.transfer_name || c.id];
+    const rt = c.codec === 'zstd' || c.runtime === 'ng' ? 'ampr-emu-ng' : c.runtime === 'legacy' ? 'APR-EMU 0.4.2.1' : '';
+    const info = [c.title_id, KIND_EN[c.kind], rt].filter(Boolean).map(esc).join(' · ');
     const ps5 = c.ps5 ? `<span class="chip ${c.ps5 === 'works' ? 'ok' : ''}">${esc(PS5_EN[c.ps5] || c.ps5)}</span>` : '<span class="chip">not tested</span>';
     const busy = c.busy ? '<span class="pill p-run">packing</span>' : '';
     return `<div class="cp"><div><b>${esc(c.name)}</b>${c.game ? ` <a href="#" data-g="${esc(c.game)}" onclick="event.preventDefault();openGame(this.dataset.g)" class="mut" style="font-size:12px">details</a>` : ''}
-        <div class="why">${esc(c.title_id || '')} · ${rt}${c.problem ? ` · <span class="bad">${esc(c.problem)}</span>` : ''}</div>${tx && tx.state !== 'done' ? `<div class="cm">${xferText(tx)}</div>` : ''}<div class="lc"></div></div>
-      <div class="num"><b>${gb(c.bytes)}</b><div class="why">${c.source_bytes ? `of ${gb(c.source_bytes)} · saved ${c.saved_percent} %` : 'original not in the library'}</div></div>
+        <div class="why" title="${esc(c.path)}">${info}${c.problem ? ` · <span class="bad">${esc(c.problem)}</span>` : ''}</div>${tx && tx.state !== 'done' ? `<div class="cm">${xferText(tx)}</div>` : ''}<div class="lc"></div></div>
+      <div class="num"><b>${gb(c.bytes)}</b><div class="why">${c.source_bytes ? `of ${gb(c.source_bytes)} · saved ${c.saved_percent} %` : c.kind ? 'in the library' : 'original not in the library'}</div></div>
       <div>${busy || ps5}</div>
-      <div class="act">${c.busy ? '' : `<button class="sm pri" data-id="${esc(c.id)}" data-n="${esc(c.name)}" onclick="push(this.dataset.id, this.dataset.n)">⬆️ Send to PS5</button>
+      <div class="act">${c.busy ? '' : c.kind ? `<button class="sm pri" data-id="${esc(c.game)}" onclick="pushSrc(this.dataset.id)">⬆️ Send to PS5</button>` : `<button class="sm pri" data-id="${esc(c.id)}" data-n="${esc(c.name)}" onclick="push(this.dataset.id, this.dataset.n)">⬆️ Send to PS5</button>
         <button class="sm" data-id="${esc(c.id)}" data-n="${esc(c.name)}" onclick="makeImage(this.dataset.id, this.dataset.n)">💿 Make .exfat</button>
         ${c.title_id ? `<button class="sm ghost" data-t="${esc(c.title_id)}" onclick="launchCheck(this.dataset.t, this.closest('.cp').querySelector('.lc'))">🚦 Start check</button>` : ''}
         <button class="sm ghost" ${v.state === 'running' ? 'disabled' : ''} data-id="${esc(c.id)}" data-n="${esc(c.name)}" onclick="act('verify_lz4', 'Verify ' + this.dataset.id + '?\\n\\nEvery block is decoded and checked; nothing is changed.', {game: this.dataset.id})">${v.state === 'running' ? 'Verifying…' : v.state === 'passed' ? '✓ Verified' : v.state === 'failed' ? '✗ Verify again' : '✓ Verify'}</button>
@@ -1268,7 +1270,7 @@ function copiesHtml(d, kind) {
 }
 // Whether a game can be compressed in the chosen format now.
 function canPack(g, mode = packMode) {
-  if (g.output_only || g.running || g.queued) return false;
+  if (g.output_only || g.source_codec || g.running || g.queued) return false;
   if (mode === 'zstd') return !(g.pack_codec === 'zstd' && g.output);
   if (mode === 'ng') return !g.output;
   return !!g.can_queue;
@@ -1622,8 +1624,8 @@ function gameHtml(g, det) {
   if (w && w.error) rows.push(['Last error', `<span class="bad">${esc(w.error)}</span><div class="why">step ${esc(w.step || '')}</div>`]);
 
   const acts = [];
-  if (!g.output_only) acts.push(`<button class="ghost" data-game="${esc(g.id)}" onclick="openProfile(this.dataset.game)">TOML profile</button>`);
-  if (!g.output && !g.output_only && !g.running && !g.queued && !pendingFor(g.id)) {
+  if (!g.output_only && !g.source_codec) acts.push(`<button class="ghost" data-game="${esc(g.id)}" onclick="openProfile(this.dataset.game)">TOML profile</button>`);
+  if (!g.output && !g.output_only && !g.source_codec && !g.running && !g.queued && !pendingFor(g.id)) {
     acts.push(packControls());
     acts.push(`<button class="pri" data-game="${esc(g.id)}" onclick="convertGame(this.dataset.game, 'zstd')" title="Zstd level 5 with ampr-emu-ng; keeps the original">Convert to Zstd</button>`,
       `<button data-game="${esc(g.id)}" onclick="convertGame(this.dataset.game, 'lz4')" title="LZ4 level 9 with ampr-emu-ng; keeps the original">Convert to LZ4 (ampr-emu-ng)</button>`,
@@ -1649,14 +1651,15 @@ function gameHtml(g, det) {
   // Deleting: the PS5 copy and the NAS LZ4 copy separately; never the original.
   const dels = [];
   if (pp && pp.sent) dels.push(`<button class="danger" data-p="${esc(pp.path)}" data-n="${esc(g.name)}" onclick="deleteFromPs5(this.dataset.p, this.dataset.n)">🗑 Delete from PS5</button>`);
-  if (!g.output_only && g.rel && !g.running) dels.push(data.delete_originals
+  if (!g.output_only && !g.source_codec && g.rel && !g.running) dels.push(data.delete_originals
     ? `<button class="danger" data-g="${esc(g.id)}" onclick="deleteOriginal(this.dataset.g)">🗑 Delete original on NAS${g.verdict === 'LZ4' && (g.ps5 === 'works' || g.ps5 === 'issues') ? ' <small>(the LZ4 copy works on the PS5)</small>' : ''}</button>`
     : `<button class="ghost" onclick="alert(ORIG_OFF)">🗑 Delete original…</button>`);
   if (g.output && (g.verdict === 'LZ4' || g.output_only) && !g.running)
     dels.push(`<button class="danger" data-g="${esc(g.id)}" data-n="${esc(g.name)}" onclick="deleteLz4(this.dataset.g, this.dataset.n)">🗑 Delete packed copy on NAS</button>`);
-  if (g.verdict !== 'LZ4' && !g.output_only && g.rel) {
+  if ((g.verdict !== 'LZ4' || g.source_codec) && !g.output_only && g.rel) {
     const key = g.rel.split('/').pop(), tro = (data.transfers || {})[key];
-    acts.push(`<button class="${g.verdict === 'not LZ4' ? 'pri' : ''}" data-g="${esc(g.id)}" onclick="pushSrc(this.dataset.g)">${tro && tro.state === 'failed' ? '▶ Resume sending original' : tro && tro.state === 'done' ? 'Send original again' : 'Send original to PS5'}</button>`);
+    const src = g.source_codec ? 'packed copy' : 'original';
+    acts.push(`<button class="${g.verdict === 'not LZ4' ? 'pri' : ''}" data-g="${esc(g.id)}" onclick="pushSrc(this.dataset.g)">${tro && tro.state === 'failed' ? `▶ Resume sending ${src}` : tro && tro.state === 'done' ? `Send ${src} again` : `Send ${src} to PS5`}</button>`);
   }
   if (g.verdict === 'LZ4' && g.output && !g.running) {
     const on = g.output.split('/').pop(), v = (data.verifies || {})[on] || {};

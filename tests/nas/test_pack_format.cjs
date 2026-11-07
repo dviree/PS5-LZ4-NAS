@@ -47,12 +47,20 @@ vm.runInContext("pkPick('zstd'); pk.remember = true; pkGo(true)", ctx2);
 assert.deepEqual(JSON.parse(JSON.stringify(ctx2.sent)), ['g', true, false, {codec: 'zstd', runtime: 'ng', level: 5, profile: true}, false]);
 assert.equal(vm.runInContext('packSkip && packMode', ctx2), 'zstd');
 // My games' sub-tabs list each copy in its own tab, escaped, with its own folder name on the buttons.
-const ctx3 = vm.createContext({document: {getElementById: () => null}, esc: s => String(s ?? '').replaceAll('<', '&lt;').replaceAll('"', '&quot;'),
-  gb: n => String(n), PS5_EN: {works: 'Works'}, xferText: () => ''});
-vm.runInContext(html.slice(html.indexOf('function copiesHtml(d, kind)'), html.indexOf('// Whether a game can be compressed in the chosen format now.')), ctx3);
+const ctx3 = vm.createContext({document, esc: s => String(s ?? '').replaceAll('<', '&lt;').replaceAll('"', '&quot;'),
+  gb: n => String(n), PS5_EN: {works: 'Works'}, KIND_EN: {exfat: 'exFAT image'}, xferText: () => ''});
+vm.runInContext(html.slice(html.indexOf("let libTab = 'orig'"), html.indexOf('// Whether a game can be compressed in the chosen format now.')), ctx3);
 ctx3.d = {copies: [{id: 'G-lz4', game: 'G', codec: 'lz4', runtime: 'legacy', name: '<b>G', title_id: 'PPSA00001', bytes: 1, source_bytes: 2, saved_percent: 50},
-                   {id: 'G-zstd', game: 'G', codec: 'zstd', runtime: 'ng', name: 'G', bytes: 1}]};
+                   {id: 'G-zstd', game: 'G', codec: 'zstd', runtime: 'ng', name: 'G', bytes: 1},
+                   {id: 'src:I', game: 'I', codec: 'lz4', kind: 'exfat', name: 'Imported', bytes: 1}],
+          games: [{id: 'G', verdict: 'LZ4', output: '/output/G-lz4'}, {id: 'I', source_codec: 'lz4'}, {id: 'only', output_only: true}]};
 const lz4 = vm.runInContext("copiesHtml(d, 'lz4')", ctx3), zs = vm.runInContext("copiesHtml(d, 'zstd')", ctx3);
+assert.equal(vm.runInContext('originalGames(d).map(g => g.id).join()', ctx3), 'G');
+vm.runInContext('renderLibTabs(d)', ctx3);
+assert.ok(document.getElementById('libtabs').innerHTML.includes('Folder / exFAT <span class="n">1'));
+assert.ok(document.getElementById('libtabs').innerHTML.includes('⚡ LZ4 <span class="n">2'));
+assert.ok(lz4.includes('exFAT image') && lz4.includes('data-id="I" onclick="pushSrc(this.dataset.id)"'));
+assert.ok(!lz4.slice(lz4.indexOf('Imported')).includes('Delete copy'));
 assert.ok(lz4.includes('data-id="G-lz4"') && !lz4.includes('G-zstd') && lz4.includes('APR-EMU') && !lz4.includes('<b>G'));
 assert.ok(zs.includes('data-id="G-zstd"') && !zs.includes('data-id="G-lz4"') && zs.includes('ampr-emu-ng'));
 assert.ok(!/\n\n/.test(lz4.replace(/\s+/g, ' ')) && lz4.includes("?\\n\\n"));  // confirm text stays one line in onclick
