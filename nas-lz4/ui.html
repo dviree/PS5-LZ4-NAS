@@ -239,8 +239,6 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
   <button class="two" id="b-elf" onclick="rcvHeader()"><span id="b-elf-t">Start ELF on PS5</span><small id="b-elf-st">pkg-receiver: installs .pkg from this NAS</small></button>
   <button class="two" onclick="act('check')">Check all<small>check every game, read-only; unchanged ones from the saved results</small></button>
   <button class="two ghost" onclick="act('check_full', 'Check every game again, ignoring earlier results?\n\nThis reads every LZ4 game in full and can take a while.')">Full re-check<small>check every game again from scratch</small></button>
-  <button class="two pri" id="b-fix"
-    onclick="compressAll()">Compress all<small id="b-fix-st">pack every game that can be LZ4, one at a time</small></button>
   </div>
 </header>
 <nav class="tabs">
@@ -276,20 +274,14 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
             or not, and why. exFAT images are read without unpacking them.</li>
         </ul>
         <p>Results are saved with each game's file sizes and dates. A game whose files haven't changed is not read again;
-          new or changed games are. If something is wrong, a <b>Repair</b> button appears with the result.</p></div>
+          new or changed games are. If something is wrong, the result says what.</p></div>
       <div><h4>Full re-check <span class="tag">read-only</span></h4>
         <p>The same checks as <b>Check all</b>, but every LZ4 game and every original is read again, ignoring the saved results,
           and the saved results are replaced. Use it after changing files by hand, copying games in some other way,
           or when a result looks wrong. It takes longer: every eboot and every image is read.</p>
         <p>Neither check decodes the packs again; that happened byte for byte when each game was packed (see Compress).</p></div>
-      <div><h4>Repair <span class="tag">changes LZ4 games</span></h4>
-        <p>Appears after a check that found problems. For each LZ4 game that needs it: puts the right APR-EMU back,
-          writes out the files the PS5 reads from disk from inside the packs, renames the runtime folder to the case the game asks for,
-          and copies a PlayGo emulator in if the game needs one. Nothing is repacked and originals are never touched.</p></div>
-      <div><h4>Compress all <span class="tag">writes new LZ4 copies</span></h4>
-        <p>Queues every game that <i>can be LZ4</i>, except <code>.ffpfsc</code> images (already compressed, so an LZ4 copy
-          is usually as large or larger; use Compress on one if you want it anyway), and packs them one at a time (one at a time because each needs the CPU and space).
-          For every game, in six steps:</p>
+      <div><h4>Compress <span class="tag">one game, writes a new copy</span></h4>
+        <p>Tap a game and press Compress. Games are packed one at a time (each needs the CPU and space), in six steps:</p>
         <ol>
           <li><b>Source</b>: a game folder is used as it is; an <code>.exfat</code>, <code>.ffpfs</code> or <code>.ffpfsc</code> image is
             unpacked to a work folder on the NAS and every file is checked against the image (and its <code>.vhash</code> if there is one).</li>
@@ -305,8 +297,6 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
         <p>Only shown when packing was interrupted (the container restarted, the NAS rebooted, or Stop was pressed).
           Continues the same game from its last finished step (a step that was cut off is done again), then the rest of the queue.
           The queue also continues by itself when the container starts.</p></div>
-      <div><h4>Compress <span class="tag">one game</span></h4>
-        <p>The same as Compress all for a single game; tap a game to see it.</p></div>
     </div>
   </details>
   <div class="card" id="dupcard" hidden><h2>Duplicates on the NAS</h2>
@@ -1050,7 +1040,6 @@ function render() {
     d.failed.map(f => `<div><b>${esc(f.id)}</b> <span class="mut">${esc(f.step)}</span><div class="why">${esc(f.error)}</div></div>`).join('');
 
   const busy = d.running;
-  document.getElementById('b-fix').disabled = false;
   renderFmtBar();
   renderLibTabs(d);
   document.getElementById('games').innerHTML =
@@ -1139,8 +1128,7 @@ function render() {
     return `<div><b class="${r.ok ? 'good' : 'bad'}">${r.ok ? '✓' : '✗'}</b> ${esc(ACT_EN[r.action] || r.action)}
       ${r.game ? esc(r.game) : ''}${r.result ? ': ' + esc(PS5_EN[r.result]) : ''} <span class="mut">${esc(r.finished)}</span>
       ${url ? `<div><a href="${esc(url[0])}" target="_blank" rel="noopener">Share the result with the community</a></div>` : ''}
-      ${(r.action === 'check' || r.action === 'check_full') && !r.ok ? `<div style="margin:6px 0"><span class="bad">The check found problems.</span>
-        <button class="sm pri" onclick="act('apr', 'Repair the LZ4 games that need it?\n\nThe right APR-EMU is put back and the files the PS5 reads straight from disk are written out of the packs. Nothing is repacked.')">Repair</button></div>` : ''}
+      ${(r.action === 'check' || r.action === 'check_full') && !r.ok ? `<div style="margin:6px 0"><span class="bad">The check found problems.</span></div>` : ''}
       <pre>${esc((r.output || '').split('\n').slice(-6).join('\n'))}</pre></div>`;
   }).join('') : (pending ? '' : '<span class="mut">None yet.</span>'));
 }
@@ -1179,7 +1167,7 @@ async function dupUse(tid, rel) {
     body: JSON.stringify({action: 'dup_use', tid, rel})});
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { alert('Not changed: ' + (j.error || r.status)); return; }
-  alert(`Now using ${j.used}.` + (j.busy ? `\n\n${j.busy} is being packed right now: that job goes on; Stop it if you don't want it.` : '\n\nThe other copies are left out of the list, Compress all and sending.'));
+  alert(`Now using ${j.used}.` + (j.busy ? `\n\n${j.busy} is being packed right now: that job goes on; Stop it if you don't want it.` : '\n\nThe other copies are left out of the list and sending.'));
   closeGame(); setTimeout(load, 300);
 }
 function deleteCopy(gid, rel) {
@@ -1225,10 +1213,8 @@ function renderFmtBar() {
     <label class="mut" title="Off: no TOML profile; the packer's own scan decides what is packed"><input type="checkbox" style="width:auto;min-width:0"
       ${packProfile ? 'checked' : ''} onchange="packProfile = this.checked; savePackPrefs()"> TOML profile</label>
     ${typeof packSkip !== 'undefined' && packSkip ? '<button class="sm ghost" onclick="askEachTime()" title="Show the Compress dialog again">Ask each time</button>' : ''}
-    <span class="mut">${packMode === 'legacy' ? 'The Compress buttons below and Compress all use this.'
-      : 'The Compress buttons below and Compress all use this. Turn off fakelib updates in ShadowMountPlus so it keeps ampr-emu-ng.'}</span></div>`;
-  const st = document.getElementById('b-fix-st');
-  if (st) st.textContent = `pack every game that can be ${PACK_FMT[packMode].name}, one at a time`;
+    <span class="mut">${packMode === 'legacy' ? 'The Compress buttons below use this.'
+      : 'The Compress buttons below use this. Turn off fakelib updates in ShadowMountPlus so it keeps ampr-emu-ng.'}</span></div>`;
 }
 // My games' sub-tabs: the originals (folder/exFAT), and the LZ4 and Zstd copies made from them.
 let libTab = 'orig';
@@ -1472,14 +1458,6 @@ function pkGo(send) {
   closePack();
   compress(id, send, false, opts, false);
 }
-// Compress all in the format chosen above the library, always from the originals.
-function compressAll() {
-  const f = PACK_FMT[packMode], o = packOptions();
-  act('fix', `Compress every game that can be ${f.name} (level ${o.level}${o.profile ? '' : ', no TOML'})?\n\n` +
-    `Packed from the originals, one at a time; games that already have a ${f.name} copy are left out.` +
-    (packMode === 'legacy' ? '' : ' Turn off fakelib updates in ShadowMountPlus for ampr-emu-ng.') +
-    '\n\nIf a job is running, this starts when it is done.', o);
-}
 function askEachTime() { packSkip = false; try { localStorage.removeItem('packSkip'); } catch (e) {} renderFmtBar(); }
 function convertGame(id, codec) {
   return compress(id, false, false, {codec, runtime: 'ng', level: codec === 'zstd' ? 5 : 9});
@@ -1608,7 +1586,7 @@ function gameHtml(g, det) {
     (kn.open ? `<div style="margin-top:4px"><span class="bad">⚠ still open:</span> ${esc(kn.open)}</div>` : '')]);
   if (det && det.unity) rows.push(['Engine', `<span class="bad">⚠ ${esc(det.unity)}</span>`]);
   const a = det && det.apr;
-  if (a) rows.push(['APR-EMU', `${a.ok ? '<span class="good">' + esc(a.build) + ' ✓</span>' : '<span class="bad">' + esc(a.build) + '</span> · Check all, then Repair'}${a.path ? `<div class="why">${esc(a.path)}</div>` : ''}`]);
+  if (a) rows.push(['APR-EMU', `${a.ok ? '<span class="good">' + esc(a.build) + ' ✓</span>' : '<span class="bad">' + esc(a.build) + '</span> · wrong APR-EMU: compress the game again'}${a.path ? `<div class="why">${esc(a.path)}</div>` : ''}`]);
   const vv = g.output ? (data.verifies || {})[g.output.split('/').pop()] : null;
   if (vv) rows.push(['Verify LZ4', vv.state === 'running' ? 'running…' : `${vv.state === 'passed' ? '<span class="good">✓ passed</span>' : '<span class="bad">✗ ' + esc(vv.state) + '</span>'} <span class="mut">${esc(vv.finished || '')}</span>` +
     (vv.state !== 'passed' && vv.output ? `<pre class="log" style="max-height:160px;overflow:auto">${esc(vv.output.split('\n').slice(-8).join('\n'))}</pre>` : '')]);

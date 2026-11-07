@@ -5,10 +5,12 @@ ends (see `CLAUDE.md`). No real game names (Title IDs only), no personal data.
 
 ## >RESUME HERE
 
-Nothing half-done. Last finished (2026-11-07): Compress all follows the
-**Compress with** format; the TOML editor saves profiles with `include_from`
-lists; memory files (CLAUDE.md, BACKLOG.md, SNAPSHOT.md) replace HANDOFF.md.
-Next: ask the owner which open item comes first.
+Waiting on the owner: the PPSA26344 folder went missing. The code can't
+remove an original (only `delete-original` with `DELETE_ORIGINALS=yes`); the
+owner is to run the log commands from chat (logs, `state/requests`, Recent
+actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
+(2026-11-07): Compress all and Repair buttons removed from the page (CLI
+`lz4 --fix` / `apr --fix` stay); quer3q/James pins up to date.
 
 ## Needs the owner
 
@@ -29,6 +31,10 @@ Next: ask the owner which open item comes first.
   `output`, but other report readers (e.g. community report level) still see
   the last pack only.
 - `cmd_remove` prints `HOST_OUTPUT` even for a Zstd copy in the Zstd folder.
+- Game detail "Delete LZ4 copy" sends the game id; `output_for` tries `-lz4`
+  first, then `-zstd`, so with only a Zstd copy it deletes that one.
+- With Repair gone from the page, a wrong APR-EMU is fixed by repacking or
+  `./lz4-ps5.sh apr --fix`.
 - GitHub runs scheduled workflows rarely for this repo (~every 6 h).
 - `trail note` can't save learnings: `.trail/` needs `trail init` (blocked as
   self-modification in an earlier session).
@@ -42,6 +48,7 @@ Next: ask the owner which open item comes first.
 
 ## Done recently (newest first)
 
+- Removed Compress all (header) and Repair (after Check all) from the page.
 - Compress all in the chosen format (`run_request` passes codec/runtime/level/
   profile to `lz4 --fix`; Zstd/LZ4 NG queue every AMPR original without that copy).
 - TOML editor: `include_from` lists allowed (from state/profiles or copied from
