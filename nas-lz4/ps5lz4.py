@@ -963,10 +963,10 @@ def ng_profile(root: Path, selected: str | None, destination: Path) -> str:
 class Entry:
     def __init__(self, path: Path, kind: str):
         self.path = path
-        self.kind = kind  # folder | exfat | ffpfs | ffpfsc
-        self.rel = str(path.relative_to(LIBRARY))
-        stem = path.name if kind == "folder" else path.name[: -len(path.suffix)]
-        self.id = safe_name(stem)
+        self.kind = kind  # folder | exfat | ffpfs | ffpfsc | lz4
+        self.rel = path.name if kind == "lz4" else str(path.relative_to(LIBRARY))
+        stem = path.name if kind in ("folder", "lz4") else path.stem
+        self.id = f"convert:{stem}" if kind == "lz4" else safe_name(stem)
         self.title_id = ""
         self.name = ""
         self.duplicate_of: str | None = None
@@ -976,12 +976,18 @@ class Entry:
 
     @property
     def output(self) -> Path:
+        if self.kind == "lz4":
+            return output_item(f"{safe_name(self.rel.removesuffix('-lz4'))}-zstd")
         codec = getattr(self, "pack_codec", None)
         if codec is None:
             rep = read_json(REPORTS / f"{self.id}.json", {}) or {}
             codec = rep.get("pack_codec", "lz4")
         name = f"{self.id}-{'zstd' if codec == 'zstd' else 'lz4'}"
         return output_item(name)
+
+    @property
+    def report_id(self) -> str:
+        return self.output.name if self.kind == "lz4" else self.id
 
     @property
     def work(self) -> Path:
@@ -1103,6 +1109,33 @@ def resolve_targets(args_targets: list[str], entries: list[Entry]) -> list[Entry
     return out
 
 
+def lz4_conversion_entry(path: Path, library_entry: Entry | None = None) -> Entry | None:
+    if (library_entry is None and path.parent not in output_roots()) or path.name.startswith("."):
+        return None
+    if not path.is_dir() or path.is_symlink() or not is_packed(path) or packed_codec(path) != "lz4":
+        return None
+    entry = Entry(path, "lz4")
+    if library_entry is not None:
+        entry.id = f"convert:library:{library_entry.id}"
+    return entry
+
+
+def conversion_entries(targets: list[str], library: list[Entry]) -> list[Entry]:
+    entries = []
+    for target in dict.fromkeys(targets):
+        name = target.removeprefix("convert:")
+        if name == target:
+            continue
+        if name.startswith("library:"):
+            source = next((e for e in library if e.id == name.removeprefix("library:")), None)
+            entry = lz4_conversion_entry(source.path, source) if source is not None else None
+        else:
+            entry = lz4_conversion_entry(output_item(name)) if Path(name).name == name else None
+        if entry is not None:
+            entries.append(entry)
+    return entries
+
+
 # --------------------------------------------------------------------------
 # job
 
@@ -1192,6 +1225,8 @@ class Job:
     # steps ---------------------------------------------------------------
     def step_source(self) -> Path:
         e = self.e
+        if e.kind == "lz4":
+            return self.step_unpack_lz4()
         if e.kind == "folder":
             root = e.path
             self.mark("source", source_root=str(root), extraction="none (folder used as is)")
@@ -1273,6 +1308,32 @@ class Job:
         for f in ("extract.out", "extract.err", "extract-outer.out", "extract-outer.err",
                   "extract-inner.out", "extract-inner.err"):
             remove_work_path(self.work / f)
+        return root
+
+    def step_unpack_lz4(self) -> Path:
+        source = self.e.path
+        root = self.work / "decoded"
+        if self.codec != "zstd" or self.runtime != "ng":
+            raise JobError("an LZ4 conversion requires Zstd and ampr-emu-ng")
+        if source.is_symlink() or not is_packed(source) or packed_codec(source) != "lz4":
+            raise JobError("the LZ4 source folder is missing or no longer packed")
+        index = packed_index(source)
+        signature = file_sig(source, index, *sorted(source.glob("ampr_assets-*.pak")))
+        if self.done("source"):
+            if signature != self.state.get("lz4_source_signature"):
+                raise JobError("the LZ4 source changed after decoding")
+            if root.is_dir():
+                return root
+        self.set_step("source")
+        remove_work_path(root)
+        needed = tree_bytes(source)[1] + lz4_packed_bytes(index)
+        if free_bytes(self.work) < needed + FREE_MARGIN:
+            raise JobError(f"not enough free space to decode LZ4: need up to {human(needed)} plus margin in the work area")
+        self.run_tool(forge_command(source, root, "lz4", 5, unpack=True), "extract")
+        if is_packed(root) or not (root / "eboot.bin").is_file():
+            raise JobError("LZ4 decode did not produce an unpacked game folder")
+        self.mark("source", source_root=str(root), extraction="verified LZ4 unpack with PS5 Dump Forge",
+                  lz4_source_signature=signature)
         return root
 
     def check_vhash(self, image: Path, nested: Path) -> str:
@@ -1481,9 +1542,13 @@ class Job:
         out_files, out_bytes = tree_bytes(e.output)
         src_files, src_bytes = tree_bytes(root)
         st = self.state
+        source = str(Path(HOST_LIBRARY) / e.rel)
+        if e.kind == "lz4":
+            source = (host_output_path(e.path) if e.path.parent in output_roots()
+                      else str(Path(HOST_LIBRARY) / e.path.relative_to(LIBRARY)))
         report = {
-            "id": e.id,
-            "source": str(Path(HOST_LIBRARY) / e.rel),
+            "id": e.report_id,
+            "source": source,
             "source_kind": e.kind,
             "title_id": st.get("title_id"),
             "title_name": st.get("title_name"),
@@ -1530,7 +1595,7 @@ class Job:
         if report["image_bytes"]:
             ib = report["image_bytes"]
             report["saved_vs_image_percent"] = round(100.0 * (ib - out_bytes) / ib, 2)
-        write_json(REPORTS / f"{e.id}.json", report)
+        write_json(REPORTS / f"{e.report_id}.json", report)
         self.mark("publish", output=str(e.output))
         return report
 
@@ -1601,8 +1666,8 @@ def files_equal(a: Path, b: Path, size: int = 8 << 20) -> bool:
 # results bookkeeping
 
 def result_for(entry: Entry) -> dict:
-    rep = read_json(REPORTS / f"{entry.id}.json")
-    if rep:
+    rep = read_json(REPORTS / f"{entry.report_id}.json")
+    if rep and (entry.kind != "lz4" or entry.output.is_dir()):
         return {"status": "done", "detail": f"saved {rep.get('saved_percent')}%"}
     skip = read_json(REPORTS / f"{entry.id}.skipped.json")
     if skip:
@@ -1726,13 +1791,13 @@ def cmd_run(args) -> int:
     if args.from_queue:
         q = read_json(QUEUE_PATH, {}) or {}
         ids = q.get("remaining", [])
-        targets = [e for e in entries if e.id in ids]
+        targets = [e for e in entries if e.id in ids] + conversion_entries(ids, entries)
     elif args.all:
         targets = [e for e in entries if result_for(e)["status"] in ("pending", "partial", "failed")]
     else:
         if not args.targets:
             raise SystemExit("name at least one game, or --all (see: ps5lz4 scan)")
-        targets = resolve_targets(args.targets, entries)
+        targets = resolve_targets(args.targets, entries + conversion_entries(args.targets, entries))
     if not targets:
         print("nothing to do")
         return 0
@@ -1759,7 +1824,7 @@ def cmd_start(args) -> int:
         else:
             if not args.targets:
                 raise SystemExit("name at least one game, or --all (see: ps5lz4 scan)")
-            targets = resolve_targets(args.targets, entries)
+            targets = resolve_targets(args.targets, entries + conversion_entries(args.targets, entries))
         q = {"created": now(), "remaining": [e.id for e in targets], "finished": [], "failed": [],
              "current": None, "options": {"level": args.level,
                                           "codec": getattr(args, "codec", "lz4"),
@@ -1856,6 +1921,27 @@ def packed_index(game: Path) -> Path:
 
 def is_packed(game: Path) -> bool:
     return packed_index(game).is_file()
+
+
+def lz4_packed_bytes(index: Path) -> int:
+    """Logical size of the packed records in the AMPRPAK4 file table."""
+    with index.open("rb") as stream:
+        header = stream.read(128)
+        if len(header) != 128 or header[:8] != b"AMPRPAK4" or struct.unpack_from("<II", header, 8) != (4, 128):
+            raise JobError("unsupported LZ4 pack index")
+        count, = struct.unpack_from("<Q", header, 40)
+        size, = struct.unpack_from("<I", header, 60)
+        start, end = struct.unpack_from("<QQ", header, 72)
+        if size != 48 or start != 128 or end != start + count * size or end > index.stat().st_size:
+            raise JobError("invalid LZ4 pack file table")
+        total = 0
+        for _ in range(count):
+            record = stream.read(size)
+            if len(record) != size:
+                raise JobError("truncated LZ4 pack file table")
+            if record[40] & 1:  # FILE_FLAG_PACKED
+                total += struct.unpack_from("<Q", record, 8)[0]
+        return total
 
 
 def runtime_sha(game: Path) -> str:
@@ -2839,14 +2925,20 @@ def cmd_remove(args) -> int:
         raise SystemExit(f"refusing to delete inside the library: {out}")
     running, _ = job_running()
     q = read_json(QUEUE_PATH, {}) or {}
-    if running and q.get("current") and out.name in (f"{q['current']}-lz4", f"{q['current']}-zstd"):
+    current = q.get("current")
+    if running and current and (out.name in (f"{current}-lz4", f"{current}-zstd")
+                                or current == f"convert:{out.name}"):
         raise SystemExit("that game is being packed right now; stop the job first")
     _files, size = tree_bytes(out)
     shutil.rmtree(out)
     for e in scan_library():
         if e.output == out:
             (REPORTS / f"{e.id}.json").unlink(missing_ok=True)
-    (REPORTS / f"{out.name.rsplit('-', 1)[0]}.json").unlink(missing_ok=True)
+    direct_report = REPORTS / f"{out.name}.json"
+    if (read_json(direct_report) or {}).get("source_kind") == "lz4":
+        direct_report.unlink()
+    else:
+        (REPORTS / f"{out.name.rsplit('-', 1)[0]}.json").unlink(missing_ok=True)
     print(f"deleted {out.name} ({human(size)}) from {HOST_OUTPUT}; the original is untouched")
     return 0
 
@@ -2855,7 +2947,7 @@ def cmd_clean(args) -> int:
     """Remove the work folder of a failed or skipped game."""
     ensure_dirs()
     for t in args.ids:
-        w = WORK / safe_name(t)
+        w = WORK / (t if t.startswith("convert:") and Path(t).name == t else safe_name(t))
         if not w.exists():
             print(f"{t}: no work folder")
             continue
@@ -7020,6 +7112,13 @@ def dashboard_data() -> dict:
     rows, totals = [], {"lz4": 0, "source": 0, "output": 0}
     entries = scan_library()
     current = queue.get("current") if running else None
+
+    def conversion_id(out: Path, library_entry: Entry | None = None) -> str | None:
+        entry = lz4_conversion_entry(out)
+        if entry is None and library_entry is not None:
+            entry = lz4_conversion_entry(library_entry.path, library_entry)
+        return entry.id if entry is not None and not entry.output.exists() else None
+
     for e in entries:
         res = result_for(e)
         if e.duplicate_of and res["status"] != "done":
@@ -7049,7 +7148,8 @@ def dashboard_data() -> dict:
                "pack_codec": rep.get("pack_codec", "lz4"), "pack_runtime": rep.get("pack_runtime", "legacy"),
                "saved_percent": rep.get("saved_percent"), "ps5": ps5_result(e.id), "finished": rep.get("finished"),
                "community": {k: g.get(k, 0) for k in ("works", "issues", "noStart", "crash", "reports")},
-               "output": host_output_path(e.output) if e.output.is_dir() else None}
+               "output": host_output_path(e.output) if e.output.is_dir() else None,
+               "convert_zstd": conversion_id(e.output, e)}
         if verdict == "LZ4" and rep:
             totals["lz4"] += 1
             totals["source"] += rep.get("source_bytes", 0)
@@ -7063,10 +7163,8 @@ def dashboard_data() -> dict:
                 or not is_packed(out):
             continue
         info = lz4_folder_info(out, cache)
-        rep = {}
-        for f in REPORTS.glob("*.json"):
-            if f.name == re.sub(r"-(lz4|zstd)$", "", out.name) + ".json":
-                rep = read_json(f, {}) or {}
+        rep = read_json(REPORTS / f"{out.name}.json") or read_json(
+            REPORTS / (re.sub(r"-(lz4|zstd)$", "", out.name) + ".json")) or {}
         tid = (info.get("title_id") or rep.get("title_id") or "").upper()
         if not tid:
             m = TITLE_RE.search(out.name)
@@ -7082,7 +7180,7 @@ def dashboard_data() -> dict:
                      "source_bytes": rep.get("source_bytes"), "output_bytes": rep.get("output_bytes") or info["bytes"],
                      "saved_percent": rep.get("saved_percent"), "ps5": rep.get("ps5_result"),
                      "community": {k: g.get(k, 0) for k in ("works", "issues", "noStart", "crash", "reports")},
-                     "output": info["path"]})
+                     "output": info["path"], "convert_zstd": conversion_id(out)})
     cache.close()
     job = None
     if running and current:

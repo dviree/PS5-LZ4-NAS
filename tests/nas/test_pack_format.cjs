@@ -27,7 +27,8 @@ assert.equal(mode, 'zstd');
 assert.ok(document.getElementById('fmtbar').innerHTML.includes('max="22"'));
 const games = {
   source: {id: 'source', can_queue: true}, legacyNo: {id: 'n', can_queue: false},
-  zstdDone: {id: 'z', pack_codec: 'zstd', output: '/zstd/z'}, lz4Done: {id: 'l', pack_codec: 'lz4', output: '/lz4/l'},
+  zstdDone: {id: 'z', pack_codec: 'zstd', output: '/zstd/z'},
+  lz4Done: {id: 'l', pack_codec: 'lz4', output: '/lz4/l', convert_zstd: 'convert:l'},
   running: {id: 'r', can_queue: true, running: true}, folder: {id: 'f', output_only: true}};
 const can = (g, m) => vm.runInContext(`canPack(${JSON.stringify(g)}, '${m}')`, context);
 assert.ok(can(games.source, 'legacy') && can(games.source, 'zstd') && can(games.source, 'ng'));
@@ -46,6 +47,12 @@ assert.equal(vm.runInContext('pk.mode', ctx2), 'ng');  // APR-EMU can't run it: 
 vm.runInContext("pkPick('zstd'); pk.remember = true; pkGo(true)", ctx2);
 assert.deepEqual(JSON.parse(JSON.stringify(ctx2.sent)), ['g', true, false, {codec: 'zstd', runtime: 'ng', level: 5, profile: true}, false]);
 assert.equal(vm.runInContext('packSkip && packMode', ctx2), 'zstd');
+ctx2.packProfile = false;
+ctx2.act = (...args) => { ctx2.conversion = args; };
+vm.runInContext(html.slice(html.indexOf('function convertLz4Folder('), html.indexOf('async function compress(')), ctx2);
+vm.runInContext("convertLz4Folder('convert:l')", ctx2);
+assert.deepEqual(JSON.parse(JSON.stringify(ctx2.conversion[2])),
+  {game: 'convert:l', codec: 'zstd', runtime: 'ng', level: 5, profile: false});
 console.log('Compress dialog tests passed');
 console.log('Format switch tests passed');
 
