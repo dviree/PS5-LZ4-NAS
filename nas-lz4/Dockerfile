@@ -2,7 +2,7 @@
 # Build from the repository root:
 #   docker build -t ps5-lz4:local -f nas-lz4/Dockerfile .
 
-# ampr-emu-ng main (quer3q, v0.3.1 with James's low-descriptor fixes merged) plus
+# ampr-emu-ng main (quer3q, v0.3.2 with James's low-descriptor and fd-slot fixes) plus
 # James's kernel-AIO patch.
 FROM rust:1.99.0-slim-trixie@sha256:24e632c09342c20abf8312cf4f61430a911c01ed3a5e4c02b87292b1c39c5273 AS ng-runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -18,7 +18,7 @@ RUN rustup component add rust-src
 WORKDIR /runtime
 # Pinned by commit: the checkout must be exactly this commit (its hash covers every
 # file); source.tar.gz is made from it for the corresponding-source requirement.
-ARG NG_COMMIT=4e951ecb0cc9b59dcf7a8989937d5c5bbb0a4505
+ARG NG_COMMIT=b3373e721394466862c6d22a41efcd0fcdd8a0ec
 RUN git init -q source && git -C source fetch -q --depth 1 https://github.com/quer3q/ampr-emu-ng "$NG_COMMIT" \
     && git -C source checkout -q FETCH_HEAD && test "$(git -C source rev-parse HEAD)" = "$NG_COMMIT" \
     && git -C source archive --format=tar.gz --prefix="ampr-emu-ng-$NG_COMMIT/" HEAD > source.tar.gz \
@@ -28,9 +28,9 @@ WORKDIR /runtime/source
 RUN echo 'a60e1e38a64cafc7d416f54dc5b1aa73423a521e040caddcbc4da15e68ab4068  /runtime/kernel-aio.patch' | sha256sum -c - \
     && patch --fuzz=0 -p1 < /runtime/kernel-aio.patch \
     && cargo test --workspace --locked \
-    && make verify AMPR_GIT_REV=4e951ec-aio-fe97dce \
+    && make verify AMPR_GIT_REV=b3373e7-aio-fe97dce \
     && cp out/release/libSceAmpr.sprx /runtime/libSceAmpr-ng.sprx \
-    && python3 -c 'import hashlib,json;from pathlib import Path;p=Path("/runtime/libSceAmpr-ng.sprx");Path("/runtime/ng-runtime.json").write_text(json.dumps({"name":"ampr-emu-ng 4e951ec (v0.3.1) + AIO fe97dce","commit":"4e951ecb0cc9b59dcf7a8989937d5c5bbb0a4505","aio_commit":"fe97dce63ce1790081c4f539b0f9b4efc4b91a1b","patch_sha256":"a60e1e38a64cafc7d416f54dc5b1aa73423a521e040caddcbc4da15e68ab4068","sha256":hashlib.sha256(p.read_bytes()).hexdigest()}))'
+    && python3 -c 'import hashlib,json;from pathlib import Path;p=Path("/runtime/libSceAmpr-ng.sprx");Path("/runtime/ng-runtime.json").write_text(json.dumps({"name":"ampr-emu-ng b3373e7 (v0.3.2) + AIO fe97dce","commit":"b3373e721394466862c6d22a41efcd0fcdd8a0ec","aio_commit":"fe97dce63ce1790081c4f539b0f9b4efc4b91a1b","patch_sha256":"a60e1e38a64cafc7d416f54dc5b1aa73423a521e040caddcbc4da15e68ab4068","sha256":hashlib.sha256(p.read_bytes()).hexdigest()}))'
 
 FROM python:3.12-slim-bookworm AS build
 RUN apt-get update \
@@ -68,9 +68,9 @@ COPY --from=forge /usr/local/bin/ps5-dump-forge /usr/local/bin/ps5-dump-forge
 COPY --from=forge /opt/ps5lz4/ /opt/ps5lz4/
 COPY --from=ng-runtime /runtime/libSceAmpr-ng.sprx /opt/ps5lz4/libSceAmpr-ng.sprx
 COPY --from=ng-runtime /runtime/ng-runtime.json /opt/ps5lz4/ng-runtime.json
-COPY --from=ng-runtime /runtime/source.tar.gz /opt/ps5lz4/licenses/ampr-emu-ng-4e951ec/source.tar.gz
-COPY --from=ng-runtime /runtime/source/LICENSE /opt/ps5lz4/licenses/ampr-emu-ng-4e951ec/LICENSE
-COPY --from=ng-runtime /runtime/kernel-aio.patch /opt/ps5lz4/licenses/ampr-emu-ng-4e951ec/kernel-aio.patch
+COPY --from=ng-runtime /runtime/source.tar.gz /opt/ps5lz4/licenses/ampr-emu-ng-b3373e7/source.tar.gz
+COPY --from=ng-runtime /runtime/source/LICENSE /opt/ps5lz4/licenses/ampr-emu-ng-b3373e7/LICENSE
+COPY --from=ng-runtime /runtime/kernel-aio.patch /opt/ps5lz4/licenses/ampr-emu-ng-b3373e7/kernel-aio.patch
 COPY profiles /opt/ps5lz4/profiles
 COPY compat/compat.json /opt/ps5lz4/compat.json
 COPY nas-lz4/ps5lz4.py /opt/ps5lz4/ps5lz4.py
