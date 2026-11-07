@@ -52,6 +52,17 @@ class ProfileChoiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             app.set_profile_choice("g1", {"kind": "nas", "name": "../../etc/passwd"})
 
+    def test_edited_text_may_use_include_from_lists(self):
+        text = '[pack]\n[[rule]]\naction = "compress"\ninclude_from = ["big.include.txt"]\n'
+        with patch.object(app, "editable_profile_path", lambda e: self.profiles / "G.toml"):
+            with self.assertRaises(ValueError):  # the list is nowhere yet
+                app.save_game_profile("g1", text)
+            (self.game / "big.include.txt").write_text("data.bin\n")  # next to the game's own game.toml
+            app.save_game_profile("g1", text)
+            self.assertEqual((self.profiles / "big.include.txt").read_text(), "data.bin\n")
+            with self.assertRaises(ValueError):
+                app.save_game_profile("g1", text.replace("big.include.txt", "../x.txt"))
+
     def test_upload_needs_its_lists_and_saves_them(self):
         toml = {"name": "Up.toml", "content": '[pack]\n[[rule]]\naction = "compress"\ninclude_from = ["big.include.txt"]\n'}
         with self.assertRaises(ValueError):

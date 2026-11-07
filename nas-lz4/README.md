@@ -987,9 +987,9 @@ it lists is in the game). **Upload a .toml** (or drop it) together with the
 for the game. Automatic uses a single `.toml` next to the game before a
 matching one in `state/profiles`. Under **Edit as text** you can load a `.toml` file or paste
 its contents, then press **Save TOML**; that text is then what the game uses. Invalid TOML leaves the previous file intact. Uploads are limited
-to 256 KiB; put patterns directly in `include` / `exclude` arrays rather than
-referencing companion list files. Existing profiles installed with companion
-lists still work.
+to 256 KiB; `include_from` / `exclude_from` lists must be in
+`state/profiles` already, or next to the TOML the game uses now (they are then
+copied there); otherwise upload them with the .toml.
 
 The profile is saved in `state/profiles/<TITLEID>.toml`, shared across versions
 of that title. Games without a title ID get a profile bound to the exact library

@@ -240,7 +240,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
   <button class="two" onclick="act('check')">Check all<small>check every game, read-only; unchanged ones from the saved results</small></button>
   <button class="two ghost" onclick="act('check_full', 'Check every game again, ignoring earlier results?\n\nThis reads every LZ4 game in full and can take a while.')">Full re-check<small>check every game again from scratch</small></button>
   <button class="two pri" id="b-fix"
-    onclick="act('fix', 'Compress every game that can be LZ4?\n\nThey are queued and compressed one at a time. If a job is running, this starts when it is done.')">Compress all<small>pack every game that can be LZ4, one at a time</small></button>
+    onclick="compressAll()">Compress all<small id="b-fix-st">pack every game that can be LZ4, one at a time</small></button>
   </div>
 </header>
 <nav class="tabs">
@@ -1225,8 +1225,10 @@ function renderFmtBar() {
     <label class="mut" title="Off: no TOML profile; the packer's own scan decides what is packed"><input type="checkbox" style="width:auto;min-width:0"
       ${packProfile ? 'checked' : ''} onchange="packProfile = this.checked; savePackPrefs()"> TOML profile</label>
     ${typeof packSkip !== 'undefined' && packSkip ? '<button class="sm ghost" onclick="askEachTime()" title="Show the Compress dialog again">Ask each time</button>' : ''}
-    <span class="mut">${packMode === 'legacy' ? 'The Compress buttons below use this. Compress all packs LZ4.'
-      : 'The Compress buttons below use this. Turn off fakelib updates in ShadowMountPlus so it keeps ampr-emu-ng.'}</span></div>`;
+    <span class="mut">${packMode === 'legacy' ? 'The Compress buttons below and Compress all use this.'
+      : 'The Compress buttons below and Compress all use this. Turn off fakelib updates in ShadowMountPlus so it keeps ampr-emu-ng.'}</span></div>`;
+  const st = document.getElementById('b-fix-st');
+  if (st) st.textContent = `pack every game that can be ${PACK_FMT[packMode].name}, one at a time`;
 }
 // My games' sub-tabs: the originals (folder/exFAT), and the LZ4 and Zstd copies made from them.
 let libTab = 'orig';
@@ -1469,6 +1471,14 @@ function pkGo(send) {
   }
   closePack();
   compress(id, send, false, opts, false);
+}
+// Compress all in the format chosen above the library, always from the originals.
+function compressAll() {
+  const f = PACK_FMT[packMode], o = packOptions();
+  act('fix', `Compress every game that can be ${f.name} (level ${o.level}${o.profile ? '' : ', no TOML'})?\n\n` +
+    `Packed from the originals, one at a time; games that already have a ${f.name} copy are left out.` +
+    (packMode === 'legacy' ? '' : ' Turn off fakelib updates in ShadowMountPlus for ampr-emu-ng.') +
+    '\n\nIf a job is running, this starts when it is done.', o);
 }
 function askEachTime() { packSkip = false; try { localStorage.removeItem('packSkip'); } catch (e) {} renderFmtBar(); }
 function convertGame(id, codec) {

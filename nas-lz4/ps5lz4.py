@@ -899,11 +899,27 @@ def save_game_profile(game_id: str, content: str) -> dict:
     rules = parsed.get("rule", [])
     if not isinstance(rules, list) or any(not isinstance(r, dict) for r in rules):
         raise ValueError("Use [[rule]] tables for the rules")
+    # include_from/exclude_from lists are read next to the saved TOML (state/profiles):
+    # they must be there already, or next to the TOML the game uses now (then copied).
+    in_use = choose_profile(entry.title_id, entry.name or entry.id, entry.path, entry.id, entry.path)[0]
+    copy = {}
     for rule in rules:
-        if "include_from" in rule or "exclude_from" in rule:
-            raise ValueError("Paste file patterns into include/exclude arrays; this upload contains no sidecar lists")
+        for key in ("include_from", "exclude_from"):
+            lists = rule.get(key) or []
+            for name in ([lists] if isinstance(lists, str) else lists if isinstance(lists, list) else [None]):
+                name = str(name)
+                if not PROFILE_NAME_RE.fullmatch(name) or Path(name).name != name:
+                    raise ValueError(f"{key} must name a list file in state/profiles, not {name!r}")
+                if (CUSTOM_PROFILES / name).is_file():
+                    continue
+                beside = Path(in_use).parent / name if in_use else None
+                if beside is None or not beside.is_file():
+                    raise ValueError(f"{name} is not in state/profiles: upload it with the .toml (Upload a .toml)")
+                copy[name] = beside
     target = editable_profile_path(entry)
     target.parent.mkdir(parents=True, exist_ok=True)
+    for name, src in copy.items():
+        shutil.copyfile(src, CUSTOM_PROFILES / name)
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent, delete=False) as temp:
         temp.write(content)
     os.replace(temp.name, target)
@@ -2116,6 +2132,8 @@ def cmd_lz4(args) -> int:
     compressed: list[Entry] = []  # .ffpfsc: already PFSC-compressed, little or nothing to gain
     games = compat_games()
     counts = {"LZ4": 0, "can be LZ4": 0, "not LZ4": 0, "error": 0}
+    codec, runtime = getattr(args, "codec", "lz4"), getattr(args, "runtime", "legacy")
+    packable: list[Entry] = []  # AMPR games (LZ4 copy or not): what Zstd and LZ4 NG are made from
     # Saved results for unchanged sources; --full scans every one again and
     # stores the new results.
     cache = CheckDB()
@@ -2128,6 +2146,8 @@ def cmd_lz4(args) -> int:
         if e.duplicate_of and st != "done":
             continue  # the folder copy of the same game is listed instead
         verdict, why, can = classify(e, res, cache)
+        if verdict in ("LZ4", "can be LZ4"):
+            packable.append(e)
         if can and e.kind == "ffpfsc" and res["status"] not in ("partial", "failed") \
                 and not getattr(args, "include_compressed", False):
             compressed.append(e)
@@ -2145,6 +2165,14 @@ def cmd_lz4(args) -> int:
             print(f"{'LZ4' if not problem else 'error':12} {'-':9}  {out.name}  "
                   f"({'no library source' if not problem else problem})")
     cache.close()
+    if codec == "zstd" or runtime == "ng":
+        # Compress all in Zstd or LZ4 NG: every AMPR original without a copy in
+        # that format yet, always packed from the original (never from an LZ4 copy).
+        suffix = "-zstd" if codec == "zstd" else "-lz4"
+        todo = [e for e in packable if not output_item(e.id + suffix).is_dir()
+                and (e.kind != "ffpfsc" or getattr(args, "include_compressed", False))]
+        compressed = [e for e in packable if e.kind == "ffpfsc" and not getattr(args, "include_compressed", False)
+                      and not output_item(e.id + suffix).is_dir()]
     print("\n" + ", ".join(f"{k}: {v}" for k, v in counts.items()))
     if compressed:
         print(f"{len(compressed)} already-compressed .ffpfsc image(s) left out (an LZ4 copy is usually as large or "
@@ -2157,7 +2185,8 @@ def cmd_lz4(args) -> int:
         return 0
     start = argparse.Namespace(targets=[e.id for e in todo], all=False, resume=False,
                                level=args.level, no_restore_test=args.no_restore_test,
-                               require_vhash=args.require_vhash, force_image=args.force_image)
+                               require_vhash=args.require_vhash, force_image=args.force_image,
+                               codec=codec, runtime=runtime, no_profile=getattr(args, "no_profile", False))
     return cmd_start(start)
 
 
@@ -7350,7 +7379,7 @@ def run_request(req: dict) -> dict:
         if not game or game.startswith("-") or len(game) > 300:
             return {"ok": False, "output": "no game given"}
         argv.append(game)
-    if action == "start":
+    if action == "start" or (action == "fix" and "codec" in req):  # Compress all without a format: as before
         codec, runtime = req.get("codec", "lz4"), req.get("runtime", "legacy")
         level = req.get("level", 5 if codec == "zstd" else 9)
         if codec not in ("lz4", "zstd") or runtime not in ("legacy", "ng") or (codec == "zstd" and runtime != "ng"):
