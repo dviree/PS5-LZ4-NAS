@@ -522,9 +522,9 @@ a packed game's sheet:
 Making an exFAT image of the original first changes nothing: the NAS unpacks
 it again before LZ4 packing. Originals are never converted.
 
-## Following quer3q's ampr-emu-ng and PS5 Dump Forge
+## Following quer3q's ampr-emu-ng and PS5 Dump Forge, and James's branches
 
-The **Follow quer3q** workflow (every 3 hours, or by hand under Actions) runs
+The **Follow quer3q and James** workflow (every 3 hours, or by hand under Actions) runs
 `tools/quer3q_update.py`. When quer3q/ampr-emu-ng has a new `main` commit or
 quer3q/ps5-dump-forge a new release, it moves the pins in `nas-lz4/Dockerfile`
 and `nas-lz4/install-forge.py`: the kernel-AIO patch must still apply with no
@@ -534,6 +534,14 @@ SHA256SUMS. Trail-Code adds the blast radius of upstream's change
 tests and PRX verifier) run, and a pull request to `main` is opened. Nothing
 reaches the NAS image until it is merged. `python3 tools/quer3q_update.py`
 alone only says what is new.
+
+It also follows James St-Pierre's branches (jamesst20/ampr-emu-ng). They are
+work in progress that quer3q merges by pull request, so they are reported,
+not taken in: each new or moved branch with its commits that are not in
+quer3q's `main` yet and Trail-Code's blast radius against it. The heads seen
+are kept in `tools/james-branches.json`. The branch the kernel-AIO patch comes
+from (`fix/lz4-packed-open-boot`, `fe97dce`) is watched: if it moves, the patch
+must be ported again; once quer3q merges it, the patch can go.
 
 ## Your own TOML profiles
 
