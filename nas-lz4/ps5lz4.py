@@ -1887,7 +1887,12 @@ def runtime_name(sha: str) -> str:
 
 def requires_ng(game: Path) -> bool:
     rep = read_json(REPORTS / (re.sub(r"-(lz4|zstd)$", "", game.name) + ".json"), {}) or {}
-    return packed_codec(game) == "zstd" or rep.get("pack_runtime") == "ng" or runtime_sha(game) in (NG_SHA256, NG_UPSTREAM_SHA256)
+    # A game's report describes its last pack only: it counts for this copy only if it is this copy.
+    try:
+        mine = rep.get("output") in (None, host_output_path(game))
+    except ValueError:  # a pack still in the work folder: no report describes it yet
+        mine = False
+    return packed_codec(game) == "zstd" or (mine and rep.get("pack_runtime") == "ng") or runtime_sha(game) in (NG_SHA256, NG_UPSTREAM_SHA256)
 
 
 def runtime_ok(game: Path, sha: str) -> bool:
@@ -7101,6 +7106,30 @@ def dashboard_data() -> dict:
                      "saved_percent": rep.get("saved_percent"), "ps5": rep.get("ps5_result"),
                      "community": {k: g.get(k, 0) for k in ("works", "issues", "noStart", "crash", "reports")},
                      "output": info["path"]})
+    # Every packed copy (LZ4 and Zstd) on its own, for the page's LZ4 and Zstd
+    # tabs: a game can have both, and its report only describes the last pack.
+    by_id = {e.id: e for e in entries}
+    sizes = {r["id"]: r.get("source_size") for r in rows}
+    copies = []
+    for out in output_items():
+        if out.name.startswith(".") or not out.is_dir() or out.is_symlink() or not is_packed(out):
+            continue
+        info = lz4_folder_info(out, cache)
+        codec = info["pack_codec"]
+        gid = re.sub(r"-(lz4|zstd)$", "", out.name)
+        e = by_id.get(gid)
+        rep = read_json(REPORTS / f"{gid}.json") or {}
+        same = rep.get("pack_codec", "lz4") == codec and rep.get("output") == info["path"]
+        src = rep.get("source_bytes") if same else sizes.get(e.id) if e else None
+        copies.append({"id": out.name, "game": e.id if e else None, "codec": codec,
+                       "runtime": "ng" if runtime_sha(out) == NG_SHA256 else "legacy",
+                       "name": (rep.get("title_name") if same else None) or info.get("name") or (e.name if e else out.name),
+                       "title_id": (info.get("title_id") or (e.title_id if e else "") or "").upper(),
+                       "path": info["path"], "bytes": info["bytes"], "source_bytes": src,
+                       "saved_percent": round(100.0 * (src - info["bytes"]) / src, 1) if src else None,
+                       "ps5": ps5_result(e.id) if e and same else None,
+                       "finished": rep.get("finished") if same else None, "problem": info["problem"],
+                       "busy": bool(running and current and out.name in (f"{current}-lz4", f"{current}-zstd"))})
     cache.close()
     job = None
     if running and current:
@@ -7132,7 +7161,7 @@ def dashboard_data() -> dict:
         agent_age = None
     return {"running": running, "job": job, "queue": queue.get("remaining") or [],
             "interrupted": (not running) and bool(queue.get("remaining")),
-            "free_bytes": free_bytes(OUTPUT), "games": rows, "totals": totals, "failed": failed,
+            "free_bytes": free_bytes(OUTPUT), "games": rows, "copies": copies, "totals": totals, "failed": failed,
             "zstd_output_host": host_output_path(zstd_output()),
             "lz4c_version": lz4c_version(),
             "delete_originals": DELETE_ORIGINALS,

@@ -46,6 +46,17 @@ assert.equal(vm.runInContext('pk.mode', ctx2), 'ng');  // APR-EMU can't run it: 
 vm.runInContext("pkPick('zstd'); pk.remember = true; pkGo(true)", ctx2);
 assert.deepEqual(JSON.parse(JSON.stringify(ctx2.sent)), ['g', true, false, {codec: 'zstd', runtime: 'ng', level: 5, profile: true}, false]);
 assert.equal(vm.runInContext('packSkip && packMode', ctx2), 'zstd');
+// My games' sub-tabs list each copy in its own tab, escaped, with its own folder name on the buttons.
+const ctx3 = vm.createContext({document: {getElementById: () => null}, esc: s => String(s ?? '').replaceAll('<', '&lt;').replaceAll('"', '&quot;'),
+  gb: n => String(n), PS5_EN: {works: 'Works'}, xferText: () => ''});
+vm.runInContext(html.slice(html.indexOf('function copiesHtml(d, kind)'), html.indexOf('// Whether a game can be compressed in the chosen format now.')), ctx3);
+ctx3.d = {copies: [{id: 'G-lz4', game: 'G', codec: 'lz4', runtime: 'legacy', name: '<b>G', title_id: 'PPSA00001', bytes: 1, source_bytes: 2, saved_percent: 50},
+                   {id: 'G-zstd', game: 'G', codec: 'zstd', runtime: 'ng', name: 'G', bytes: 1}]};
+const lz4 = vm.runInContext("copiesHtml(d, 'lz4')", ctx3), zs = vm.runInContext("copiesHtml(d, 'zstd')", ctx3);
+assert.ok(lz4.includes('data-id="G-lz4"') && !lz4.includes('G-zstd') && lz4.includes('APR-EMU') && !lz4.includes('<b>G'));
+assert.ok(zs.includes('data-id="G-zstd"') && !zs.includes('data-id="G-lz4"') && zs.includes('ampr-emu-ng'));
+assert.ok(!/\n\n/.test(lz4.replace(/\s+/g, ' ')) && lz4.includes("?\\n\\n"));  // confirm text stays one line in onclick
+console.log('Copy tab tests passed');
 console.log('Compress dialog tests passed');
 console.log('Format switch tests passed');
 

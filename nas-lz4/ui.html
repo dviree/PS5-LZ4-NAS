@@ -87,6 +87,13 @@ tr.row{cursor:pointer}tr.row td{transition:background .12s}tr.row:hover td{backg
 .topt .ti{font-size:20px}.topt .tn{font-weight:600;overflow-wrap:anywhere}.topt .sp{flex:1}
 .tomldrop{display:block;border:2px dashed var(--line);border-radius:14px;padding:16px;text-align:center;cursor:pointer;margin-top:12px}
 .tomldrop.over{border-color:#38bdf8;background:rgba(56,189,248,.08)}
+.subtabs{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 14px;border-bottom:1px solid var(--line);padding-bottom:10px}
+.subtabs button{background:transparent;box-shadow:none;border:1px solid var(--line);color:inherit;text-shadow:none;border-radius:12px;padding:8px 14px;display:flex;gap:8px;align-items:center}
+.subtabs button.on{background:linear-gradient(135deg,var(--btn1),var(--btn2));color:#fff;border-color:transparent}
+.subtabs .n{font-size:11px;font-weight:800;background:rgba(255,255,255,.18);border-radius:99px;padding:1px 8px}
+.cp{display:grid;grid-template-columns:1fr auto auto auto;gap:4px 18px;align-items:center;padding:12px 4px;border-top:1px solid var(--line)}
+.cp .act{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+@media (max-width:640px){.cp{grid-template-columns:1fr}.cp .act{justify-content:flex-start}}
 .pkdlg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:200;padding:16px}
 .pkbox{width:780px;max-width:100%;max-height:100%;overflow:auto;background:var(--card,rgba(40,25,90,.98));backdrop-filter:blur(18px);border:1px solid var(--line);border-radius:20px;padding:22px}
 .pkcards{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
@@ -306,7 +313,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     <div class="mut">The same game (Title ID) is in the library more than once, as other versions or as a folder and an image.
     The newest is marked; deleting an older one frees its space (needs DELETE_ORIGINALS=yes). Its LZ4 copy, if any, stays.</div>
     <div id="dups"></div></div>
-  <div class="card"><h2>Library</h2><div id="fmtbar"></div><div id="unread"></div><div class="scroll"><table id="games"></table></div></div>
+  <div class="card"><h2>Library</h2><div class="subtabs" id="libtabs" role="tablist"></div><div id="fmtbar"></div><div id="unread"></div><div class="scroll" id="games-wrap"><table id="games"></table></div><div id="copies" hidden></div></div>
   <div class="card" id="profile-editor" hidden>
     <h2>TOML · <span id="profile-name"></span></h2>
     <div class="why" id="profile-inuse"></div>
@@ -1045,9 +1052,10 @@ function render() {
   const busy = d.running;
   document.getElementById('b-fix').disabled = false;
   renderFmtBar();
+  renderLibTabs(d);
   document.getElementById('games').innerHTML =
     '<tr><th>Game</th><th>Status</th><th class="num">Original</th><th class="num">Packed</th><th class="num">Saved</th><th>PS5</th><th></th></tr>' +
-    d.games.map(g => {
+    d.games.filter(g => !g.output_only).map(g => {
       const v = g.running ? ['p-run', 'packing'] : g.queued ? ['p-run', 'queued'] :
         g.verdict === 'LZ4' ? ['p-LZ4', g.pack_codec === 'zstd' ? 'Zstd' : 'LZ4'] : canPack(g) && !g.output ? ['p-can', 'can be ' + PACK_FMT[packMode].name] :
         g.verdict === 'can be LZ4' ? ['p-can', 'can be LZ4'] :
@@ -1219,6 +1227,44 @@ function renderFmtBar() {
     ${typeof packSkip !== 'undefined' && packSkip ? '<button class="sm ghost" onclick="askEachTime()" title="Show the Compress dialog again">Ask each time</button>' : ''}
     <span class="mut">${packMode === 'legacy' ? 'The Compress buttons below use this. Compress all packs LZ4.'
       : 'The Compress buttons below use this. Turn off fakelib updates in ShadowMountPlus so it keeps ampr-emu-ng.'}</span></div>`;
+}
+// My games' sub-tabs: the originals (folder/exFAT), and the LZ4 and Zstd copies made from them.
+let libTab = 'orig';
+try { libTab = localStorage.getItem('libTab') || 'orig'; } catch (e) {}
+function setLibTab(t) { libTab = t; try { localStorage.setItem('libTab', t); } catch (e) {} if (data) renderLibTabs(data); }
+function renderLibTabs(d) {
+  const el = document.getElementById('libtabs');
+  if (!el) return;
+  const copies = d.copies || [], n = {orig: (d.games || []).filter(g => !g.output_only).length + (d.archives || []).length,
+    lz4: copies.filter(c => c.codec !== 'zstd').length, zstd: copies.filter(c => c.codec === 'zstd').length};
+  const tabs = [['orig', '📁 Folder / exFAT'], ['lz4', '⚡ LZ4'], ['zstd', '🗜 Zstd']];
+  el.innerHTML = tabs.map(([k, label]) => `<button role="tab" aria-selected="${libTab === k}" class="${libTab === k ? 'on' : ''}" onclick="setLibTab('${k}')">${label} <span class="n">${n[k]}</span></button>`).join('');
+  const orig = libTab === 'orig';
+  document.getElementById('fmtbar').hidden = !orig;
+  document.getElementById('games-wrap').hidden = !orig;
+  const box = document.getElementById('copies');
+  box.hidden = orig;
+  if (!orig) box.innerHTML = copiesHtml(d, libTab);
+}
+function copiesHtml(d, kind) {
+  const list = (d.copies || []).filter(c => (c.codec === 'zstd') === (kind === 'zstd'));
+  const head = `<div class="mut" style="margin-bottom:6px">${kind === 'zstd' ? 'Zstd' : 'LZ4'} copies, made from the originals. Pack new ones in Folder / exFAT.</div>`;
+  if (!list.length) return head + `<div class="mut">No ${kind === 'zstd' ? 'Zstd' : 'LZ4'} copies yet.</div>`;
+  return head + list.map(c => {
+    const v = (d.verifies || {})[c.id] || {}, tx = (d.transfers || {})[c.id];
+    const rt = c.codec === 'zstd' || c.runtime === 'ng' ? 'ampr-emu-ng' : 'APR-EMU 0.4.2.1';
+    const ps5 = c.ps5 ? `<span class="chip ${c.ps5 === 'works' ? 'ok' : ''}">${esc(PS5_EN[c.ps5] || c.ps5)}</span>` : '<span class="chip">not tested</span>';
+    const busy = c.busy ? '<span class="pill p-run">packing</span>' : '';
+    return `<div class="cp"><div><b>${esc(c.name)}</b>${c.game ? ` <a href="#" data-g="${esc(c.game)}" onclick="event.preventDefault();openGame(this.dataset.g)" class="mut" style="font-size:12px">details</a>` : ''}
+        <div class="why">${esc(c.title_id || '')} · ${rt}${c.problem ? ` · <span class="bad">${esc(c.problem)}</span>` : ''}</div>${tx && tx.state !== 'done' ? `<div class="cm">${xferText(tx)}</div>` : ''}<div class="lc"></div></div>
+      <div class="num"><b>${gb(c.bytes)}</b><div class="why">${c.source_bytes ? `of ${gb(c.source_bytes)} · saved ${c.saved_percent} %` : 'original not in the library'}</div></div>
+      <div>${busy || ps5}</div>
+      <div class="act">${c.busy ? '' : `<button class="sm pri" data-id="${esc(c.id)}" data-n="${esc(c.name)}" onclick="push(this.dataset.id, this.dataset.n)">⬆️ Send to PS5</button>
+        <button class="sm" data-id="${esc(c.id)}" data-n="${esc(c.name)}" onclick="makeImage(this.dataset.id, this.dataset.n)">💿 Make .exfat</button>
+        ${c.title_id ? `<button class="sm ghost" data-t="${esc(c.title_id)}" onclick="launchCheck(this.dataset.t, this.closest('.cp').querySelector('.lc'))">🚦 Start check</button>` : ''}
+        <button class="sm ghost" ${v.state === 'running' ? 'disabled' : ''} data-id="${esc(c.id)}" data-n="${esc(c.name)}" onclick="act('verify_lz4', 'Verify ' + this.dataset.id + '?\\n\\nEvery block is decoded and checked; nothing is changed.', {game: this.dataset.id})">${v.state === 'running' ? 'Verifying…' : v.state === 'passed' ? '✓ Verified' : v.state === 'failed' ? '✗ Verify again' : '✓ Verify'}</button>
+        <button class="sm danger" data-id="${esc(c.id)}" data-n="${esc(c.name)}" onclick="act('remove', 'Delete the copy ' + this.dataset.id + ' on the NAS?\\n\\nThe original is not touched. This cannot be undone.', {game: this.dataset.id})">🗑 Delete copy</button>`}</div></div>`;
+  }).join('');
 }
 // Whether a game can be compressed in the chosen format now.
 function canPack(g, mode = packMode) {

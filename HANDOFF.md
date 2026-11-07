@@ -41,6 +41,9 @@ cd /volume2/docker/ps5-lz4 && ./lz4-ps5.sh update --force
 
 - PR #6 (LZ4 folder → Zstd conversion) was reverted at the owner's request:
   packs are always made from the original.
+- My games has sub-tabs Folder / exFAT · LZ4 · Zstd; the dashboard sends
+  `copies` (one per packed folder). `requires_ng` now reads a game's report only
+  for the copy it describes (an LZ4 copy was flagged after a Zstd pack).
 - **Follow quer3q and James** workflow (`.github/workflows/quer3q-update.yml`,
   `tools/quer3q_update.py`): every 3 h moves the pins for quer3q/ampr-emu-ng
   `main` and quer3q/ps5-dump-forge releases (AIO patch must apply with no fuzz,

@@ -966,6 +966,16 @@ follow the choice; a game that can't be packed that way says what can. **Compres
 packs LZ4. For Zstd and LZ4 NG, turn off fakelib updates in ShadowMountPlus so
 it keeps ampr-emu-ng.
 
+## My games: Folder / exFAT, LZ4 and Zstd
+
+Library has three tabs. **📁 Folder / exFAT** lists the originals, with the
+**Compress with** switch and the Compress buttons: packs are always made from
+an original. **⚡ LZ4** and **🗜 Zstd** list every packed copy on its own (a
+game can have both), with its runtime, size and saving, the PS5 result, and
+**Send to PS5**, **Make .exfat**, **Start check**, **Verify** and **Delete
+copy** (which deletes only that copy, never the original). The page remembers
+the tab.
+
 ## Game TOML profiles in the web UI
 
 In **My games**, press **TOML** next to a game (also in its detail sheet). It
