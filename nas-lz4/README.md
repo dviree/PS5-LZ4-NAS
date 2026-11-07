@@ -949,7 +949,11 @@ the original to get these loose files. Console behavior still needs a play test.
 Compress buttons use: **⚡ LZ4** (APR-EMU 0.4.2.1, loads fastest), **🗜 Zstd**
 (ampr-emu-ng, smallest) or **🧪 LZ4 NG** (the same LZ4 packs, read by
 ampr-emu-ng instead of APR-EMU, for games APR-EMU can't run), with its level and
-**TOML profile**. The page remembers the choice. A game's Compress button opens
+**TOML profile**. Every LZ4 copy, APR-EMU or LZ4 NG, is packed by
+theghostonline's packer (`ampr_pack_cli`, built from this repository), which
+keeps the disk and boot files loose itself; for LZ4 NG, ampr-emu-ng replaces
+APR-EMU after the verify (only the runtime file and its `ampr_emu.index`
+record change). PS5 Dump Forge packs Zstd only. The page remembers the choice. A game's Compress button opens
 the **Compress dialog**: LZ4 and Zstd side by side, each with its size
 estimated from a sample of the game (64 spots of 512 KiB, each 256 KiB piece
 compressed on its own with the `lz4` and `zstd` tools, as the packs do; a

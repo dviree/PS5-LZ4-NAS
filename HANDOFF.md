@@ -29,6 +29,8 @@ cd /volume2/docker/ps5-lz4 && ./lz4-ps5.sh update --force
 - Tell "verified on the NAS" apart from "playable on the PS5".
 - Packs are always made from the original: folder/exFAT → LZ4 or folder/exFAT
   → Zstd, never LZ4 → Zstd.
+- LZ4 is always packed by theghostonline's packer (`ampr_pack_cli`), also for
+  LZ4 NG (ampr-emu-ng replaces APR-EMU after the verify); Forge packs Zstd only.
 - Third-party code (theghostonline, quer3q, James St-Pierre) only after review
   and the owner's OK. Don't route around proxy 403s.
 - Use Trail-Code (`trail ask/grep/callers/skeleton/blast/check`); end replies

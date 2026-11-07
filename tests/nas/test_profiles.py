@@ -91,9 +91,19 @@ class EditableProfileTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             app.save_game_profile('../../escape', self.text)
 
-    def test_both_ng_codecs_use_custom_profile_with_mandatory_fixes(self):
+    def test_lz4_ng_uses_the_game_profile_with_theghostonlines_packer(self):
+        # LZ4 is always theghostonline's ampr_pack_cli, which keeps the disk and
+        # boot files loose itself (test_packer_keeps_boot_files_loose).
+        path = app.save_game_profile(self.entry.id, self.text) and app.editable_profile_path(self.entry)
+        job = app.Job(self.entry, 5, True, False, 'lz4', 'ng')
+        job.work.mkdir(parents=True, exist_ok=True)
+        with patch.object(app, 'ampr_status_folder', return_value=('compatible', 'fixture')):
+            job.step_check(self.source)
+        self.assertEqual(Path(job.state['profile_path']), path)
+
+    def test_zstd_uses_custom_profile_with_mandatory_fixes(self):
         app.save_game_profile(self.entry.id, self.text)
-        for codec in ('lz4', 'zstd'):
+        for codec in ('zstd',):
             job = app.Job(self.entry, 5, True, False, codec, 'ng')
             job.work.mkdir(parents=True, exist_ok=True)
             with patch.object(app, 'ampr_status_folder', return_value=('compatible', 'fixture')):

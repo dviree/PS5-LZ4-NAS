@@ -1320,9 +1320,14 @@ class Job:
             if not (root / "eboot.bin").is_file():
                 raise Skip("no eboot.bin in source")
             snapshot = self.work / "pack-profile.toml"
-            if self.done("check") and snapshot.is_file():
+            if self.done("check") and (snapshot.is_file() or self.codec == "lz4"):
                 return  # Resume with the profile used by this job, even after a UI edit.
             selected, desc = choose_profile(self.state["title_id"], name, root, self.e.id, self.e.path) if self.use_profile else (None, "no game TOML")
+            if self.codec == "lz4":
+                # LZ4 is always theghostonline's packer (ampr_pack_cli); it keeps the
+                # disk and boot files loose itself, so the game's profile goes as is.
+                self.mark("check", ampr=NG_NAME, profile_path=selected, profile=desc)
+                return
             self.mark("check", ampr=NG_NAME, profile_path=ng_profile(root, selected, snapshot),
                       profile=desc + "; mandatory LZ4 disk-file and boot fixes")
             return
@@ -1343,15 +1348,16 @@ class Job:
         remove_work_path(pack)
         _files, total = tree_bytes(root)
         self.need_space(total, f"{self.codec.upper()} packs")
-        if self.runtime == "ng":
-            # Forge owns the codec, runtime injection, indexes and full read-back verification.
+        if self.codec == "zstd":
+            # Forge owns Zstd: codec, runtime injection, indexes and full read-back verification.
+            # LZ4 (APR-EMU or ampr-emu-ng) is always theghostonline's packer below.
             t0 = time.time()
             self.run_tool(forge_command(root, pack, self.codec, self.level, profile=self.state.get("profile_path")), "pack")
             install_ng_runtime(pack)
             problem = lz4_format_problem(pack)
             if problem or runtime_sha(pack) != NG_SHA256:
                 raise JobError(problem or "Forge installed an unexpected runtime")
-            self.mark("pack", pack_stats={"engine": "PS5 Dump Forge 0.5.3", "full_verify": True},
+            self.mark("pack", pack_stats={"engine": "PS5 Dump Forge", "full_verify": True},
                       pack_seconds=round(time.time() - t0))
             return pack
         argv = [PACKER, "pack", str(root), str(pack), "--level", str(self.level),
@@ -1375,7 +1381,7 @@ class Job:
         if self.done("verify"):
             return
         self.set_step("verify")
-        if self.runtime == "ng":
+        if self.codec == "zstd":
             problem = lz4_format_problem(pack)
             if problem or not self.state.get("pack_stats", {}).get("full_verify"):
                 raise JobError(problem or "missing full verification from Forge")
@@ -1391,6 +1397,17 @@ class Job:
         if problem:
             raise JobError(problem)
         paks = sorted(pack.glob("ampr_assets-*.pak"))
+        if self.runtime == "ng":
+            # Verified with APR-EMU in place; now ampr-emu-ng takes its place (only
+            # the runtime file and its record in ampr_emu.index change).
+            install_ng_runtime(pack)
+            problem = lz4_format_problem(pack)
+            if problem or runtime_sha(pack) != NG_SHA256:
+                raise JobError(problem or "ampr-emu-ng was not installed")
+            self.mark("verify", verify_stats=stats, pak_volumes=len(paks), runtime_sha256=NG_SHA256)
+            self.log(f"verify passed: every chunk decoded, {stats['packed']} packed files match the source; "
+                     f"{len(paks)} AMPRDAT3 volumes, {NG_NAME} {NG_SHA256[:12]}")
+            return
         self.mark("verify", verify_stats=stats, pak_volumes=len(paks), runtime_sha256=RUNTIME_SHA256)
         self.log(f"verify passed: every chunk decoded, {stats['packed']} packed files match the source; "
                  f"{len(paks)} AMPRDAT3 volumes, PackedStdio runtime {RUNTIME_SHA256[:12]}")
@@ -1418,7 +1435,7 @@ class Job:
         restore = self.work / "restore"
         remove_work_path(restore)
         self.need_space(total, "restore test")
-        self.run_tool(forge_command(pack, restore, self.codec, self.level, unpack=True) if self.runtime == "ng"
+        self.run_tool(forge_command(pack, restore, self.codec, self.level, unpack=True) if self.codec == "zstd"
                       else [PACKER, "unpack", str(pack), str(restore)], "restore")
         expected_extra = {"ampr_emu.index", RUNTIME_REL}
         same = 0
@@ -1519,12 +1536,13 @@ class Job:
             "verified_on_nas": True,
             "playable_on_ps5": "not tested: needs a console run (see README)",
         }
-        if self.runtime == "ng":
+        if self.codec == "zstd":
             report["verification"].update(
                 pack_byte_compare="passed (PS5 Dump Forge --full-verify)",
                 full_verify="passed (every output file read back and compared by Forge)",
-                format=("AMPRZPK1 / AMPRZDT1" if self.codec == "zstd" else "AMPRPAK4 / AMPRDAT3"),
-                runtime=f"{NG_NAME} {NG_SHA256}")
+                format="AMPRZPK1 / AMPRZDT1", runtime=f"{NG_NAME} {NG_SHA256}")
+        elif self.runtime == "ng":
+            report["verification"].update(runtime=f"{NG_NAME} {NG_SHA256}")
         if any(boot.values()):
             report["boot_files"] = boot
         if report["image_bytes"]:
