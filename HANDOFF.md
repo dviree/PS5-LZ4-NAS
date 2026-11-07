@@ -50,7 +50,7 @@ cd /volume2/docker/ps5-lz4 && ./lz4-ps5.sh update --force
   one in `state/profiles` (match badge) / upload with `.include.txt` lists;
   choice in `state/profile-choice.json`.
 - **Compress with** switch (LZ4 · Zstd · LZ4 NG) in My games; the Zstd tab is gone.
-- Pins: ampr-emu-ng `b3373e7` (v0.3.2) + James's kernel-AIO patch
+- Pins: ampr-emu-ng `b6a54d1` (v0.3.2 + James's PRs #23/#24) + James's kernel-AIO patch
   (`nas-lz4/patches/ampr-emu-ng-kernel-aio.patch`, from `fe97dce`); PS5 Dump
   Forge v0.5.4.
 - Earlier: PKG installer and PS4 games tabs (Install all skips what is on the
@@ -63,10 +63,9 @@ cd /volume2/docker/ps5-lz4 && ./lz4-ps5.sh update --force
   Actions to create and approve pull requests* (Settings › Actions › General).
   Until then the follower pushes a branch only (the owner opened PR #5 from
   the first one, `quer3q-7a0afd26e6`, and merged it).
-- **James's unmerged branches** `fix/debug-event-ring-race` and
-  `fix/no-inline-cache-completion` are reported, not taken in. The second
-  touches the same fd code as the AIO patch: try both together before
-  proposing it, and only with the owner's OK.
+- James's `fix/no-inline-cache-completion` and `fix/debug-event-ring-race` are in
+  quer3q's main now (PRs #23, #24) and in our runtime from `b6a54d1`; the
+  kernel-AIO patch was ported to that base (only a doc comment's context moved).
 - **Compress all** still packs LZ4 only (`UI_ACTIONS["fix"]` takes no format).
 - TOML editor can't save a profile that uses `include_from`; uploads can.
 - Not tested on the owner's NAS or PS5: the Compress dialog, estimates, TOML

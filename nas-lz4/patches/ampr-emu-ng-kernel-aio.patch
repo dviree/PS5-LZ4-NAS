@@ -1,5 +1,5 @@
 diff --git a/crates/ampr-sys/src/rt/hook.rs b/crates/ampr-sys/src/rt/hook.rs
-index c56c61a..603f050 100644
+index e06e63f..951a16d 100644
 --- a/crates/ampr-sys/src/rt/hook.rs
 +++ b/crates/ampr-sys/src/rt/hook.rs
 @@ -32,9 +32,9 @@ const PROT_RX: c_int = sys::SCE_KERNEL_PROT_CPU_READ | sys::SCE_KERNEL_PROT_CPU_
@@ -72,7 +72,7 @@ index c56c61a..603f050 100644
      if id < FALLBACK_SHARED.len() {
          return true;
 diff --git a/crates/ampr-sys/src/rt/pack/aio.rs b/crates/ampr-sys/src/rt/pack/aio.rs
-index f04cac3..d71873a 100644
+index 263a09c..c272e25 100644
 --- a/crates/ampr-sys/src/rt/pack/aio.rs
 +++ b/crates/ampr-sys/src/rt/pack/aio.rs
 @@ -147,6 +147,11 @@ pub unsafe fn sceKernelAioSubmitReadCommandsMultiple(
@@ -87,7 +87,7 @@ index f04cac3..d71873a 100644
      unsafe {
          if !has_virtual_fd(requests, count) {
              return match real_aio_submit() {
-@@ -599,3 +604,104 @@ pub unsafe fn sceKernelAioPollRequests(
+@@ -587,3 +592,104 @@ pub unsafe fn sceKernelAioPollRequests(
          0
      }
  }
@@ -587,10 +587,10 @@ index fdd5b0a..43b06de 100644
  
  pub(crate) unsafe fn close_physical_pack_fd(fd: c_int) -> c_int {
 diff --git a/crates/ampr-sys/src/rt/pack/mod.rs b/crates/ampr-sys/src/rt/pack/mod.rs
-index 9bf093e..9a1828c 100644
+index b2b201c..aaa3494 100644
 --- a/crates/ampr-sys/src/rt/pack/mod.rs
 +++ b/crates/ampr-sys/src/rt/pack/mod.rs
-@@ -771,7 +771,6 @@ pub(crate) type KernelAioPollSingleFn =
+@@ -786,7 +786,6 @@ pub(crate) type KernelAioPollSingleFn =
      unsafe extern "C" fn(SceKernelAioSubmitId, *mut c_int) -> c_int;
  pub(crate) type KernelAioPollFn =
      unsafe extern "C" fn(*mut SceKernelAioSubmitId, c_int, *mut c_int) -> c_int;
@@ -598,7 +598,7 @@ index 9bf093e..9a1828c 100644
  pub(crate) type KernelAioWaitSingleFn =
      unsafe extern "C" fn(SceKernelAioSubmitId, *mut c_int, *mut SceKernelUseconds) -> c_int;
  pub(crate) type KernelAioWaitFn = unsafe extern "C" fn(
-@@ -785,6 +784,10 @@ pub(crate) type KernelAioDeleteSingleFn =
+@@ -800,6 +799,10 @@ pub(crate) type KernelAioDeleteSingleFn =
      unsafe extern "C" fn(SceKernelAioSubmitId, *mut c_int) -> c_int;
  pub(crate) type KernelAioDeleteFn =
      unsafe extern "C" fn(*mut SceKernelAioSubmitId, c_int, *mut c_int) -> c_int;
@@ -609,7 +609,7 @@ index 9bf093e..9a1828c 100644
  
  // `resolve_cached` slots: null until amprResolveLibkernelFunction succeeds
  // (a failed lookup is retried on the next call).
-@@ -797,7 +800,6 @@ pub(crate) static g_real_getdents: AtomicPtr<c_void> = AtomicPtr::new(null_mut()
+@@ -812,7 +815,6 @@ pub(crate) static g_real_getdents: AtomicPtr<c_void> = AtomicPtr::new(null_mut()
  pub(crate) static g_real_getdirentries: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
  pub(crate) static g_real_pread: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
  pub(crate) static g_real_lseek: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
@@ -617,7 +617,7 @@ index 9bf093e..9a1828c 100644
  pub(crate) static g_real_aio_submit_single: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
  pub(crate) static g_real_aio_submit: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
  pub(crate) static g_real_aio_poll_single: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
-@@ -807,6 +809,8 @@ pub(crate) static g_real_aio_wait_single: AtomicPtr<c_void> = AtomicPtr::new(nul
+@@ -822,6 +824,8 @@ pub(crate) static g_real_aio_wait_single: AtomicPtr<c_void> = AtomicPtr::new(nul
  pub(crate) static g_real_aio_wait: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
  pub(crate) static g_real_aio_delete_single: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
  pub(crate) static g_real_aio_delete: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
@@ -627,7 +627,7 @@ index 9bf093e..9a1828c 100644
  // ---- runtime data layouts -----------------------------------------------------
  // Every enum's first variant is 0 and `EMPTY` holds the default field
 diff --git a/crates/ampr-sys/src/rt/probe.rs b/crates/ampr-sys/src/rt/probe.rs
-index 679b4c5..c6a27b2 100644
+index e4ce906..14c7d30 100644
 --- a/crates/ampr-sys/src/rt/probe.rs
 +++ b/crates/ampr-sys/src/rt/probe.rs
 @@ -1,22 +1,21 @@
@@ -739,10 +739,10 @@ index 679b4c5..c6a27b2 100644
  
  type DupFn = unsafe extern "C" fn(c_int) -> c_int;
 diff --git a/crates/ampr-sys/src/rt/stats.rs b/crates/ampr-sys/src/rt/stats.rs
-index d4c98f7..868af49 100644
+index 61a8538..eb18ab8 100644
 --- a/crates/ampr-sys/src/rt/stats.rs
 +++ b/crates/ampr-sys/src/rt/stats.rs
-@@ -290,10 +290,9 @@ pub(crate) fn now() -> u64 {
+@@ -294,10 +294,9 @@ pub(crate) fn now() -> u64 {
  /// failure, path "mmap-fault sigaction" (the handler could not be
  /// installed) or "mmap-fault fid=<hex> chunk=<hex>" (a chunk read or decode
  /// failed in the handler). Pass-through probes for fully packed games, LZ4
@@ -755,7 +755,7 @@ index d4c98f7..868af49 100644
 +/// faccessat, b'N' readlink; their path is the packed file's path (or the call name and `<virtual
  /// fd>`) and their lookup letter b'p' a packed file, b'd' an indexed
  /// directory, b'v' a virtual fd, and for b'W' select b'n': nfds past
- /// FD_SETSIZE, path "select nfds=<n>" (a virtual fd cannot be in an fd_set,
+ /// FD_SETSIZE, path "select nfds=<n>" (the sets are not read). In debug
 diff --git a/crates/ampr-sys/src/rt/sys.rs b/crates/ampr-sys/src/rt/sys.rs
 index 425161a..439e90a 100644
 --- a/crates/ampr-sys/src/rt/sys.rs
