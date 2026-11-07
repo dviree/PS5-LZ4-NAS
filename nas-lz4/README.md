@@ -522,6 +522,19 @@ a packed game's sheet:
 Making an exFAT image of the original first changes nothing: the NAS unpacks
 it again before LZ4 packing. Originals are never converted.
 
+## Following quer3q's ampr-emu-ng and PS5 Dump Forge
+
+The **Follow quer3q** workflow (every 3 hours, or by hand under Actions) runs
+`tools/quer3q_update.py`. When quer3q/ampr-emu-ng has a new `main` commit or
+quer3q/ps5-dump-forge a new release, it moves the pins in `nas-lz4/Dockerfile`
+and `nas-lz4/install-forge.py`: the kernel-AIO patch must still apply with no
+fuzz, and Forge's archives and vendored runtime must match upstream's own
+SHA256SUMS. Trail-Code adds the blast radius of upstream's change
+(`trail blast`) to the report, the NAS tests and the image build (runtime host
+tests and PRX verifier) run, and a pull request to `main` is opened. Nothing
+reaches the NAS image until it is merged. `python3 tools/quer3q_update.py`
+alone only says what is new.
+
 ## Your own TOML profiles
 
 Put TOML profiles (and the `.include.txt` lists their `include_from` names) in
