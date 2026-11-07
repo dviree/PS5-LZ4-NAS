@@ -27,6 +27,8 @@ cd /volume2/docker/ps5-lz4 && ./lz4-ps5.sh update --force
   `DELETE_ORIGINALS=yes`. Keep temporary data after a failed run.
 - Don't change other Docker containers or NAS settings.
 - Tell "verified on the NAS" apart from "playable on the PS5".
+- Packs are always made from the original: folder/exFAT → LZ4 or folder/exFAT
+  → Zstd, never LZ4 → Zstd.
 - Third-party code (theghostonline, quer3q, James St-Pierre) only after review
   and the owner's OK. Don't route around proxy 403s.
 - Use Trail-Code (`trail ask/grep/callers/skeleton/blast/check`); end replies
@@ -35,7 +37,8 @@ cd /volume2/docker/ps5-lz4 && ./lz4-ps5.sh update --force
 
 ## Recent work (newest first)
 
-- PR #6 (owner): convert existing LZ4 game folders to Zstd.
+- PR #6 (LZ4 folder → Zstd conversion) was reverted at the owner's request:
+  packs are always made from the original.
 - **Follow quer3q and James** workflow (`.github/workflows/quer3q-update.yml`,
   `tools/quer3q_update.py`): every 3 h moves the pins for quer3q/ampr-emu-ng
   `main` and quer3q/ps5-dump-forge releases (AIO patch must apply with no fuzz,

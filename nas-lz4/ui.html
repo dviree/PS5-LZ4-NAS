@@ -1061,8 +1061,7 @@ function render() {
       const fmt = PACK_FMT[packMode], send = !!(data.settings || {}).ps5_ftp;
       const other = !canPack(g) && !g.output_only && !g.running && !g.queued && ['zstd', 'ng'].some(m => m !== packMode && canPack(g, m));
       const toml = !g.output_only ? `<button class="sm ghost" data-game="${esc(g.id)}" onclick="event.stopPropagation();openProfile(this.dataset.game)" title="See or edit this game's TOML profile">TOML</button>` : '';
-      const action = waiting ? `<span class="pill p-run" title="${esc(waitWhy())}">waiting</span>` : g.convert_zstd && !g.running && !g.queued
-        ? `<div class="rowbtns">${lz4ConversionButton(g.convert_zstd, true)}${toml}</div>` : canPack(g)
+      const action = waiting ? `<span class="pill p-run" title="${esc(waitWhy())}">waiting</span>` : canPack(g)
         ? `<div class="rowbtns"><button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();packDialog(this.dataset.game, ${send})" title="Compress with ${esc(fmt.name)}${send ? ', then send it to the PS5 by itself' : ''}">${fmt.icon} ${esc(fmt.name)}${send ? ' &amp; send' : ''}</button>${toml}</div>`
         : other ? `<div class="rowbtns"><span class="mut" style="font-size:12px">${packMode === 'legacy' ? 'needs Zstd or LZ4 NG' : 'already packed this way'}</span>${toml}</div>`
         : txr && txr.state === 'failed' && !d.transfer
@@ -1224,7 +1223,7 @@ function renderFmtBar() {
 // Whether a game can be compressed in the chosen format now.
 function canPack(g, mode = packMode) {
   if (g.output_only || g.running || g.queued) return false;
-  if (mode === 'zstd') return !g.output || !!g.convert_zstd;
+  if (mode === 'zstd') return !(g.pack_codec === 'zstd' && g.output);
   if (mode === 'ng') return !g.output;
   return !!g.can_queue;
 }
@@ -1427,22 +1426,12 @@ function askEachTime() { packSkip = false; try { localStorage.removeItem('packSk
 function convertGame(id, codec) {
   return compress(id, false, false, {codec, runtime: 'ng', level: codec === 'zstd' ? 5 : 9});
 }
-function lz4ConversionButton(id, small = false) {
-  const busy = pendingFor(id) || (data.queue || []).includes(id) || (data.job || {}).id === id;
-  return `<button class="${small ? 'sm ' : ''}pri" data-game="${esc(id)}" ${busy ? 'disabled' : ''}
-    onclick="convertLz4Folder(this.dataset.game)" title="Decode the LZ4 folder and write a separate verified Zstd copy">${busy ? 'Zstd conversion queued or running' : 'Convert LZ4 folder to Zstd'}</button>`;
-}
-function convertLz4Folder(id, {level = 5, profile = packProfile} = {}) {
-  act('start', 'Convert this LZ4 folder to a separate, verified Zstd copy?\n\nThe LZ4 folder is kept. Turn off fakelib updates in ShadowMountPlus to use ampr-emu-ng.',
-    {game: id, codec: 'zstd', runtime: 'ng', level, profile});
-}
 async function compress(id, send, image, options = packOptions(), ask = true) {
   const g = (data.games || []).find(x => x.id === id) || {name: id};
   const s = data.settings || {}, opts = options;
   if (!Number.isInteger(opts.level) || opts.level < 1 || opts.level > (opts.codec === 'zstd' ? 22 : 12)) {
     alert('Choose a valid compression level.'); return;
   }
-  if (opts.codec === 'zstd' && g.convert_zstd) return convertLz4Folder(g.convert_zstd, opts);
   if (opts.runtime === 'legacy' && !g.can_queue && !g.output) { alert(g.why || 'Use ampr-emu-ng for this game.'); return; }
   if (send && !s.ps5_ftp) { alert('Enter the PS5 address on the Remote tab first.'); tab('ps5'); return; }
   const label = `${opts.codec.toUpperCase()} level ${opts.level} · ${opts.runtime === 'ng' ? 'ampr-emu-ng' : 'APR-EMU'}` +
@@ -1588,13 +1577,12 @@ function gameHtml(g, det) {
 
   const acts = [];
   if (!g.output_only) acts.push(`<button class="ghost" data-game="${esc(g.id)}" onclick="openProfile(this.dataset.game)">TOML profile</button>`);
-  if (!g.output && !g.output_only && !g.convert_zstd && !g.running && !g.queued && !pendingFor(g.id)) {
+  if (!g.output && !g.output_only && !g.running && !g.queued && !pendingFor(g.id)) {
     acts.push(packControls());
     acts.push(`<button class="pri" data-game="${esc(g.id)}" onclick="convertGame(this.dataset.game, 'zstd')" title="Zstd level 5 with ampr-emu-ng; keeps the original">Convert to Zstd</button>`,
       `<button data-game="${esc(g.id)}" onclick="convertGame(this.dataset.game, 'lz4')" title="LZ4 level 9 with ampr-emu-ng; keeps the original">Convert to LZ4 (ampr-emu-ng)</button>`,
       `<button class="ghost" data-game="${esc(g.id)}" onclick="compress(this.dataset.game, false)">Compress selected format</button>`);
   }
-  if (g.convert_zstd && !g.running && !g.queued) acts.push(lz4ConversionButton(g.convert_zstd));
   if (g.queued) acts.push(`<button class="danger" data-g="${esc(g.id)}" onclick="closeGame();queueRemove({game: this.dataset.g})">✕ Remove from queue</button>`);
   if (pendingFor(g.id)) acts.push(`<button class="danger" data-g="${esc(g.id)}" onclick="closeGame();queueRemove({file: ((data.requests.pending_list || []).find(r => r.action === 'start' && r.game === this.dataset.g) || {}).file})">✕ Cancel</button>`);
   if (pendingFor(g.id)) acts.push(`<span class="pill p-run">waiting to start</span><div class="why" style="flex-basis:100%">${esc(waitWhy())}</div>`);

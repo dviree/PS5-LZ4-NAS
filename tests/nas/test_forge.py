@@ -76,6 +76,16 @@ class ForgeIntegrationTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()): report = job.run()
         return job.e.output, report
 
+    def test_zstd_is_made_from_the_original_even_with_an_lz4_copy(self):
+        # Always folder/exFAT -> LZ4 or folder/exFAT -> Zstd, never LZ4 -> Zstd.
+        lz4_out, _ = self.pack('lz4')
+        zstd_out, report = self.pack('zstd')
+        self.assertNotEqual(lz4_out, zstd_out)
+        self.assertTrue(lz4_out.is_dir() and zstd_out.is_dir())
+        self.assertEqual(report['source'], str(self.src))
+        self.assertEqual(report['verification']['extraction'], 'none (folder used as is)')
+        self.assertEqual({p.relative_to(self.src): p.read_bytes() for p in self.src.rglob('*') if p.is_file()}, self.before)
+
     def test_zstd_roundtrip_discovery_and_corruption(self):
         out, report = self.pack('zstd')
         self.assertEqual(report['pack_codec'], 'zstd')
@@ -110,39 +120,6 @@ class ForgeIntegrationTests(unittest.TestCase):
                 self.assertEqual((out/name).read_bytes(),(self.src/name).read_bytes())
             lz4=app.Entry(app.LIBRARY/'other','folder')
             self.assertEqual(lz4.output.parent,app.OUTPUT)
-
-    def test_convert_standalone_legacy_lz4_to_zstd_from_queue(self):
-        import shutil
-        packed = app.OUTPUT / 'PPSA01234-lz4'
-        profile = self.root / 'legacy.toml'
-        profile.write_text('[[rule]]\naction = "compress"\ninclude = ["data/text.bin"]\n')
-        app.subprocess.run([app.FORGE, 'convert', str(self.src), '--to', 'folder', '-o', str(packed),
-                            '--lz4-pack', '--lz4-runtime', 'ampr_emu', '--pack-profile', str(profile),
-                            '--full-verify'], check=True, capture_output=True)
-        self.assertGreater(app.lz4_packed_bytes(app.packed_index(packed)), 0)
-        original = {p.relative_to(packed): p.read_bytes() for p in packed.rglob('*') if p.is_file()}
-        shutil.rmtree(self.src)
-        target = self.root / 'zstd-output'
-        target.mkdir()
-        queue = self.root / 'queue.json'
-        key = 'convert:' + packed.name
-        args = SimpleNamespace(from_queue=True, level=5, codec='zstd', runtime='ng', no_profile=True,
-                               no_restore_test=False, require_vhash=False, force_image=False)
-        with patch.object(app, 'ZSTD_OUTPUT', target), patch.object(app, 'QUEUE_PATH', queue), \
-             patch.object(app, 'LOCK_PATH', self.root / 'job.lock'), contextlib.redirect_stdout(io.StringIO()):
-            app.write_json(queue, {'remaining': [key]})
-            self.assertEqual(app.cmd_run(args), 0)
-            self.assertEqual(app.read_json(queue)['finished'], [key])
-            self.assertFalse(app.conversion_entries(['convert:../PPSA01234-lz4'], []))
-            self.assertEqual(app.output_for('PPSA01234-zstd'), target / 'PPSA01234-zstd')
-            self.assertEqual(app.result_for(app.conversion_entries([key], [])[0])['status'], 'done')
-        out = target / 'PPSA01234-zstd'
-        decoded = self.root / 'decoded-zstd'
-        app.subprocess.run(app.forge_command(out, decoded, 'zstd', 5, unpack=True),
-                           check=True, capture_output=True)
-        for rel, content in self.before.items():
-            self.assertEqual((decoded / rel).read_bytes(), content)
-        self.assertEqual({p.relative_to(packed): p.read_bytes() for p in packed.rglob('*') if p.is_file()}, original)
 
     def test_lz4_ng_repair_never_downgrades(self):
         out, report = self.pack('lz4')
