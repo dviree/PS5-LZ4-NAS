@@ -618,8 +618,53 @@ def custom_profile_for(root: Path, name: str) -> tuple[Path | None, str]:
     return None, ""
 
 
-def choose_profile(title_id: str, name: str, root: Path, game_id: str = "") -> tuple[str | None, str]:
-    """(toml path or None, description). Custom beats bundled beats scan."""
+PROFILE_CHOICE = STATE / "profile-choice.json"  # {game id: {"kind": "none"|"game"|"nas", "path"}}
+PROFILE_NAME_RE = re.compile(r"[\w][\w .()+-]{0,120}")
+
+
+def game_tomls(source: Path | None) -> list[Path]:
+    """TOML files that came with a game: at the top of its folder, or next to
+    its image named like it (or any, when the image has its folder to itself)."""
+    if not source:
+        return []
+    try:
+        if source.is_dir():
+            return sorted(f for f in source.iterdir() if f.is_file() and f.suffix.lower() == ".toml")
+        files = [f for f in source.parent.iterdir() if f.is_file()]
+    except OSError:
+        return []
+    alone = sum(1 for f in files if f.suffix.lower() in IMAGE_EXTS) == 1
+    stems = {source.stem.lower(), source.name.lower()}
+    return sorted(f for f in files if f.suffix.lower() == ".toml" and (alone or f.stem.lower() in stems))
+
+
+def profile_choice(game_id: str) -> dict:
+    return (read_json(PROFILE_CHOICE, {}) or {}).get(game_id) or {}
+
+
+def chosen_profile(game_id: str, source: Path | None) -> tuple[str | None, str] | None:
+    """The TOML picked for this game on the page, or None for automatic."""
+    c = profile_choice(game_id)
+    if c.get("kind") == "none":
+        return None, "no TOML (chosen for this game)"
+    if c.get("kind") == "game":
+        f = Path(str(c.get("path") or ""))
+        if f in game_tomls(source):
+            return str(f), f"{f.name} (next to the game, chosen)"
+    if c.get("kind") == "nas":
+        f = CUSTOM_PROFILES / str(c.get("name") or "")
+        if PROFILE_NAME_RE.fullmatch(f.name) and f.suffix.lower() == ".toml" and f.is_file():
+            return str(f), f"{f.name} (state/profiles, chosen)"
+    return None
+
+
+def choose_profile(title_id: str, name: str, root: Path, game_id: str = "",
+                   source: Path | None = None) -> tuple[str | None, str]:
+    """(toml path or None, description). The page's choice beats custom beats a
+    TOML next to the game beats a matching custom one beats bundled beats scan."""
+    picked = chosen_profile(game_id, source or root) if game_id else None
+    if picked:
+        return picked
     if game_id:
         custom = CUSTOM_PROFILES / ("game-" + hashlib.sha256(game_id.encode()).hexdigest()[:24] + ".toml")
         if custom.is_file():
@@ -628,6 +673,9 @@ def choose_profile(title_id: str, name: str, root: Path, game_id: str = "") -> t
         custom = CUSTOM_PROFILES / f"{title_id.upper()}.toml"
         if custom.is_file():
             return str(custom), f"custom ({custom.name})"
+    found = game_tomls(source or root)
+    if len(found) == 1:
+        return str(found[0]), f"{found[0].name} (next to the game)"
     custom, why = custom_profile_for(root, name)
     if custom:
         return str(custom), why
@@ -659,10 +707,84 @@ def editable_profile_path(entry: Entry) -> Path:
     return CUSTOM_PROFILES / (key + ".toml")
 
 
+def profile_options(entry: Entry) -> list[dict]:
+    """The TOMLs the page offers for a game: next to it, and in state/profiles
+    (match: every file the profile lists is in the game; None: an image, unknown)."""
+    cache: dict = {}
+    folder = entry.path if entry.path.is_dir() else None
+    def fits(f: Path):
+        paths = profile_paths(f)[:20]
+        return None if folder is None or not paths else all(path_ci(folder, p, cache) for p in paths)
+    out = [{"kind": "game", "name": f.name, "path": str(f), "where": "next to the game", "match": fits(f)}
+           for f in game_tomls(entry.path)]
+    out += [{"kind": "nas", "name": f.name, "where": "state/profiles", "match": fits(f)}
+            for f in sorted(CUSTOM_PROFILES.glob("*.toml")) if PROFILE_NAME_RE.fullmatch(f.name)]
+    return out
+
+
+def set_profile_choice(game_id: str, choice: dict) -> dict:
+    entry = profile_entry(game_id)
+    kind = choice.get("kind") if isinstance(choice, dict) else None
+    if kind == "auto":
+        c = None
+    elif kind == "none":
+        c = {"kind": "none"}
+    elif kind == "game" and any(o["kind"] == "game" and o["path"] == choice.get("path") for o in profile_options(entry)):
+        c = {"kind": "game", "path": str(choice["path"])}
+    elif kind == "nas" and any(o["kind"] == "nas" and o["name"] == choice.get("name") for o in profile_options(entry)):
+        c = {"kind": "nas", "name": str(choice["name"])}
+    else:
+        raise ValueError("unknown TOML choice")
+    allc = read_json(PROFILE_CHOICE, {}) or {}
+    if c is None:
+        allc.pop(entry.id, None)
+    else:
+        allc[entry.id] = c
+    write_json(PROFILE_CHOICE, allc)
+    return game_profile(entry.id)
+
+
+def upload_profile(game_id: str, files) -> dict:
+    """A .toml and the .txt lists its include_from/exclude_from name, saved in
+    state/profiles and chosen for this game."""
+    import tomllib
+    entry = profile_entry(game_id)
+    if not isinstance(files, list) or not files or len(files) > 20:
+        raise ValueError("upload one .toml and its .txt lists")
+    names = {}
+    for f in files:
+        name = Path(str((f or {}).get("name") or "")).name
+        content = (f or {}).get("content")
+        if not PROFILE_NAME_RE.fullmatch(name) or Path(name).suffix.lower() not in (".toml", ".txt") or not isinstance(content, str):
+            raise ValueError(f"not a .toml or .txt file name: {name or '?'}")
+        names[name] = content
+    tomls = [n for n in names if n.lower().endswith(".toml")]
+    if len(tomls) != 1 or sum(len(c.encode()) for c in names.values()) > 900 * 1024:
+        raise ValueError("upload exactly one .toml (and its .txt lists), 900 KiB at most")
+    parsed = tomllib.loads(names[tomls[0]])
+    if not isinstance(parsed.get("pack"), dict):
+        raise ValueError("TOML needs a [pack] table")
+    for rule in parsed.get("rule", []) if isinstance(parsed.get("rule"), list) else []:
+        for key in ("include_from", "exclude_from"):
+            lists = rule.get(key) or []
+            for n in ([lists] if isinstance(lists, str) else lists):
+                if str(n) not in names and not (CUSTOM_PROFILES / str(n)).is_file():
+                    raise ValueError(f"{tomls[0]} lists {n}: upload it with the .toml")
+    CUSTOM_PROFILES.mkdir(parents=True, exist_ok=True)
+    for name, content in names.items():
+        tmp = CUSTOM_PROFILES / f".{name}.tmp"
+        tmp.write_text(content, encoding="utf-8")
+        os.replace(tmp, CUSTOM_PROFILES / name)
+    return set_profile_choice(entry.id, {"kind": "nas", "name": tomls[0]})
+
+
 def game_profile(game_id: str) -> dict:
     entry = profile_entry(game_id)
-    path, description = choose_profile(entry.title_id, entry.name or entry.id, entry.path, entry.id)
+    path, description = choose_profile(entry.title_id, entry.name or entry.id, entry.path, entry.id, entry.path)
+    c = profile_choice(entry.id)
     return {"game": entry.id, "name": entry.name or entry.id, "description": description,
+            "choice": {"kind": c.get("kind") or "auto", "path": c.get("path"), "name": c.get("name")},
+            "options": profile_options(entry), "in_use": Path(path).name if path else None,
             "content": Path(path).read_text(encoding="utf-8-sig") if path else
                 '[pack]\ndefault_action = "compress"\n\n[[rule]]\naction = "loose"\ninclude = []\n'}
 
@@ -687,6 +809,9 @@ def save_game_profile(game_id: str, content: str) -> dict:
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent, delete=False) as temp:
         temp.write(content)
     os.replace(temp.name, target)
+    allc = read_json(PROFILE_CHOICE, {}) or {}
+    if allc.pop(entry.id, None) is not None:  # the edited text is what this game uses now
+        write_json(PROFILE_CHOICE, allc)
     return {"saved": target.name, "description": "Saved for this game's LZ4 and Zstd jobs. Mandatory boot fixes stay active."}
 
 
@@ -1102,13 +1227,13 @@ class Job:
             snapshot = self.work / "pack-profile.toml"
             if self.done("check") and snapshot.is_file():
                 return  # Resume with the profile used by this job, even after a UI edit.
-            selected, desc = choose_profile(self.state["title_id"], name, root, self.e.id) if self.use_profile else (None, "no game TOML")
+            selected, desc = choose_profile(self.state["title_id"], name, root, self.e.id, self.e.path) if self.use_profile else (None, "no game TOML")
             self.mark("check", ampr=NG_NAME, profile_path=ng_profile(root, selected, snapshot),
                       profile=desc + "; mandatory LZ4 disk-file and boot fixes")
             return
         if status != "compatible":
             raise Skip(reason)
-        profile, desc = (choose_profile(self.state["title_id"], name, root, self.e.id) if self.use_profile
+        profile, desc = (choose_profile(self.state["title_id"], name, root, self.e.id, self.e.path) if self.use_profile
                          else (None, "no TOML (turned off for this game): automatic scan-based profile"))
         self.mark("check", ampr=reason, profile_path=profile, profile=desc)
         self.log(f"compatible: {reason}; profile: {desc}")
@@ -7591,6 +7716,13 @@ def cmd_ui(args) -> int:
                 req = json.loads(self.rfile.read(min(n, 1 << 20)) or b"{}")
             except ValueError:
                 return self.send(400, b'{"error":"bad request"}')
+            if req.get("action") in ("profile_choose", "profile_upload"):
+                try:
+                    gid = str(req.get("game") or "")
+                    res = set_profile_choice(gid, req.get("choice")) if req["action"] == "profile_choose" else upload_profile(gid, req.get("files"))
+                    return self.send(200, json.dumps(res).encode())
+                except (ValueError, OSError) as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if req.get("action") == "profile_save":
                 try:
                     return self.send(200, json.dumps(save_game_profile(str(req.get("game") or ""), req.get("content"))).encode())

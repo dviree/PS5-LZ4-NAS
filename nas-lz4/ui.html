@@ -81,6 +81,12 @@ tr.row{cursor:pointer}tr.row td{transition:background .12s}tr.row:hover td{backg
 .seg button{border:0;border-radius:0;box-shadow:none;background:transparent;color:inherit;text-shadow:none;padding:9px 15px;display:flex;flex-direction:column;align-items:flex-start;gap:2px}
 .seg button small{font-weight:500;opacity:.75;font-size:11.5px}
 .seg button.on{background:linear-gradient(135deg,var(--btn1),var(--btn2));color:#fff}
+.tomlopts{display:grid;gap:8px;margin-top:12px}
+.topt{display:flex;gap:12px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;background:rgba(255,255,255,.03)}
+.topt:hover{background:rgba(255,255,255,.07)}.topt.on{border-color:#38bdf8;background:rgba(56,189,248,.10)}
+.topt .ti{font-size:20px}.topt .tn{font-weight:600;overflow-wrap:anywhere}.topt .sp{flex:1}
+.tomldrop{display:block;border:2px dashed var(--line);border-radius:14px;padding:16px;text-align:center;cursor:pointer;margin-top:12px}
+.tomldrop.over{border-color:#38bdf8;background:rgba(56,189,248,.08)}
 .pill.p-rar{background:linear-gradient(135deg,#f59e0b,#b45309);color:#fff}
 details.sav{margin-top:12px;border-top:1px solid var(--line);padding-top:8px}details.sav summary{display:flex;gap:8px;align-items:center;cursor:pointer;flex-wrap:wrap}
 button.send-on{background:linear-gradient(135deg,#34d399,#059669);color:#fff;border-color:rgba(255,255,255,.3)}
@@ -292,11 +298,16 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
   <div class="card"><h2>Library</h2><div id="fmtbar"></div><div id="unread"></div><div class="scroll"><table id="games"></table></div></div>
   <div class="card" id="profile-editor" hidden>
     <h2>TOML · <span id="profile-name"></span></h2>
-    <p class="mut">Upload a .toml file or paste a profile. Saved profiles apply to this game's LZ4, LZ4 NG and Zstd copies. Mandatory boot fixes, PlayGo markers and empty files stay loose for Zstd, even if the profile says compress.</p>
-    <div class="acts"><label class="btn">Load .toml <input type="file" accept=".toml,text/plain" hidden onchange="importProfile(this)"></label>
-      <button class="ghost" onclick="document.getElementById('profile-editor').hidden = true">Close</button></div>
-    <textarea id="profile-content" aria-label="Game TOML profile" spellcheck="false" rows="18" style="box-sizing:border-box;width:100%;margin-top:12px;font-family:monospace"></textarea>
-    <div class="acts" style="margin-top:10px"><button id="profile-save" onclick="saveProfile()">Save TOML</button></div>
+    <div class="why" id="profile-inuse"></div>
+    <div class="tomlopts" id="profile-options"></div>
+    <label class="tomldrop" id="profile-drop">⬆️ <b>Upload a .toml</b> <span class="mut">with the .include.txt lists it names · or drop them here</span>
+      <input type="file" multiple accept=".toml,.txt" hidden onchange="uploadProfile(this.files); this.value = ''"></label>
+    <details id="profile-text" style="margin-top:10px"><summary>Edit as text</summary>
+      <p class="mut">Saved text applies to this game's LZ4, LZ4 NG and Zstd copies. Mandatory boot fixes, PlayGo markers and empty files stay loose for Zstd, even if the profile says compress.</p>
+      <div class="acts"><label class="btn">Load .toml <input type="file" accept=".toml,text/plain" hidden onchange="importProfile(this)"></label></div>
+      <textarea id="profile-content" aria-label="Game TOML profile" spellcheck="false" rows="18" style="box-sizing:border-box;width:100%;margin-top:12px;font-family:monospace"></textarea>
+      <div class="acts" style="margin-top:10px"><button id="profile-save" onclick="saveProfile()">Save TOML</button></div></details>
+    <div class="acts" style="margin-top:10px"><button class="ghost" onclick="document.getElementById('profile-editor').hidden = true">Close</button></div>
     <div class="why" id="profile-msg" role="status"></div>
   </div>
 </main>
@@ -1204,6 +1215,45 @@ function canPack(g, mode = packMode) {
   if (mode === 'ng') return !g.output;
   return !!g.can_queue;
 }
+// The TOML choices for one game: automatic, none, the TOMLs next to it and in state/profiles.
+function renderProfileOptions(j) {
+  const el = document.getElementById('profile-options'), c = j.choice || {kind: 'auto'};
+  document.getElementById('profile-inuse').innerHTML = `In use: <b>${esc(j.in_use || 'no TOML')}</b> · ${esc(j.description || '')}`;
+  const on = o => c.kind === o.kind && (o.kind !== 'game' || c.path === o.path) && (o.kind !== 'nas' || c.name === o.name);
+  const badge = m => m === true ? '<span class="chip ok">✓ matches this game</span>' : m === false ? '<span class="chip">files not in this game</span>' : '';
+  const opts = [{kind: 'auto', icon: '✨', name: 'Automatic', sub: 'a TOML next to the game, then one that matches, then a bundled one'},
+    {kind: 'none', icon: '⛔', name: 'No TOML', sub: "the packer's own scan decides"}]
+    .concat((j.options || []).map(o => ({...o, icon: o.kind === 'game' ? '📁' : '🗂', sub: o.where})));
+  el.innerHTML = opts.map((o, i) => `<div class="topt${on(o) ? ' on' : ''}" role="radio" aria-checked="${on(o)}" tabindex="0" data-i="${i}"
+      onclick="chooseProfile(${i})"><span class="ti">${o.icon}</span><div><div class="tn">${esc(o.name)}</div><div class="mut" style="font-size:12px">${esc(o.sub)}</div></div>
+      <span class="sp"></span>${badge(o.match)}${on(o) ? '<span class="chip ok">chosen</span>' : ''}</div>`).join('');
+  profileOpts = opts;
+}
+let profileOpts = [];
+async function profilePost(body) {
+  const editor = document.getElementById('profile-editor'), id = editor.dataset.game;
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({...body, game: id})});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.status);
+  if (editor.dataset.game !== id) return null;
+  renderProfileOptions(j);
+  if (j.content != null) document.getElementById('profile-content').value = j.content;
+  return j;
+}
+async function chooseProfile(i) {
+  const o = profileOpts[i], msg = document.getElementById('profile-msg');
+  try { await profilePost({action: 'profile_choose', choice: {kind: o.kind, path: o.path, name: o.name}}); msg.textContent = 'Chosen: ' + o.name; }
+  catch (e) { msg.textContent = 'Failed: ' + e.message; }
+}
+async function uploadProfile(list) {
+  const msg = document.getElementById('profile-msg'), files = [...(list || [])];
+  if (!files.length) return;
+  try {
+    const sent = await Promise.all(files.map(async f => ({name: f.name, content: await f.text()})));
+    const j = await profilePost({action: 'profile_upload', files: sent});
+    msg.textContent = j ? `Uploaded and chosen: ${j.in_use}` : '';
+  } catch (e) { msg.textContent = 'Upload failed: ' + e.message; }
+}
 async function openProfile(id) {
   closeGame();
   tab('mine');
@@ -1220,7 +1270,12 @@ async function openProfile(id) {
     if (!r.ok) throw new Error(j.error || r.status);
     document.getElementById('profile-name').textContent = j.name;
     document.getElementById('profile-content').value = j.content;
-    document.getElementById('profile-msg').textContent = j.description;
+    document.getElementById('profile-msg').textContent = '';
+    renderProfileOptions(j);
+    const drop = document.getElementById('profile-drop');
+    drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+    drop.ondragleave = () => drop.classList.remove('over');
+    drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); uploadProfile(e.dataTransfer.files); };
     button.disabled = false;
   } catch (e) { if (editor.dataset.game === id) document.getElementById('profile-msg').textContent = 'Failed: ' + e.message; }
 }

@@ -933,8 +933,15 @@ it keeps ampr-emu-ng.
 
 ## Game TOML profiles in the web UI
 
-In **My games**, press **TOML** next to a game (also in its detail sheet). Load a `.toml` file or paste its contents, then press
-**Save TOML**. Invalid TOML leaves the previous file intact. Uploads are limited
+In **My games**, press **TOML** next to a game (also in its detail sheet). It
+shows the TOML in use and why, and lets you choose: **Automatic**, **No TOML**,
+a `.toml` that came with the game (at the top of its folder, or next to its
+image with the same name), or one in `state/profiles` (marked when every file
+it lists is in the game). **Upload a .toml** (or drop it) together with the
+`.include.txt` lists it names: they are saved in `state/profiles` and chosen
+for the game. Automatic uses a single `.toml` next to the game before a
+matching one in `state/profiles`. Under **Edit as text** you can load a `.toml` file or paste
+its contents, then press **Save TOML**; that text is then what the game uses. Invalid TOML leaves the previous file intact. Uploads are limited
 to 256 KiB; put patterns directly in `include` / `exclude` arrays rather than
 referencing companion list files. Existing profiles installed with companion
 lists still work.
