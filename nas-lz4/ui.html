@@ -76,6 +76,11 @@ tr.row{cursor:pointer}tr.row td{transition:background .12s}tr.row:hover td{backg
 .chip{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;padding:2px 8px;border-radius:99px;background:var(--chip);color:var(--mut);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .chip.ok{background:var(--okbg);color:var(--ok)}.chip.bad{background:var(--badbg);color:var(--bad)}
 .chip.ps4{background:#0070D1;color:#fff}
+.fmtbar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:4px 0 14px}
+.seg{display:inline-flex;flex-wrap:wrap;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:rgba(255,255,255,.04)}
+.seg button{border:0;border-radius:0;box-shadow:none;background:transparent;color:inherit;text-shadow:none;padding:9px 15px;display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+.seg button small{font-weight:500;opacity:.75;font-size:11.5px}
+.seg button.on{background:linear-gradient(135deg,var(--btn1),var(--btn2));color:#fff}
 .pill.p-rar{background:linear-gradient(135deg,#f59e0b,#b45309);color:#fff}
 details.sav{margin-top:12px;border-top:1px solid var(--line);padding-top:8px}details.sav summary{display:flex;gap:8px;align-items:center;cursor:pointer;flex-wrap:wrap}
 button.send-on{background:linear-gradient(135deg,#34d399,#059669);color:#fff;border-color:rgba(255,255,255,.3)}
@@ -216,7 +221,6 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
 </header>
 <nav class="tabs">
   <button id="t-mine" class="on" onclick="tab('mine')">My games</button>
-  <button id="t-zstd" onclick="tab('zstd')">Zstd</button>
   <button id="t-act" onclick="tab('act')">Activity<span class="badge" id="act-n" hidden></span></button>
   <button id="t-pg" onclick="tab('pg')">PS5 games</button>
   <button id="t-pkg" onclick="tab('pkg')">PKG installer</button>
@@ -285,25 +289,10 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     <div class="mut">The same game (Title ID) is in the library more than once, as other versions or as a folder and an image.
     The newest is marked; deleting an older one frees its space (needs DELETE_ORIGINALS=yes). Its LZ4 copy, if any, stays.</div>
     <div id="dups"></div></div>
-  <div class="card"><h2>Library</h2><div id="unread"></div><div class="scroll"><table id="games"></table></div></div>
-</main>
-<main id="p-pkg" hidden></main>
-<main id="p-zstd" hidden>
-  <div class="card"><h2>Zstd compression</h2>
-    <p class="mut">Create verified Zstd copies with ampr-emu-ng. Originals are kept. Disable fakelib updates in ShadowMountPlus to keep the matching runtime.</p>
-    <div class="filters">
-      <input id="zstd-q" aria-label="Search Zstd games" placeholder="Search name or Title ID" oninput="renderZstd()">
-      <label>Level <input id="zstd-level" type="number" min="1" max="22" value="5" style="width:70px;min-width:0"></label>
-      <label class="chk"><input id="zstd-profile" type="checkbox" checked> Use TOML profile</label>
-    </div>
-    <div class="why">Output: <code id="zstd-output"></code></div>
-    <div class="why" id="zstd-summary"></div>
-    <button class="ghost" style="margin-top:10px" onclick="tab('act')">View queue and progress</button>
-  </div>
-  <div class="card"><h2>Games</h2><div id="zstd-games"></div></div>
+  <div class="card"><h2>Library</h2><div id="fmtbar"></div><div id="unread"></div><div class="scroll"><table id="games"></table></div></div>
   <div class="card" id="profile-editor" hidden>
     <h2>TOML · <span id="profile-name"></span></h2>
-    <p class="mut">Upload a .toml file or paste a profile. Saved profiles apply to this game's LZ4 and Zstd copies. Mandatory boot fixes, PlayGo markers and empty files stay loose for Zstd, even if the profile says compress.</p>
+    <p class="mut">Upload a .toml file or paste a profile. Saved profiles apply to this game's LZ4, LZ4 NG and Zstd copies. Mandatory boot fixes, PlayGo markers and empty files stay loose for Zstd, even if the profile says compress.</p>
     <div class="acts"><label class="btn">Load .toml <input type="file" accept=".toml,text/plain" hidden onchange="importProfile(this)"></label>
       <button class="ghost" onclick="document.getElementById('profile-editor').hidden = true">Close</button></div>
     <textarea id="profile-content" aria-label="Game TOML profile" spellcheck="false" rows="18" style="box-sizing:border-box;width:100%;margin-top:12px;font-family:monospace"></textarea>
@@ -311,6 +300,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     <div class="why" id="profile-msg" role="status"></div>
   </div>
 </main>
+<main id="p-pkg" hidden></main>
 <main id="p-ps4" hidden></main>
 <main id="p-act" hidden>
   <div class="card" id="arccard" hidden><h2>RAR archives in the library</h2>
@@ -930,7 +920,6 @@ function xferText(t) {
 
 function render() {
   const d = data;
-  renderZstd();
   if (!settingsFilled && d.settings) {
     document.getElementById('s-ftp').value = d.settings.ps5_ftp || '';
     document.getElementById('s-dest').value = d.settings.ps5_dest || '';
@@ -1033,11 +1022,13 @@ function render() {
 
   const busy = d.running;
   document.getElementById('b-fix').disabled = false;
+  renderFmtBar();
   document.getElementById('games').innerHTML =
     '<tr><th>Game</th><th>Status</th><th class="num">Original</th><th class="num">Packed</th><th class="num">Saved</th><th>PS5</th><th></th></tr>' +
     d.games.map(g => {
       const v = g.running ? ['p-run', 'packing'] : g.queued ? ['p-run', 'queued'] :
-        g.verdict === 'LZ4' ? ['p-LZ4', g.pack_codec === 'zstd' ? 'Zstd' : 'LZ4'] : g.verdict === 'can be LZ4' ? ['p-can', 'can be LZ4'] :
+        g.verdict === 'LZ4' ? ['p-LZ4', g.pack_codec === 'zstd' ? 'Zstd' : 'LZ4'] : canPack(g) && !g.output ? ['p-can', 'can be ' + PACK_FMT[packMode].name] :
+        g.verdict === 'can be LZ4' ? ['p-can', 'can be LZ4'] :
         g.verdict === 'error' ? ['p-err', 'error'] : ['p-no', 'not LZ4'];
       const lz4 = g.verdict === 'LZ4' && g.output_bytes;
       const ps5 = !g.output_only && g.rel ? `<select onclick="event.stopPropagation()" data-game="${esc(g.id)}" onchange="this.blur();if(this.value)act('community',null,{game:this.dataset.game,result:this.value})">
@@ -1045,8 +1036,12 @@ function render() {
           ${Object.entries(PS5_EN).map(([k, s]) => `<option value="${k}">${s}</option>`).join('')}</select>` : '<span class="mut">–</span>';
       const waiting = pendingFor(g.id), sendNext = (d.send_after || []).includes(g.id);
       const txr = g.output ? (data.transfers || {})[g.output.split('/').pop()] : null;
-      const action = waiting ? `<span class="pill p-run" title="${esc(waitWhy())}">waiting</span>` : g.can_queue && !g.running && !g.queued
-        ? `<button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game, !!(data.settings || {}).ps5_ftp)" title="Compress with LZ4, then send it to the PS5 by itself">Compress &amp; send</button>`
+      const fmt = PACK_FMT[packMode], send = !!(data.settings || {}).ps5_ftp;
+      const other = !canPack(g) && !g.output_only && !g.running && !g.queued && ['zstd', 'ng'].some(m => m !== packMode && canPack(g, m));
+      const toml = !g.output_only ? `<button class="sm ghost" data-game="${esc(g.id)}" onclick="event.stopPropagation();openProfile(this.dataset.game)" title="See or edit this game's TOML profile">TOML</button>` : '';
+      const action = waiting ? `<span class="pill p-run" title="${esc(waitWhy())}">waiting</span>` : canPack(g)
+        ? `<div class="rowbtns"><button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();compress(this.dataset.game, ${send})" title="Compress with ${esc(fmt.name)}${send ? ', then send it to the PS5 by itself' : ''}">${fmt.icon} ${esc(fmt.name)}${send ? ' &amp; send' : ''}</button>${toml}</div>`
+        : other ? `<div class="rowbtns"><span class="mut" style="font-size:12px">${packMode === 'legacy' ? 'needs Zstd or LZ4 NG' : 'already packed this way'}</span>${toml}</div>`
         : txr && txr.state === 'failed' && !d.transfer
         ? `<button class="sm pri" data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}" onclick="event.stopPropagation();push(this.dataset.id, this.dataset.name)">▶ Resume transfer</button>` : '';
       const why = g.verdict !== 'LZ4' && !g.running ? `<div class="why">${esc(g.why)}</div>` : '';
@@ -1180,36 +1175,38 @@ function removeImage(on, name) {
 function imageStop() {
   act('image_stop', 'Stop making the exFAT image? The half-made image is thrown away; the LZ4 folder is not touched.');
 }
-function renderZstd() {
-  if (!data) return;
-  const query = document.getElementById('zstd-q').value.trim().toLowerCase();
-  const games = (data.games || []).filter(g => !g.output_only || g.pack_codec === 'zstd');
-  const packed = games.filter(g => g.pack_codec === 'zstd' && g.output).length;
-  document.getElementById('zstd-output').textContent = data.zstd_output_host || 'Not reported by the server; update the container.';
-  document.getElementById('zstd-summary').textContent = `${packed} Zstd copies · ${games.filter(g => !g.output_only).length} originals`;
-  const visible = games.filter(g => !query || `${g.name} ${g.title_id || ''}`.toLowerCase().includes(query));
-  document.getElementById('zstd-games').innerHTML = visible.map(g => {
-    const ready = g.pack_codec === 'zstd' && !!g.output;
-    const waiting = pendingFor(g.id);
-    const state = g.running ? 'packing' : g.queued ? 'queued' : waiting ? 'waiting to start' : ready ? 'Zstd ready' : 'original available';
-    const actions = ready
-      ? `<button class="sm" data-g="${esc(g.id)}" onclick="openGame(this.dataset.g)">Details</button>`
-      : !g.output_only && !g.running && !g.queued && !waiting
-        ? `<button class="sm pri" data-g="${esc(g.id)}" onclick="compressZstd(this.dataset.g, false)">Compress to Zstd</button>
-           <button class="sm" data-g="${esc(g.id)}" onclick="compressZstd(this.dataset.g, true)">Compress &amp; send</button>` : '';
-    return `<div class="dl"><div class="dl-top"><b>${esc(g.name)}</b><span class="mut">${esc(g.title_id || '')}</span><span class="sp"></span><span class="pill ${ready ? 'p-LZ4' : 'p-run'}">${state}</span></div>
-      ${ready ? `<div class="why">${gb(g.output_bytes)} · ${esc(g.output)}</div>` : ''}
-      <div class="acts" style="margin-top:8px">${actions}${!g.output_only ? `<button class="sm ghost" data-g="${esc(g.id)}" onclick="openProfile(this.dataset.g)">TOML profile</button>` : ''}</div></div>`;
-  }).join('') || '<div class="mut">No matching games.</div>';
+// The format the Compress buttons in My games use (and the game sheet's controls).
+const PACK_FMT = {
+  legacy: {icon: '⚡', name: 'LZ4', sub: 'loads fastest · APR-EMU'},
+  zstd: {icon: '🗜', name: 'Zstd', sub: 'smallest · ampr-emu-ng'},
+  ng: {icon: '🧪', name: 'LZ4 NG', sub: 'LZ4 · ampr-emu-ng'}};
+function savePackPrefs() {
+  try { localStorage.setItem('pack', JSON.stringify({mode: packMode, level: packLevel, profile: packProfile})); } catch (e) {}
 }
-function compressZstd(id, send) {
-  return compress(id, send, false, {codec: 'zstd', runtime: 'ng',
-    level: Number(document.getElementById('zstd-level').value),
-    profile: document.getElementById('zstd-profile').checked});
+function setPackMode(mode) { selectPackMode(mode); savePackPrefs(); renderFmtBar(); if (data) render(); }
+function renderFmtBar() {
+  const el = document.getElementById('fmtbar');
+  if (!el) return;
+  el.innerHTML = `<div class="fmtbar"><span class="mut">Compress with</span>
+    <div class="seg" role="group" aria-label="Compression format">${Object.entries(PACK_FMT).map(([k, f]) =>
+      `<button class="${packMode === k ? 'on' : ''}" aria-pressed="${packMode === k}" onclick="setPackMode('${k}')">${f.icon} ${f.name}<small>${f.sub}</small></button>`).join('')}</div>
+    <label class="mut">Level <input type="number" min="1" max="${packMode === 'zstd' ? 22 : 12}" value="${packLevel}" style="width:64px;min-width:0"
+      onchange="packLevel = Number(this.value); savePackPrefs()"></label>
+    <label class="mut" title="Off: no TOML profile; the packer's own scan decides what is packed"><input type="checkbox" style="width:auto;min-width:0"
+      ${packProfile ? 'checked' : ''} onchange="packProfile = this.checked; savePackPrefs()"> TOML profile</label>
+    <span class="mut">${packMode === 'legacy' ? 'The Compress buttons below use this. Compress all packs LZ4.'
+      : 'The Compress buttons below use this. Turn off fakelib updates in ShadowMountPlus so it keeps ampr-emu-ng.'}</span></div>`;
+}
+// Whether a game can be compressed in the chosen format now.
+function canPack(g, mode = packMode) {
+  if (g.output_only || g.running || g.queued) return false;
+  if (mode === 'zstd') return !(g.pack_codec === 'zstd' && g.output);
+  if (mode === 'ng') return !g.output;
+  return !!g.can_queue;
 }
 async function openProfile(id) {
   closeGame();
-  tab('zstd');
+  tab('mine');
   const editor = document.getElementById('profile-editor'), button = document.getElementById('profile-save');
   editor.hidden = false; editor.dataset.game = id;
   document.getElementById('profile-name').textContent = id;
@@ -1251,6 +1248,12 @@ async function saveProfile() {
   finally { if (editor.dataset.game === id) button.disabled = false; }
 }
 let packMode = 'legacy', packLevel = 9, packProfile = true;
+try {
+  const p = JSON.parse(localStorage.getItem('pack') || 'null');
+  if (p && ['legacy', 'zstd', 'ng'].includes(p.mode)) {
+    packMode = p.mode; packLevel = Number(p.level) || (p.mode === 'zstd' ? 5 : 9); packProfile = p.profile !== false;
+  }
+} catch (e) {}
 function packOptions() {
   return {codec: packMode === 'zstd' ? 'zstd' : 'lz4', runtime: packMode === 'legacy' ? 'legacy' : 'ng', level: packLevel,
     profile: packProfile};
@@ -2115,7 +2118,7 @@ async function ps5Copies(tid) {
 }
 let comm = null;
 function tab(t) {
-  for (const k of ['mine', 'zstd', 'act', 'pg', 'pkg', 'ps4', 'smp', 'sav', 'up', 'ps5', 'comm', 'ftp']) {
+  for (const k of ['mine', 'act', 'pg', 'pkg', 'ps4', 'smp', 'sav', 'up', 'ps5', 'comm', 'ftp']) {
     document.getElementById('p-' + k).hidden = t !== k;
     document.getElementById('t-' + k).classList.toggle('on', t === k);
   }
@@ -2487,7 +2490,7 @@ async function loadPkgAct() {
 loadPkgAct(); setInterval(loadPkgAct, 3000);
 setInterval(() => { if (!document.getElementById('p-comm').hidden) loadComm(); }, 60000); ps5State(); setInterval(ps5State, 15000); rcvCheck(); setInterval(rcvCheck, 60000);
 try {
-  const saved = {'#zstd': 'zstd', '#community': 'comm', '#remote': 'ps5', '#ftp': 'ftp', '#activity': 'act', '#games': 'pg', '#pkg': 'pkg', '#ps4': 'ps4'}[location.hash] || localStorage.getItem('tab');
+  const saved = {'#community': 'comm', '#remote': 'ps5', '#ftp': 'ftp', '#activity': 'act', '#games': 'pg', '#pkg': 'pkg', '#ps4': 'ps4'}[location.hash] || localStorage.getItem('tab');
   if (['zstd', 'comm', 'ps5', 'ftp', 'act', 'pg', 'pkg', 'ps4'].includes(saved)) tab(saved);
 } catch (e) {}
 </script>

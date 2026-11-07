@@ -920,10 +920,20 @@ The exclusions apply to newly packed copies; old copies must be repacked from
 the original to get these loose files. Console behavior still needs a play test.
 
 
+## Choosing LZ4, Zstd or LZ4 NG
+
+**Compress with** above the library in **My games** picks the format the
+Compress buttons use: **⚡ LZ4** (APR-EMU 0.4.2.1, loads fastest), **🗜 Zstd**
+(ampr-emu-ng, smallest) or **🧪 LZ4 NG** (the same LZ4 packs, read by
+ampr-emu-ng instead of APR-EMU, for games APR-EMU can't run), with its level and
+**TOML profile**. The page remembers the choice. Each game's button and status
+follow it; a game that can't be packed that way says what can. **Compress all**
+packs LZ4. For Zstd and LZ4 NG, turn off fakelib updates in ShadowMountPlus so
+it keeps ampr-emu-ng.
+
 ## Game TOML profiles in the web UI
 
-Open **Zstd**, find a game and press **TOML profile** (also available in the
-My games detail sheet). Load a `.toml` file or paste its contents, then press
+In **My games**, press **TOML** next to a game (also in its detail sheet). Load a `.toml` file or paste its contents, then press
 **Save TOML**. Invalid TOML leaves the previous file intact. Uploads are limited
 to 256 KiB; put patterns directly in `include` / `exclude` arrays rather than
 referencing companion list files. Existing profiles installed with companion
@@ -936,7 +946,7 @@ entry. The saved profile is selected for both legacy LZ4 and NG jobs when
 bundled game profile instead of always using only the NAS safety profile.
 
 For LZ4 NG and Zstd NG, mandatory NAS rules are appended after the game's rules:
-the Ghost of Yotei boot files, PlayGo markers, Northlight tables, modules and
+PPSA26344's boot files, PlayGo markers, Northlight tables, modules and
 system files stay loose. Empty placeholders also stay loose. These protections
 remain active when **Use TOML profile** is off or a custom profile requests
 compression of every file. Runtime injection, boot repair and PS5 permissions

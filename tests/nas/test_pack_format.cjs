@@ -1,0 +1,67 @@
+// Run with node tests/nas/test_pack_format.cjs; no dependencies.
+const {readFileSync} = require('node:fs');
+const vm = require('node:vm');
+const assert = require('node:assert/strict');
+const html = readFileSync(require('node:path').join(__dirname, '../../nas-lz4/ui.html'), 'utf8');
+for (const [, script] of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new vm.Script(script);
+const elements = new Map();
+const document = {getElementById: id => {
+  if (!elements.has(id)) elements.set(id, {value: '', checked: true, innerHTML: '', textContent: ''});
+  return elements.get(id);
+}};
+let mode;
+const context = vm.createContext({document, esc: s => String(s ?? '').replaceAll('<', '&lt;'), data: null,
+  packMode: 'legacy', packLevel: 9, packProfile: true, selectPackMode: m => { mode = m; context.packMode = m; },
+  render: () => {}});
+vm.runInContext(html.slice(html.indexOf('// The format the Compress buttons'), html.indexOf("let packMode = 'legacy'")), context);
+// The Zstd tab is gone; its choice is the format switch in My games.
+assert.ok(!html.includes('id="t-zstd"') && !html.includes('id="p-zstd"') && !html.includes("'#zstd'"));
+assert.ok(html.includes('<div id="fmtbar"></div>'));
+vm.runInContext('renderFmtBar()', context);
+let bar = document.getElementById('fmtbar').innerHTML;
+assert.ok(bar.includes('⚡ LZ4') && bar.includes('🗜 Zstd') && bar.includes('🧪 LZ4 NG'));
+assert.ok(!/>\s*\S*\s*Auto\b/.test(bar) && !bar.includes("setPackMode('auto')"));
+assert.ok(bar.includes('class="on" aria-pressed="true" onclick="setPackMode(\'legacy\')"'));
+vm.runInContext("setPackMode('zstd')", context);
+assert.equal(mode, 'zstd');
+assert.ok(document.getElementById('fmtbar').innerHTML.includes('max="22"'));
+const games = {
+  source: {id: 'source', can_queue: true}, legacyNo: {id: 'n', can_queue: false},
+  zstdDone: {id: 'z', pack_codec: 'zstd', output: '/zstd/z'}, lz4Done: {id: 'l', pack_codec: 'lz4', output: '/lz4/l'},
+  running: {id: 'r', can_queue: true, running: true}, folder: {id: 'f', output_only: true}};
+const can = (g, m) => vm.runInContext(`canPack(${JSON.stringify(g)}, '${m}')`, context);
+assert.ok(can(games.source, 'legacy') && can(games.source, 'zstd') && can(games.source, 'ng'));
+assert.ok(!can(games.legacyNo, 'legacy') && can(games.legacyNo, 'zstd') && can(games.legacyNo, 'ng'));
+assert.ok(!can(games.zstdDone, 'zstd') && !can(games.lz4Done, 'ng') && can(games.lz4Done, 'zstd'));
+assert.ok(!can(games.running, 'zstd') && !can(games.folder, 'zstd'));
+console.log('Format switch tests passed');
+
+(async () => {
+  context.closeGame = () => {};
+  context.tab = t => { context.tabbed = t; };
+  const editor = document.getElementById('profile-editor');
+  editor.dataset = {};
+  editor.scrollIntoView = () => {};
+  let saved;
+  context.fetch = async (url, options) => {
+    if (options?.method === 'POST') {
+      saved = JSON.parse(options.body);
+      return {ok: true, json: async () => ({description: 'Saved'})};
+    }
+    return {ok: true, json: async () => ({name: 'Game', content: '[pack]', description: 'custom'})};
+  };
+  await vm.runInContext("openProfile('source')", context);
+  assert.equal(context.tabbed, 'mine');
+  assert.equal(editor.dataset.game, 'source');
+  assert.equal(document.getElementById('profile-content').value, '[pack]');
+  context.input = {files: [{name: 'game.toml', size: 40, text: async () => '[pack]\ndefault_action="loose"'}]};
+  await vm.runInContext('importProfile(input)', context);
+  assert.equal(document.getElementById('profile-content').value, '[pack]\ndefault_action="loose"');
+  await vm.runInContext('saveProfile()', context);
+  assert.deepEqual(saved, {action: 'profile_save', game: 'source', content: '[pack]\ndefault_action="loose"'});
+  context.fetch = async () => ({ok: false, json: async () => ({error: 'invalid TOML'})});
+  await vm.runInContext('saveProfile()', context);
+  assert.ok(document.getElementById('profile-msg').textContent.includes('invalid TOML'));
+  assert.equal(document.getElementById('profile-save').disabled, false);
+  console.log('TOML editor tests passed');
+})().catch(error => {console.error(error); process.exitCode = 1;});
