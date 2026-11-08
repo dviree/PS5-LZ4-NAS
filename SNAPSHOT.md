@@ -57,7 +57,8 @@ callers/skeleton`); line numbers below drift, names don't.
 - Library: `scan_library` → `Entry` (`kind` folder/exfat/ffpfs/ffpfsc),
   `classify`, `result_for`, `CheckDB` cache (`state/ps5lz4.db`).
 - Profiles: `choose_profile` (page choice → game-hash/TitleID custom → TOML
-  next to the game → matching custom → bundled → scan), `game_tomls`,
+  next to the game → matching custom → bundled → scan); `bundled_profile` (game/engine fixes, used
+  even with the TOML switch off), `game_tomls`,
   `profile_options`, `set_profile_choice`, `upload_profile`, `save_game_profile`.
 - Estimates: `estimate_game` (`/api/estimate`), `pack_speeds`.
 - Page data: `dashboard_data` (`/api/dashboard`: `games` rows for originals,

@@ -125,6 +125,24 @@ class EditableProfileTests(unittest.TestCase):
             self.assertEqual(Path(job.state['profile_path']).read_text(), before)
             app.save_game_profile(self.entry.id, self.text)
 
+    def test_toml_switch_off_keeps_bundled_engine_fixes(self):
+        # An Insomniac layout gets the bundled engine profile with or without a game
+        # TOML, for LZ4 and Zstd alike: packing every file crashes those games.
+        (self.source/'toc').touch(); (self.source/'dag').touch()
+        (self.source/'d').mkdir()
+        for codec in ('lz4', 'zstd'):
+            job = app.Job(self.entry, 5, True, False, codec, 'ng', False)
+            job.work.mkdir(parents=True, exist_ok=True)
+            with patch.object(app, 'ampr_status_folder', return_value=('compatible', 'fixture')):
+                job.step_check(self.source)
+            self.assertIn('insomniac', job.state['profile'])
+            parsed = tomllib.loads(Path(job.state['profile_path']).read_text())
+            self.assertEqual(parsed['pack']['default_action'], 'loose')
+            loose = [p for r in parsed['rule'] if r['action'] == 'loose' for p in r['include']]
+            self.assertIn('d/*/bootload*', loose)
+            self.assertIn('cache_ps5/playgo.pgm' if codec == 'zstd' else 'toc', loose)
+            app.remove_work_path(job.work)
+
     def test_no_profile_still_has_fixes_and_existing_sidecars_expand(self):
         app.CUSTOM_PROFILES.mkdir()
         selected = app.CUSTOM_PROFILES/'legacy.toml'

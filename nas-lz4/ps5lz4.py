@@ -682,6 +682,13 @@ def choose_profile(title_id: str, name: str, root: Path, game_id: str = "",
     custom, why = custom_profile_for(root, name)
     if custom:
         return str(custom), why
+    return bundled_profile(title_id, name, root)
+
+
+def bundled_profile(title_id: str, name: str, root: Path) -> tuple[str | None, str]:
+    """theghostonline's bundled profile for this game (Title ID or name) or its
+    engine layout (e.g. Insomniac), else None for the packer's own scan. Used
+    even with the page's TOML switch off: these are fixes, not a user choice."""
     norm = "".join(c.lower() for c in name if c.isalnum())
     bundled = load_bundled_profiles()
     for p in bundled:
@@ -1341,7 +1348,11 @@ class Job:
             snapshot = self.work / "pack-profile.toml"
             if self.done("check") and (snapshot.is_file() or self.codec == "lz4"):
                 return  # Resume with the profile used by this job, even after a UI edit.
-            selected, desc = choose_profile(self.state["title_id"], name, root, self.e.id, self.e.path) if self.use_profile else (None, "no game TOML")
+            if self.use_profile:
+                selected, desc = choose_profile(self.state["title_id"], name, root, self.e.id, self.e.path)
+            else:  # no game TOML, but theghostonline's bundled game/engine fixes still apply
+                selected, desc = bundled_profile(self.state["title_id"], name, root)
+                desc = "no game TOML; " + desc
             if self.codec == "lz4":
                 # LZ4 is always theghostonline's packer (ampr_pack_cli); it keeps the
                 # disk and boot files loose itself, so the game's profile goes as is.
@@ -1352,8 +1363,11 @@ class Job:
             return
         if status != "compatible":
             raise Skip(reason)
-        profile, desc = (choose_profile(self.state["title_id"], name, root, self.e.id, self.e.path) if self.use_profile
-                         else (None, "no TOML (turned off for this game): automatic scan-based profile"))
+        if self.use_profile:
+            profile, desc = choose_profile(self.state["title_id"], name, root, self.e.id, self.e.path)
+        else:
+            profile, desc = bundled_profile(self.state["title_id"], name, root)
+            desc = "no game TOML; " + desc
         self.mark("check", ampr=reason, profile_path=profile, profile=desc)
         self.log(f"compatible: {reason}; profile: {desc}")
 

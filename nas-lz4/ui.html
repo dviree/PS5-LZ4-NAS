@@ -1210,7 +1210,7 @@ function renderFmtBar() {
       `<button class="${packMode === k ? 'on' : ''}" aria-pressed="${packMode === k}" onclick="setPackMode('${k}')">${f.icon} ${f.name}<small>${f.sub}</small></button>`).join('')}</div>
     <label class="mut">Level <input type="number" min="1" max="${packMode === 'zstd' ? 22 : 12}" value="${packLevel}" style="width:64px;min-width:0"
       onchange="packLevel = Number(this.value); savePackPrefs()"></label>
-    <label class="mut" title="Off: no TOML profile; the packer's own scan decides what is packed"><input type="checkbox" style="width:auto;min-width:0"
+    <label class="mut" title="Off: no game TOML (yours or next to the game); the built-in game and engine fixes still apply"><input type="checkbox" style="width:auto;min-width:0"
       ${packProfile ? 'checked' : ''} onchange="packProfile = this.checked; savePackPrefs()"> TOML profile</label>
     ${typeof packSkip !== 'undefined' && packSkip ? '<button class="sm ghost" onclick="askEachTime()" title="Show the Compress dialog again">Ask each time</button>' : ''}
     <span class="mut">${packMode === 'legacy' ? 'The Compress buttons below use this.'

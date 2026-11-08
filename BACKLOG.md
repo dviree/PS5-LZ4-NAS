@@ -39,6 +39,8 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 - GitHub runs scheduled workflows rarely for this repo (~every 6 h).
 - `trail note` can't save learnings: `.trail/` needs `trail init` (blocked as
   self-modification in an earlier session).
+- `src/lzc_api.c` (upstream) names a real game in a comment (`.ffpfsc` example);
+  owner to decide whether to patch upstream's text.
 - `--learn` in the LZ4 pack writes learned profiles into `PROFILES`.
 
 ## Ideas
@@ -49,6 +51,8 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- TOML switch off no longer drops theghostonline's bundled game/engine profiles
+  (e.g. Insomniac layout) for LZ4 or Zstd.
 - ampr-emu-ng → `e18a703` (v0.3.3, quer3q's own kernel AIO); our AIO patch removed.
 - Removed Compress all (header) and Repair (after Check all) from the page.
 - Compress all in the chosen format (`run_request` passes codec/runtime/level/
