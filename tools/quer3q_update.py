@@ -5,8 +5,8 @@ James St-Pierre's ampr-emu-ng branches (jamesst20/ampr-emu-ng).
   python3 tools/quer3q_update.py            # say what is new, change nothing
   python3 tools/quer3q_update.py --apply    # also move the pins in the repo
 
---apply moves ampr-emu-ng to the newest main commit (after checking that the
-kernel-AIO patch still applies with no fuzz) and Forge to its newest release
+--apply moves ampr-emu-ng to the newest main commit (built as it is, no patch)
+and Forge to its newest release
 (after checking the release archives and the vendored runtime against
 upstream's own SHA256SUMS). With --trail it adds Trail-Code's blast radius of
 upstream's change. The report goes to --report (Markdown) for the pull request;
@@ -17,9 +17,7 @@ so the image must be rebuilt) say what happened.
 James's branches are work in progress that quer3q merges by pull request, so
 they are reported, not pinned: each new or moved branch with the commits that
 are not in quer3q's main yet and, with --trail, its blast radius. --apply
-records the heads seen in tools/james-branches.json. The branch the kernel-AIO
-patch comes from is watched: moved means the patch must be ported again,
-merged into quer3q's main means the patch can go.
+records the heads seen in tools/james-branches.json.
 """
 import argparse
 import hashlib
@@ -36,12 +34,10 @@ ROOT = Path(__file__).resolve().parent.parent
 DOCKERFILE = ROOT / "nas-lz4" / "Dockerfile"
 FORGE_PY = ROOT / "nas-lz4" / "install-forge.py"
 DOCS = [ROOT / "nas-lz4" / "README.md", ROOT / "THIRD_PARTY_NOTICES.md"]
-AIO_PATCH = ROOT / "nas-lz4" / "patches" / "ampr-emu-ng-kernel-aio.patch"
 NG_REPO = "https://github.com/quer3q/ampr-emu-ng"
 FORGE_REPO = "https://github.com/quer3q/ps5-dump-forge"
 JAMES_REPO = "https://github.com/jamesst20/ampr-emu-ng"
 JAMES_STATE = ROOT / "tools" / "james-branches.json"
-AIO_BRANCH, AIO_COMMIT = "fix/lz4-packed-open-boot", "fe97dce63ce1790081c4f539b0f9b4efc4b91a1b"
 
 
 def run(argv, **kw):
@@ -102,11 +98,6 @@ def james_report(seen: dict, heads: dict, ng_main: str, tmp: Path, trail: bool) 
     def merged(sha):
         return subprocess.run(["git", "-C", str(src), "merge-base", "--is-ancestor", sha, "quer3q/main"]).returncode == 0
     out = ["## James St-Pierre's ampr-emu-ng branches\n"]
-    if heads.get(AIO_BRANCH) != AIO_COMMIT:
-        out.append(f"**⚠ `{AIO_BRANCH}` moved to `{(heads.get(AIO_BRANCH) or 'deleted')[:7]}`**: the kernel-AIO patch "
-                   f"comes from `{AIO_COMMIT[:7]}` and must be ported again by hand.\n")
-    if merged(AIO_COMMIT):
-        out.append("**The kernel-AIO branch is in quer3q's main now**: the patch in nas-lz4/patches can go.\n")
     for name, sha in sorted(heads.items()):
         if seen.get(name) == sha or name == "main":
             continue
@@ -137,19 +128,16 @@ def trail_blast(repo: str, old: str, new: str, tmp: Path) -> str:
 
 def apply_ng(old: str, new: str, tmp: Path) -> str:
     src = shallow(NG_REPO, new, tmp / "ng")
-    check = subprocess.run(["patch", "--dry-run", "--fuzz=0", "-p1", "-i", str(AIO_PATCH)], cwd=src, capture_output=True, text=True)
-    if check.returncode != 0:
-        raise SystemExit(f"the kernel-AIO patch no longer applies to ampr-emu-ng {new[:7]}; port it by hand:\n{check.stdout[-2000:]}")
     version = (re.search(r'^version = "([^"]+)"', (src / "crates" / "ampr-sys" / "Cargo.toml").read_text(), re.M) or [None, "?"])[1]
     d = DOCKERFILE.read_text()
     d = d.replace(old, new).replace(f"ampr-emu-ng-{old[:7]}", f"ampr-emu-ng-{new[:7]}")
-    d = re.sub(r"AMPR_GIT_REV=[0-9a-f]{7}-aio-", f"AMPR_GIT_REV={new[:7]}-aio-", d)
+    d = re.sub(r"AMPR_GIT_REV=[0-9a-f]{7}\b", f"AMPR_GIT_REV={new[:7]}", d)
     d = re.sub(r"ampr-emu-ng main \(quer3q, v[\d.]+", f"ampr-emu-ng main (quer3q, v{version}", d)
-    d = re.sub(r'"name":"ampr-emu-ng [0-9a-f]{7} \(v[^)]*\) \+ AIO', f'"name":"ampr-emu-ng {new[:7]} (v{version}) + AIO', d)
+    d = re.sub(r'"name":"ampr-emu-ng [0-9a-f]{7} \(v[^)]*\)', f'"name":"ampr-emu-ng {new[:7]} (v{version})', d)
     DOCKERFILE.write_text(d)
     for doc in DOCS:
         doc.write_text(doc.read_text().replace(old, new).replace(f"ampr-emu-ng-{old[:7]}", f"ampr-emu-ng-{new[:7]}"))
-    return f"**ampr-emu-ng** `{old[:7]}` → `{new[:7]}` (v{version}); the kernel-AIO patch applies with no fuzz.\n"
+    return f"**ampr-emu-ng** `{old[:7]}` → `{new[:7]}` (v{version}); upstream's own commit, no patch.\n"
 
 
 def apply_forge(old: str, new: str, tmp: Path) -> str:

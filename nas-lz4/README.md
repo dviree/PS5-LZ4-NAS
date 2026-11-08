@@ -539,9 +539,8 @@ It also follows James St-Pierre's branches (jamesst20/ampr-emu-ng). They are
 work in progress that quer3q merges by pull request, so they are reported,
 not taken in: each new or moved branch with its commits that are not in
 quer3q's `main` yet and Trail-Code's blast radius against it. The heads seen
-are kept in `tools/james-branches.json`. The branch the kernel-AIO patch comes
-from (`fix/lz4-packed-open-boot`, `fe97dce`) is watched: if it moves, the patch
-must be ported again; once quer3q merges it, the patch can go.
+are kept in `tools/james-branches.json`. Kernel AIO on packed files is in
+quer3q's own v0.3.3, so no patch is applied on top of `main`.
 
 ## Your own TOML profiles
 
@@ -877,8 +876,8 @@ Mark the result on the web page and share it with the community.
 ## Runtime fixes and Docker update
 
 NG outputs now use ampr-emu-ng `main` at
-`b6a54d12fca52d2482bc6e56225716ac41aac4be` from https://github.com/quer3q/ampr-emu-ng
-(v0.3.2 plus James St-Pierre's `fix/low-virtual-fds`, `fix/packed-fd-slot-capacity`,
+`e18a70315df6ed6d061363865230f1d351a31c95` from https://github.com/quer3q/ampr-emu-ng
+(v0.3.3: quer3q's kernel AIO on packed files, plus James St-Pierre's `fix/low-virtual-fds`, `fix/packed-fd-slot-capacity`,
 `fix/no-inline-cache-completion` and `fix/debug-event-ring-race`, merged upstream
 as PRs #16, #20, #23 and #24, and quer3q's "claim only open synthetic packed fds").
 This includes reserved low descriptors, read-only indexed-directory opens, and
@@ -900,23 +899,13 @@ cd /volume2/docker/ps5-lz4
 This refuses to interrupt an active pack job. No archive or original is deleted.
 The runtime build and Docker publication are separate from a physical PS5 play test.
 
-### Combined James branch fixes
+### Kernel AIO
 
-The image combines upstream `main` at
-`b6a54d12fca52d2482bc6e56225716ac41aac4be` with the kernel-AIO changes from
-`fix/lz4-packed-open-boot` at `fe97dce63ce1790081c4f539b0f9b4efc4b91a1b`.
-The latter branch diverges from the former; switching to it alone would lose
-the low-descriptor and indexed-directory fixes. The Rust changes relative to
-common ancestor `cd0c11efeedec45f2ed01715ff33c00898d40240` were merged onto
-the low-descriptor source, retaining its descriptor-table lookup.
-
-`nas-lz4/patches/ampr-emu-ng-kernel-aio.patch` is the resulting patch, SHA-256
-`500f12255c23a0760257db9f8d8723c9a0cc9c7cf5abc06709788acd0e7a5c2a`.
-The Docker build applies it with no fuzz, runs the combined workspace's host
-tests and verifies its release PRX/SPRX. The runtime manifest records both
-commits, the patch hash and the resulting binary hash. The corresponding
-source is the included `source.tar.gz` plus `kernel-aio.patch`: extract the
-archive, apply `patch -p1 < kernel-aio.patch`, then use `ps5/build-docker.sh`.
+Until v0.3.2 the image applied a kernel-AIO patch ported from James St-Pierre's
+`fix/lz4-packed-open-boot`. quer3q's v0.3.3 (`e18a703`) serves the game's kernel AIO
+on packed files itself (hooks 100..=109, installed all or none), so the patch is
+gone and the image builds upstream's commit as it is. The corresponding source is
+the included `source.tar.gz`; build it with `ps5/build-docker.sh`.
 The same runtime reads both LZ4 and zstd packs; this does not establish
 compatibility with every game without a console test.
 

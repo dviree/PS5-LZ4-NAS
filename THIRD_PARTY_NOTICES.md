@@ -79,15 +79,11 @@ Existing APR-EMU attribution above continues to apply to the legacy mode.
 ### James St-Pierre runtime fixes
 
 NG packing and repair use ampr-emu-ng commit
-`b6a54d12fca52d2482bc6e56225716ac41aac4be` (main after v0.3.2, with James St-Pierre's
-low-descriptor, packed-fd slot, synthetic fd range and event ring fixes merged) from https://github.com/quer3q/ampr-emu-ng
+`e18a70315df6ed6d061363865230f1d351a31c95` (v0.3.3, with James St-Pierre's
+low-descriptor, packed-fd slot, synthetic fd range and event ring fixes merged, and kernel AIO on packed files) from https://github.com/quer3q/ampr-emu-ng
 (GPL-3.0-or-later). The build checks out exactly that commit; a source archive made
 from it and the upstream LICENSE are included in the image under
-`/opt/ps5lz4/licenses/ampr-emu-ng-b6a54d1/`.
+`/opt/ps5lz4/licenses/ampr-emu-ng-e18a703/`.
 The binary is built from this source, not downloaded as an unpinned branch asset.
 
-The NG runtime additionally incorporates James St-Pierre's kernel-AIO changes
-from commit `fe97dce63ce1790081c4f539b0f9b4efc4b91a1b`, merged onto the
-low-descriptor source. The GPL-3.0-or-later patch and reproduction instructions
-are in `nas-lz4/patches/ampr-emu-ng-kernel-aio.patch` and `nas-lz4/README.md`.
-The image ships the patch beside the corresponding source archive and license.
+Kernel AIO on packed files is part of that upstream commit; no patch is applied.

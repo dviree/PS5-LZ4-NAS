@@ -18,8 +18,9 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
   Actions › General); until then the quer3q/James follower pushes a branch only.
 - Test on the NAS/PS5 (the session can't reach the NAS): Compress dialog and
   estimates, TOML chooser, sub-tabs, LZ4 NG with theghostonline's packer +
-  ampr-emu-ng `b6a54d1`, Start check (ShadowMountPlus fields `runtime_path`,
-  `fakelib_mode` are taken from exFAT2AMPR's code, unverified).
+  ampr-emu-ng `e18a703`, Start check (ShadowMountPlus fields `runtime_path`,
+  `fakelib_mode` are taken from exFAT2AMPR's code, unverified); LZ4 NG/Zstd games
+  on ampr-emu-ng v0.3.3 (kernel AIO now upstream's, not James's patch).
 - Old git tags still point to history before the personal-data rewrite (owner
   has the retag commands).
 - PR #2 (Trail-Code + Claude Code in Codespaces) is open, not merged.
@@ -48,6 +49,7 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- ampr-emu-ng → `e18a703` (v0.3.3, quer3q's own kernel AIO); our AIO patch removed.
 - Removed Compress all (header) and Repair (after Check all) from the page.
 - Compress all in the chosen format (`run_request` passes codec/runtime/level/
   profile to `lz4 --fix`; Zstd/LZ4 NG queue every AMPR original without that copy).

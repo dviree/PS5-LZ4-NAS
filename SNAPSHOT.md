@@ -27,8 +27,8 @@ callers/skeleton`); line numbers below drift, names don't.
   (sub-tabs Folder/exFAT · LZ4 · Zstd), Activity, PS5 games, PKG installer,
   PS4 games, ShadowMount, Saves, PS5 Upload, Community, Remote, FTP. Header:
   Check all, Full re-check (no Compress all / Repair buttons; CLI only).
-- `Dockerfile`: stage `ng-runtime` builds ampr-emu-ng (quer3q main + James's
-  kernel-AIO patch from `patches/`), `build` builds `ampr_pack_cli`, `forge`
+- `Dockerfile`: stage `ng-runtime` builds ampr-emu-ng (quer3q main as is, no
+  patch), `build` builds `ampr_pack_cli`, `forge`
   installs PS5 Dump Forge (`install-forge.py`, pinned + SHA-256), final image
   adds `lz4`, `zstd`, `unrar`, MkPFS.
 - `install.sh` (first install, writes compose), `lz4-ps5.sh` (`update`,
@@ -76,8 +76,8 @@ callers/skeleton`); line numbers below drift, names don't.
 
 - theghostonline/PS5-LZ4-Compression (Forgejo): engine + packer in `src/`;
   `sync-upstream.yml` → `upstream-raw`/`upstream-sync`, review-gated.
-- quer3q/ampr-emu-ng main (pin `NG_COMMIT` in Dockerfile) + kernel-AIO patch
-  (from James's `fix/lz4-packed-open-boot` `fe97dce`).
+- quer3q/ampr-emu-ng main (pin `NG_COMMIT` in Dockerfile, `e18a703` v0.3.3,
+  kernel AIO built in; the old James AIO patch is gone).
 - quer3q/ps5-dump-forge releases (pin in `install-forge.py`).
-- `tools/quer3q_update.py` moves pins (checks patch/SHA256SUMS), reports James's
+- `tools/quer3q_update.py` moves pins (checks SHA256SUMS), reports James's
   branches (`tools/james-branches.json`).
