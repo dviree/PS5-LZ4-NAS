@@ -30,7 +30,7 @@
   `cd /volume2/docker/ps5-lz4 && ./lz4-ps5.sh update --force`
   (after the `Build NAS image` run on `nas-build` is green).
 - No theghostonline community reports in the page (no tab, counts or share
-  links); PS5 results are saved on the NAS only.
+  links). Game reports come from and go to quer3q/ampr-emu-ng (Zstd, LZ4 NG).
 - Show mockups/screenshots before building larger UI changes when asked.
 
 ## Mandatory Trail-Code workflow

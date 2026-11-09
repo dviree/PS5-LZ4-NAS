@@ -22,6 +22,9 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
   `fakelib_mode` are taken from exFAT2AMPR's code, unverified); LZ4 NG/Zstd games
   on ampr-emu-ng v0.3.4 (upstream kernel AIO, save-load hang fix, 192 MiB pool:
   check save loading and memory-tight games).
+- quer3q reports: the fetch (GitHub REST, no token) and the pre-filled issue form
+  are built from the form's file and fixtures; the session's proxy blocks the
+  API, so check on the NAS that counts appear and the link fills the form.
 - Old git tags still point to history before the personal-data rewrite (owner
   has the retag commands).
 - PR #2 (Trail-Code + Claude Code in Codespaces) is open, not merged.
@@ -48,6 +51,9 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- quer3q's game reports (issues labelled `test report` on quer3q/ampr-emu-ng):
+  counts per Title ID for Zstd/LZ4 in the game sheet, and a filled-in report
+  link after setting the PS5 result of a Zstd or LZ4 NG copy.
 - theghostonline community reports off: no tab, counts, share link or fetching
   (`PS5LZ4_COMMUNITY=yes` turns the backend on again; the page parts are gone).
   The PS5 result is still saved on the NAS. The `.ffpfsc` sheet stays.

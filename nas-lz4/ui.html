@@ -337,7 +337,8 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     <div id="dl-now" style="margin-top:10px"></div><div id="dl-hist"></div></div>
   <div class="card" id="failed" hidden></div>
   <div class="card"><h2>Report</h2>
-    <div class="mut">Pick the PS5 result in the <b>PS5</b> column for a packed game. It is saved on this NAS only.</div>
+    <div class="mut">Pick the PS5 result in the <b>PS5</b> column for a packed game. It is saved on this NAS; for a Zstd or LZ4 NG copy
+    <i>Recent actions</i> then shows a filled-in link to report it to quer3q (ampr-emu-ng).</div>
     <label style="display:inline-flex;gap:8px;align-items:center;margin-top:10px">Your firmware
       <input id="fw" placeholder="e.g. 13.40" size="8" style="font:inherit;padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--txt)"
         oninput="localStorage.setItem('fw', this.value); render()"></label>
@@ -1120,11 +1121,12 @@ function render() {
   const pending = pend.length ? pend.map(r => `<div class="mut qrow">⏳ <span class="qname">${esc(ACT_EN[r.action] || r.action)} ${esc(nameOf(r.game) || '')} – ${d.running && ['start', 'fix', 'resume'].includes(r.action) ? 'starts when the running job is done' : 'sent'}</span>` +
     (r.file ? `<button class="sm danger" data-f="${esc(r.file)}" onclick="queueRemove({file: this.dataset.f})" title="Cancel this request">✕ Cancel</button>` : '') + '</div>').join('') : '';
   log.innerHTML = pending + (items.length ? items.map(r => {
-    let url = (r.output || '').match(/https:\/\/github\.com\/\S+/);
+    let url = r.action === 'community' ? (r.output || '').match(/https:\/\/github\.com\/quer3q\/\S+/) : null;
     const fw = (localStorage.getItem('fw') || '').trim();
-    if (url && fw && !/[?&]firmware=/.test(url[0])) url = [url[0] + '&firmware=' + encodeURIComponent(fw)];
+    if (url && fw) url = [url[0].replace('Firmware%3A+%0A', 'Firmware%3A+' + encodeURIComponent(fw) + '%0A')];
     return `<div><b class="${r.ok ? 'good' : 'bad'}">${r.ok ? '✓' : '✗'}</b> ${esc(ACT_EN[r.action] || r.action)}
       ${r.game ? esc(r.game) : ''}${r.result ? ': ' + esc(PS5_EN[r.result]) : ''} <span class="mut">${esc(r.finished)}</span>
+      ${url ? `<div><a href="${esc(url[0])}" target="_blank" rel="noopener">Report it to quer3q (ampr-emu-ng game report)</a></div>` : ''}
       ${(r.action === 'check' || r.action === 'check_full') && !r.ok ? `<div style="margin:6px 0"><span class="bad">The check found problems.</span></div>` : ''}
       <pre>${esc((r.output || '').split('\n').slice(-6).join('\n'))}</pre></div>`;
   }).join('') : (pending ? '' : '<span class="mut">None yet.</span>'));
@@ -1504,8 +1506,30 @@ function ffpfscHtml(g, det) {
       `<div>${esc(k)}</div><div class="${tone(v)}">${esc(v)}</div>`).join('')}</div>`).join('<hr style="border:0;border-top:1px solid var(--line);margin:8px 0">') +
     `<div class="acts">${link}</div></div>`;
 }
+// quer3q's game reports for ampr-emu-ng (LZ4 NG and Zstd), per Title ID.
+function ngCounts(c) {
+  if (!c || !c.reports) return '<span class="mut">no reports</span>';
+  const p = [], add = (k, cls, t) => { if (c[k]) p.push(`<span class="${cls}">${c[k]} ${t}</span>`); };
+  add('works', 'good', 'work'); add('issues', 'warn', 'slow/stutter'); add('noStart', 'bad', "won't start");
+  add('crash', 'bad', 'crash'); add('hang', 'bad', 'hang'); add('other', 'mut', 'other');
+  return p.join(' · ');
+}
+function ngReportsHtml(g, det) {
+  if (!det) return '<div class="csec mut">Loading game reports…</div>';
+  if (!det.ng_reports_web) return '';
+  const web = det.ng_reports_web, tid = det.title_id || g.title_id || '', r = det.ng_reports;
+  const all = tid ? `<a class="btn sm" href="${esc(web)}/issues?q=${encodeURIComponent('label:"test report" ' + tid)}" target="_blank" rel="noopener">All reports for ${esc(tid)}</a>` : '';
+  const head = '<h4>ampr-emu-ng <span class="mut" style="font-weight:500">· game reports from quer3q/ampr-emu-ng (Zstd and LZ4 NG)</span></h4>';
+  if (!r) return `<div class="csec">${head}<div class="mut">${det.ng_reports_at ? 'Nobody has reported ' + esc(g.name || tid || 'this game') + ' yet.' : 'Not fetched yet.'}
+    Set the PS5 result of a Zstd or LZ4 NG copy and Recent actions gives a filled-in report link.</div><div class="acts">${all}</div></div>`;
+  const l = r.latest || {}, rows = [['Zstd', r.zstd], ['LZ4', r.lz4], ['No packs', r.plain], ['Other', r.other]].filter(x => x[1]);
+  return `<div class="csec">${head}
+    ${rows.map(x => `<div><b>${x[0]}</b>: ${ngCounts(x[1])}</div>`).join('')}
+    <div class="why">Latest: <b>${esc(l.result || '–')}</b> (${esc(l.packs || '?')}${l.version ? ', ' + esc(l.version) : ''}) ${esc(l.date || '')}${l.issue ? ` · <a href="${esc(web)}/issues/${esc(l.issue)}" target="_blank" rel="noopener">#${esc(l.issue)}</a>` : ''}</div>
+    <div class="acts">${all}</div></div>`;
+}
 function communityHtml(g, det) {
-  return '';  // community reports are off; the PS5 result is kept on this NAS only
+  return ngReportsHtml(g, det);
   if (g.pack_codec === 'zstd' || g.pack_runtime === 'ng') return '<div class="csec"><h4>Community reports</h4><div class="mut">The community list covers legacy LZ4. Results for zstd and ampr-emu-ng are saved locally and are not submitted as legacy LZ4 reports.</div></div>';
   if (!det) return '<div class="csec mut">Loading community reports…</div>';
   const c = det.community, web = det.community_web || ORIGIN_WEB, tid = det.title_id || g.title_id || '';

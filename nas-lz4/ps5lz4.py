@@ -2425,6 +2425,128 @@ def ps5_result(eid: str) -> str | None:
             or (read_json(PLAYED / f"{eid}.json") or {}).get("result"))
 
 
+# quer3q's game reports: issues labelled "test report" on quer3q/ampr-emu-ng
+# (its game-report.yml form). They cover LZ4 NG and Zstd, the formats this
+# NAS packs for ampr-emu-ng.
+NG_REPORT_REPO = "quer3q/ampr-emu-ng"
+NG_REPORT_WEB = f"https://github.com/{NG_REPORT_REPO}"
+NG_REPORTS = STATE / "ng-reports.json"
+NG_REPORTS_ON = os.environ.get("PS5LZ4_NG_REPORTS", "yes") != "no"
+NG_REPORTS_REFRESH = int(os.environ.get("PS5LZ4_NG_REPORTS_REFRESH", "10800"))
+NG_RESULTS = [  # start of the form's Result answer -> (our key, its full text)
+    ("works", "works", "Works (played past the first level load)"),
+    ("fails at launch", "noStart", 'Fails at launch ("Something went wrong" or similar)'),
+    ("crashes", "crash", "Crashes later"),
+    ("hangs", "hang", "Hangs (loading screen or black screen)"),
+    ("runs, but", "issues", "Runs, but slow or stutters"),
+]
+NG_FORM_RESULT = {"works": NG_RESULTS[0][2], "issues": NG_RESULTS[4][2], "nostart": NG_RESULTS[1][2],
+                  "crash": NG_RESULTS[2][2]}
+
+
+def ng_form_sections(body: str) -> dict:
+    """An issue form's body ("### Label\n\nanswer") as {label lower-cased: answer}."""
+    out = {}
+    for part in re.split(r"^###\s+", body or "", flags=re.M)[1:]:
+        label, _, answer = part.partition("\n")
+        answer = answer.strip()
+        out[label.strip().lower()] = "" if answer == "_No response_" else answer
+    return out
+
+
+def ng_reports_aggregate(issues: list[dict]) -> dict:
+    """quer3q's report issues -> {"games": {TITLEID: {"name", "zstd": counts, "lz4": counts,
+    "plain": counts, "latest": {...}}}}. One issue is one report; pull requests and
+    issues without a Title ID are left out."""
+    games = {}
+    for issue in sorted(issues, key=lambda i: i.get("created_at") or ""):
+        if issue.get("pull_request"):
+            continue
+        labels = {(lb.get("name") or "").lower() for lb in issue.get("labels") or []}
+        if labels & {"invalid", "duplicate", "spam"}:
+            continue
+        f = ng_form_sections(issue.get("body") or "")
+        game = f.get("game, title id and game version", "")
+        m = TITLE_RE.search(issue.get("title") or "") or TITLE_RE.search(game)
+        if not m:
+            continue
+        answer = (f.get("result") or "").lower()
+        key = next((k for start, k, _ in NG_RESULTS if answer.startswith(start)), "other")
+        packs = (f.get("packs") or "").lower()
+        packs = "zstd" if packs.startswith("zstd") else "lz4" if packs.startswith("lz4") else "plain" if packs.startswith("plain") else "other"
+        tid = m.group(0).upper()
+        g = games.setdefault(tid, {"name": ""})
+        c = g.setdefault(packs, {"works": 0, "issues": 0, "noStart": 0, "crash": 0, "hang": 0, "other": 0, "reports": 0})
+        c[key] += 1
+        c["reports"] += 1
+        g["name"] = re.sub(r"\s+", " ", game.split(",")[0]).strip()[:60] or g["name"]
+        g["latest"] = {"issue": issue.get("number"), "result": key, "packs": packs,
+                       "version": re.sub(r"\s+", " ", f.get("ampr-emu-ng version", ""))[:24],
+                       "date": (issue.get("created_at") or "")[:10], "open": issue.get("state") == "open"}
+    return {"updated": now(), "repo": NG_REPORT_REPO, "games": games}
+
+
+def ng_reports() -> dict:
+    return ((read_json(NG_REPORTS, {}) or {}).get("games") or {}) if NG_REPORTS_ON else {}
+
+
+def ng_reports_refresh() -> dict:
+    """Fetch quer3q's report issues (GitHub REST, no token) and save the counts."""
+    import urllib.request
+    issues = []
+    for page in range(1, 11):
+        url = (f"https://api.github.com/repos/{NG_REPORT_REPO}/issues?labels=test%20report&state=all"
+               f"&per_page=100&page={page}")
+        req = urllib.request.Request(url, headers={"User-Agent": f"ps5-lz4/{VERSION}",
+                                                   "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            batch = json.load(r)
+        issues += batch
+        if len(batch) < 100:
+            break
+    data = ng_reports_aggregate(issues)
+    write_json(NG_REPORTS, data)
+    return data
+
+
+def ng_reports_refresher() -> None:
+    while True:
+        try:
+            ng_reports_refresh()
+        except Exception as err:
+            print(f"[{now()}] quer3q reports not refreshed: {err}", flush=True)
+        time.sleep(max(NG_REPORTS_REFRESH, 900))
+
+
+def ng_report_url(tid: str, name: str, result: str, packs: str, game_ver: str = "", firmware: str = "") -> str:
+    """A new game report on quer3q/ampr-emu-ng, its form filled in (GitHub fills
+    issue-form fields from query parameters named after the field ids)."""
+    from urllib.parse import urlencode
+    ver = (re.search(r"\(v([\d.]+)\)", NG_NAME) or [None, ""])[1]
+    answer = NG_FORM_RESULT[result]
+    setup = (f"Firmware: {firmware}\nLoader (e.g. ShadowMountPlus x.y), fakelib updates off: yes/no\n"
+             f"Packer (e.g. ps5-dump-forge x.y): "
+             + (f"ps5-dump-forge {forge_pin_version()}" if packs == "zstd" else "theghostonline ampr_pack (LZ4)")
+             + f" via ps5lz4zstd NAS {VERSION}\nInstall: folder / ffpkg / pkg\n"
+               "Storage: internal SSD / extended M.2 / USB exFAT")
+    q = {"template": "game-report.yml", "title": f"[{tid}] {name}: {answer.split(' (')[0]}",
+         "game": ", ".join(x for x in (name, tid, game_ver) if x), "version": f"v{ver}" if ver else "",
+         "build": "release (libSceAmpr.sprx)", "packs": packs, "result": answer, "setup": setup}
+    return f"{NG_REPORT_WEB}/issues/new?" + urlencode(q)
+
+
+def forge_pin_version() -> str:
+    """The Forge version in this image (its SOURCE.txt), or the pin in a checkout."""
+    here = Path(__file__).parent
+    for path, pat in ((here / "licenses" / "ps5-dump-forge" / "SOURCE.txt", r"PS5 Dump Forge v([\d.]+)"),
+                      (here / "install-forge.py", r"^VERSION = '([^']+)'")):
+        try:
+            return re.search(pat, path.read_text(), re.M).group(1)
+        except (OSError, AttributeError):
+            continue
+    return ""
+
+
 def tested_ok(eid: str) -> bool:
     return ps5_result(eid) in ("works", "issues")
 
@@ -2483,7 +2605,17 @@ def cmd_community(args) -> int:
     print(f"saved: {e.id}: PS5 {label}")
     source = {"folder": "Folder", "exfat": "exFAT image", "ffpfsc": "Uncompressed .ffpfsc"}.get(e.kind, "")
     name = (rep.get("title_name") or e.id)[:60]
-    if not COMMUNITY_REPORTS or rep.get("pack_codec") == "zstd" or rep.get("pack_runtime") == "ng":
+    if rep.get("pack_codec") == "zstd" or rep.get("pack_runtime") == "ng":
+        if not NG_REPORTS_ON:
+            print("result saved on this NAS only")
+            return 0
+        ver = game_version(e.output, *([e.path] if e.kind == "folder" else []), name=e.rel).get("version", "")
+        print("report it to quer3q (ampr-emu-ng; open on your phone or computer, fill in the rest, submit):")
+        print(ng_report_url(rep.get("title_id") or e.title_id, name, args.result,
+                            "zstd" if rep.get("pack_codec") == "zstd" else "lz4", ver,
+                            os.environ.get("PS5LZ4_FIRMWARE", "")))
+        return 0
+    if not COMMUNITY_REPORTS:
         print("result saved on this NAS only")
         return 0
     url = report_url(rep.get("title_id") or e.title_id, name, form,
@@ -7366,10 +7498,14 @@ def game_detail(game_id: str) -> dict:
         else:
             apr = {"path": None, "ok": False, "build": "missing"}
     src = next((e for e in scan_library() if e.id == game_id), None)
+    if not tid and src and src.title_id:
+        tid = src.title_id.upper()  # an original with no pack yet: its own param.json
     version = game_version(*(x for x in (out, src.path if src and src.kind == "folder" else None) if x),
                            name=(src.rel if src else "") or (out.name if out else game_id))
     return {"id": game_id, "report": rep or None, "folder": folder, "work": work, "skipped": skipped,
-            "title_id": tid, "community": compat_games().get(tid), "community_repo": COMPAT_REPO, "community_web": ORIGIN_WEB,
+            "title_id": tid, "ng_reports": ng_reports().get(tid), "ng_reports_web": NG_REPORT_WEB,
+            "ng_reports_at": (read_json(NG_REPORTS, {}) or {}).get("updated") if NG_REPORTS_ON else None,
+            "community": compat_games().get(tid), "community_repo": COMPAT_REPO, "community_web": ORIGIN_WEB,
             "community_live": (read_json(COMPAT_LIVE, {}) or {}).get("source") == "live", "apr": apr,
             "known": KNOWN_GAMES.get(tid.upper()) if tid else None,
             "unity": UNITY_WHY if (out and out.is_dir() and unity_folder(out)) or
@@ -8297,6 +8433,8 @@ def cmd_ui(args) -> int:
     refreshed = [0.0]
     if COMMUNITY_REPORTS and COMPAT_REFRESH > 0:
         __import__("threading").Thread(target=compat_refresher, daemon=True).start()
+    if NG_REPORTS_ON:
+        __import__("threading").Thread(target=ng_reports_refresher, daemon=True).start()
     __import__("threading").Thread(target=send_after_watcher, daemon=True).start()
     __import__("threading").Thread(target=transfer_queue_watcher, daemon=True).start()
     __import__("threading").Thread(target=rest_watcher, daemon=True).start()

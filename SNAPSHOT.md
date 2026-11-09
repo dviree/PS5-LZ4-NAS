@@ -67,6 +67,8 @@ callers/skeleton`); line numbers below drift, names don't.
   ShadowMountPlus via receiver (`smp`, `launch_check`), packages
   (`scan_pkgs`, `pkg_install*`, `ps5_installed`, `pkg_on_ps5`).
 - Community reports (`compat_*`, `report_url`): off unless `PS5LZ4_COMMUNITY=yes`.
+- quer3q's reports: `ng_reports_refresh/aggregate` (state `ng-reports.json`, every
+  3 h), `ng_report_url` (form link), shown by `ngReportsHtml` in ui.html.
 
 ### State on the NAS (`/volume2/docker/ps5-lz4/state`)
 
