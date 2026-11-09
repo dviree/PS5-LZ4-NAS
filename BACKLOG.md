@@ -32,8 +32,6 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
   page now uses `copies` per folder and `requires_ng` checks the report's
   `output`, but other report readers (e.g. community report level) still see
   the last pack only.
-- Forge v0.5.5 is tagged (`8a3c7d3`) but its release files were not up on
-  2026-11-09 (SHA256SUMS 404): run `tools/quer3q_update.py --apply` again later.
 - With Repair gone from the page, a wrong APR-EMU is fixed by repacking or
   `./lz4-ps5.sh apr --fix`.
 - GitHub runs scheduled workflows rarely for this repo (~every 6 h).
@@ -50,6 +48,8 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- Forge → v0.5.5 (`8a3c7d3`: .ini files never packed, bundles ampr-emu-ng
+  v0.3.4, naming template); round trips pass with the real binary.
 - Removing a copy keeps the report (and PS5 result) of the other format's copy.
 - Follower no longer crashes when a Forge tag has no release files yet. (`--learn`
   only reads the bundled profiles; the old known issue was wrong.)
