@@ -2241,6 +2241,9 @@ COMPAT_LIVE = STATE / "compat.json"  # fetched from the issues by the web page c
 COMPAT_REFRESH = int(os.environ.get("PS5LZ4_COMPAT_REFRESH", "300"))
 
 
+COMMUNITY_REPORTS = os.environ.get("PS5LZ4_COMMUNITY", "") == "yes"
+
+
 def compat_data() -> dict:
     """The newest community reports: live from GitHub when fetched, else the bundled copy."""
     live = read_json(COMPAT_LIVE, {}) or {}
@@ -2249,7 +2252,8 @@ def compat_data() -> dict:
 
 
 def compat_games() -> dict:
-    return compat_data().get("games") or {}
+    # Community reports are off (owner's choice): nothing is fetched, shown or shared.
+    return (compat_data().get("games") or {}) if COMMUNITY_REPORTS else {}
 
 
 # Same counting as the original project's tools/compat_aggregate.py.
@@ -2479,8 +2483,8 @@ def cmd_community(args) -> int:
     print(f"saved: {e.id}: PS5 {label}")
     source = {"folder": "Folder", "exfat": "exFAT image", "ffpfsc": "Uncompressed .ffpfsc"}.get(e.kind, "")
     name = (rep.get("title_name") or e.id)[:60]
-    if rep.get("pack_codec") == "zstd" or rep.get("pack_runtime") == "ng":
-        print("result saved locally; this codec/runtime is not counted in the legacy LZ4 community reports")
+    if not COMMUNITY_REPORTS or rep.get("pack_codec") == "zstd" or rep.get("pack_runtime") == "ng":
+        print("result saved on this NAS only")
         return 0
     url = report_url(rep.get("title_id") or e.title_id, name, form,
                      game_version(e.output, *([e.path] if e.kind == "folder" else []),
@@ -7905,7 +7909,7 @@ def cmd_ui(args) -> int:
                 host = get_settings()["ps5_ftp"].partition(":")[0]
                 return self.send(200, json.dumps({"status": ps5_status(host) if host else "unset"}).encode())
             if self.path.startswith("/api/community"):
-                if "refresh=1" in self.path and time.time() - refreshed[0] > 30:
+                if COMMUNITY_REPORTS and "refresh=1" in self.path and time.time() - refreshed[0] > 30:
                     refreshed[0] = time.time()
                     try:
                         compat_refresh()
@@ -7913,7 +7917,7 @@ def cmd_ui(args) -> int:
                         print(f"[{now()}] community reports not refreshed: {err}", flush=True)
                 data = compat_data()
                 body = {"repo": COMPAT_REPO, "web": ORIGIN_WEB, "updated": data.get("updated"), "source": data.get("source") or "image",
-                        "games": data.get("games") or {}, "refresh_error": data.get("refresh_error")}
+                        "games": (data.get("games") or {}) if COMMUNITY_REPORTS else {}, "refresh_error": data.get("refresh_error")}
                 return self.send(200, json.dumps(body, ensure_ascii=False).encode())
             if self.path == "/api/dashboard":
                 with lock:
@@ -8291,7 +8295,7 @@ def cmd_ui(args) -> int:
             self.send(200, json.dumps({"queued": name}).encode())
 
     refreshed = [0.0]
-    if COMPAT_REFRESH > 0:
+    if COMMUNITY_REPORTS and COMPAT_REFRESH > 0:
         __import__("threading").Thread(target=compat_refresher, daemon=True).start()
     __import__("threading").Thread(target=send_after_watcher, daemon=True).start()
     __import__("threading").Thread(target=transfer_queue_watcher, daemon=True).start()

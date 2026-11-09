@@ -250,7 +250,6 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
   <button id="t-smp" onclick="tab('smp')">ShadowMount</button>
   <button id="t-sav" onclick="tab('sav')">Saves</button>
   <button id="t-up" onclick="tab('up')">PS5 Upload</button>
-  <button id="t-comm" onclick="tab('comm')">Community</button>
   <button id="t-ps5" onclick="tab('ps5')">Remote</button>
   <button id="t-ftp" onclick="tab('ftp')">FTP</button>
 </nav>
@@ -338,8 +337,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     <div id="dl-now" style="margin-top:10px"></div><div id="dl-hist"></div></div>
   <div class="card" id="failed" hidden></div>
   <div class="card"><h2>Report</h2>
-    <div class="mut">Pick the PS5 result in the <b>PS5</b> column for an LZ4 game. It is saved here, and
-    <i>Recent actions</i> then shows a filled-in link to share it with the community (the original project's game reports).</div>
+    <div class="mut">Pick the PS5 result in the <b>PS5</b> column for a packed game. It is saved on this NAS only.</div>
     <label style="display:inline-flex;gap:8px;align-items:center;margin-top:10px">Your firmware
       <input id="fw" placeholder="e.g. 13.40" size="8" style="font:inherit;padding:4px 8px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--txt)"
         oninput="localStorage.setItem('fw', this.value); render()"></label>
@@ -1065,7 +1063,7 @@ function render() {
         ? `<button class="sm pri" data-id="${esc(g.output.split('/').pop())}" data-name="${esc(g.name)}" onclick="event.stopPropagation();push(this.dataset.id, this.dataset.name)">▶ Resume transfer</button>` : '';
       const why = g.verdict !== 'LZ4' && !g.running ? `<div class="why">${esc(g.why)}</div>` : '';
       const tx = txr && txr.state !== 'done' ? `<div class="cm">${xferText(txr)}</div>` : '';
-      return `<tr class="row" data-id="${esc(g.id)}" onclick="if(!event.target.closest('select,button,a'))openGame(this.dataset.id)"><td class="c-game"><img class="ico" alt="" loading="lazy" src="/api/icon?id=${encodeURIComponent(g.id)}" onerror="this.remove()"><span class="gname">${esc(g.name)}</span>${g.output_only ? '<span class="mine">PACKED FOLDER</span>' : ''}${g.not_in_use ? '<span class="mine" title="Another copy of this game is in use (see Copies in its sheet)">NOT IN USE</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_EN[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div>${placeHtml(g)}<div class="cm">${community(g.community)}</div>${tx}${sendNext ? '<div class="cm"><span class="chip ok">⬆️ sent to the PS5 when packed</span></div>' : ''}${why}</td>
+      return `<tr class="row" data-id="${esc(g.id)}" onclick="if(!event.target.closest('select,button,a'))openGame(this.dataset.id)"><td class="c-game"><img class="ico" alt="" loading="lazy" src="/api/icon?id=${encodeURIComponent(g.id)}" onerror="this.remove()"><span class="gname">${esc(g.name)}</span>${g.output_only ? '<span class="mine">PACKED FOLDER</span>' : ''}${g.not_in_use ? '<span class="mine" title="Another copy of this game is in use (see Copies in its sheet)">NOT IN USE</span>' : ''}<div class="why">${esc(g.title_id)} · <span class="kind">${esc(KIND_EN[g.kind] || g.kind)}</span>${g.source_size && !g.source_bytes ? ' · ' + gb(g.source_size) : ''}</div>${placeHtml(g)}${tx}${sendNext ? '<div class="cm"><span class="chip ok">⬆️ sent to the PS5 when packed</span></div>' : ''}${why}</td>
         <td class="c-status"><span class="pill ${v[0]}">${v[1]}</span></td>
         <td class="num c-src">${gb(g.source_bytes)}</td><td class="num c-out">${gb(g.output_bytes)}</td>
         <td class="num c-saved">${g.saved_percent != null ? `<b>${gb(g.source_bytes - g.output_bytes)}</b> saved · ${Math.round(g.saved_percent)} %<span class="mut mob"> · ${gb(g.source_bytes)} → ${gb(g.output_bytes)}</span>
@@ -1127,7 +1125,6 @@ function render() {
     if (url && fw && !/[?&]firmware=/.test(url[0])) url = [url[0] + '&firmware=' + encodeURIComponent(fw)];
     return `<div><b class="${r.ok ? 'good' : 'bad'}">${r.ok ? '✓' : '✗'}</b> ${esc(ACT_EN[r.action] || r.action)}
       ${r.game ? esc(r.game) : ''}${r.result ? ': ' + esc(PS5_EN[r.result]) : ''} <span class="mut">${esc(r.finished)}</span>
-      ${url ? `<div><a href="${esc(url[0])}" target="_blank" rel="noopener">Share the result with the community</a></div>` : ''}
       ${(r.action === 'check' || r.action === 'check_full') && !r.ok ? `<div style="margin:6px 0"><span class="bad">The check found problems.</span></div>` : ''}
       <pre>${esc((r.output || '').split('\n').slice(-6).join('\n'))}</pre></div>`;
   }).join('') : (pending ? '' : '<span class="mut">None yet.</span>'));
@@ -1425,10 +1422,10 @@ function renderPack() {
     <div class="pkcards">
       ${card('lz4', '⚡ LZ4', lzMode === 'legacy' ? 'APR-EMU 0.4.2.1' : 'ampr-emu-ng (LZ4 NG)', lz4b, '#8b5cf6',
         [['Loading', 'fastest'], ['Pack time', pkTime(src && speed[lzMode] ? src / speed[lzMode] : null)],
-         ['Community', lzMode === 'legacy' ? reports : '<span class="mut">covers APR-EMU only</span>'], ['Runtime', lzMode === 'legacy' ? 'APR-EMU' : 'ampr-emu-ng']], recBadge('lz4'), rt)}
+         ['Runtime', lzMode === 'legacy' ? 'APR-EMU' : 'ampr-emu-ng']], recBadge('lz4'), rt)}
       ${card('zstd', '🗜 Zstd', 'ampr-emu-ng', zb, '#38bdf8',
         [['Loading', 'a little slower'], ['Pack time', pkTime(src && speed.zstd ? src / speed.zstd : null)],
-         ['Community', '<span class="mut">covers APR-EMU only</span>'], ['Runtime', 'ampr-emu-ng']], recBadge('zstd'))}
+         ['Runtime', 'ampr-emu-ng']], recBadge('zstd'))}
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center">
       <label class="mut">Level <input type="range" min="1" max="${max}" value="${Math.min(pk.level, max)}" oninput="pk.level = Number(this.value); this.nextElementSibling.textContent = this.value"> <b>${Math.min(pk.level, max)}</b></label>
@@ -1508,6 +1505,7 @@ function ffpfscHtml(g, det) {
     `<div class="acts">${link}</div></div>`;
 }
 function communityHtml(g, det) {
+  return '';  // community reports are off; the PS5 result is kept on this NAS only
   if (g.pack_codec === 'zstd' || g.pack_runtime === 'ng') return '<div class="csec"><h4>Community reports</h4><div class="mut">The community list covers legacy LZ4. Results for zstd and ampr-emu-ng are saved locally and are not submitted as legacy LZ4 reports.</div></div>';
   if (!det) return '<div class="csec mut">Loading community reports…</div>';
   const c = det.community, web = det.community_web || ORIGIN_WEB, tid = det.title_id || g.title_id || '';
@@ -2305,13 +2303,12 @@ async function ps5Copies(tid) {
 }
 let comm = null;
 function tab(t) {
-  for (const k of ['mine', 'act', 'pg', 'pkg', 'ps4', 'smp', 'sav', 'up', 'ps5', 'comm', 'ftp']) {
+  for (const k of ['mine', 'act', 'pg', 'pkg', 'ps4', 'smp', 'sav', 'up', 'ps5', 'ftp']) {
     document.getElementById('p-' + k).hidden = t !== k;
     document.getElementById('t-' + k).classList.toggle('on', t === k);
   }
   try { localStorage.setItem('tab', t); } catch (e) {}
   if (t === 'zstd') renderZstd();
-  if (t === 'comm') loadComm();
   if (t === 'smp') loadSmp();
   if (t === 'sav') loadSav();
   if (t === 'up') loadUp();
@@ -2675,10 +2672,10 @@ async function loadPkgAct() {
     </div>`).join('') : '';
 }
 loadPkgAct(); setInterval(loadPkgAct, 3000);
-setInterval(() => { if (!document.getElementById('p-comm').hidden) loadComm(); }, 60000); ps5State(); setInterval(ps5State, 15000); rcvCheck(); setInterval(rcvCheck, 60000);
+ps5State(); setInterval(ps5State, 15000); rcvCheck(); setInterval(rcvCheck, 60000);
 try {
-  const saved = {'#community': 'comm', '#remote': 'ps5', '#ftp': 'ftp', '#activity': 'act', '#games': 'pg', '#pkg': 'pkg', '#ps4': 'ps4'}[location.hash] || localStorage.getItem('tab');
-  if (['zstd', 'comm', 'ps5', 'ftp', 'act', 'pg', 'pkg', 'ps4'].includes(saved)) tab(saved);
+  const saved = {'#remote': 'ps5', '#ftp': 'ftp', '#activity': 'act', '#games': 'pg', '#pkg': 'pkg', '#ps4': 'ps4'}[location.hash] || localStorage.getItem('tab');
+  if (['zstd', 'ps5', 'ftp', 'act', 'pg', 'pkg', 'ps4'].includes(saved)) tab(saved);
 } catch (e) {}
 </script>
 <footer class="mut" style="text-align:center;padding:16px;font-size:12px">ps5lz4zstd ·

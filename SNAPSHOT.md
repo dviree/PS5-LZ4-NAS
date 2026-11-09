@@ -25,7 +25,7 @@ callers/skeleton`); line numbers below drift, names don't.
   (`cmd_ui` → class `H`, port 5921) and catalog server (port 9898).
 - `ui.html`: the whole page (vanilla JS; not indexed by Trail). Tabs: My games
   (sub-tabs Folder/exFAT · LZ4 · Zstd), Activity, PS5 games, PKG installer,
-  PS4 games, ShadowMount, Saves, PS5 Upload, Community, Remote, FTP. Header:
+  PS4 games, ShadowMount, Saves, PS5 Upload, Remote, FTP (no Community tab). Header:
   Check all, Full re-check (no Compress all / Repair buttons; CLI only).
 - `Dockerfile`: stage `ng-runtime` builds ampr-emu-ng (quer3q main as is, no
   patch), `build` builds `ampr_pack_cli`, `forge`
@@ -66,7 +66,7 @@ callers/skeleton`); line numbers below drift, names don't.
 - PS5 side: FTP (`ps5_ftp_*`), pkg-receiver (`receiver_*`, port 12800),
   ShadowMountPlus via receiver (`smp`, `launch_check`), packages
   (`scan_pkgs`, `pkg_install*`, `ps5_installed`, `pkg_on_ps5`).
-- Community: theghostonline.dev issues (`compat_*`, `report_url`).
+- Community reports (`compat_*`, `report_url`): off unless `PS5LZ4_COMMUNITY=yes`.
 
 ### State on the NAS (`/volume2/docker/ps5-lz4/state`)
 

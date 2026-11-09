@@ -48,6 +48,9 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- theghostonline community reports off: no tab, counts, share link or fetching
+  (`PS5LZ4_COMMUNITY=yes` turns the backend on again; the page parts are gone).
+  The PS5 result is still saved on the NAS. The `.ffpfsc` sheet stays.
 - Forge → v0.5.5 (`8a3c7d3`: .ini files never packed, bundles ampr-emu-ng
   v0.3.4, naming template); round trips pass with the real binary.
 - Removing a copy keeps the report (and PS5 result) of the other format's copy.

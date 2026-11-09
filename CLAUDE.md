@@ -29,6 +29,8 @@
 - After a feature, give the update command:
   `cd /volume2/docker/ps5-lz4 && ./lz4-ps5.sh update --force`
   (after the `Build NAS image` run on `nas-build` is green).
+- No theghostonline community reports in the page (no tab, counts or share
+  links); PS5 results are saved on the NAS only.
 - Show mockups/screenshots before building larger UI changes when asked.
 
 ## Mandatory Trail-Code workflow

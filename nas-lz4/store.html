@@ -156,7 +156,6 @@ function tileHtml(it) {
       <span class="fav ${fav ? 'on' : ''}" role="button" title="${fav ? 'Remove from favorites' : 'Add to favorites'}" data-t="${esc(it.g.title_id)}" onclick="toggleFav(this.dataset.t, event)">${fav ? '★' : '☆'}</span></div>
     <div class="info"><div class="name">${esc(clean(it.g.name))}</div>
       <div class="meta">${gb(it.size)}${it.g.saved_percent != null && it.lz4 ? ` · ${Math.round(it.g.saved_percent)} % smaller` : ''}</div>
-      <div class="stars">${community(it.g.community)}</div>
       ${s.pct != null ? `<div class="prog"><div class="bar"><i style="width:${s.pct}%"></i></div></div>` : ''}</div></button>`;
 }
 function setF(b) { document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b)); filter = b.dataset.f; render(); }
