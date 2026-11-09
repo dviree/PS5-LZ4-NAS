@@ -540,7 +540,7 @@ work in progress that quer3q merges by pull request, so they are reported,
 not taken in: each new or moved branch with its commits that are not in
 quer3q's `main` yet and Trail-Code's blast radius against it. The heads seen
 are kept in `tools/james-branches.json`. Kernel AIO on packed files is in
-quer3q's own v0.3.3, so no patch is applied on top of `main`.
+quer3q's own code since v0.3.3, so no patch is applied on top of `main`.
 
 ## Your own TOML profiles
 
@@ -876,8 +876,8 @@ Mark the result on the web page and share it with the community.
 ## Runtime fixes and Docker update
 
 NG outputs now use ampr-emu-ng `main` at
-`e18a70315df6ed6d061363865230f1d351a31c95` from https://github.com/quer3q/ampr-emu-ng
-(v0.3.3: quer3q's kernel AIO on packed files, plus James St-Pierre's `fix/low-virtual-fds`, `fix/packed-fd-slot-capacity`,
+`cbdafd8d87f6e904524142dca210f1d1334bf505` from https://github.com/quer3q/ampr-emu-ng
+(v0.3.4: kernel AIO on packed files, the save-load hang fix, a runtime thread budget and doubled pack caches, plus James St-Pierre's `fix/low-virtual-fds`, `fix/packed-fd-slot-capacity`,
 `fix/no-inline-cache-completion` and `fix/debug-event-ring-race`, merged upstream
 as PRs #16, #20, #23 and #24, and quer3q's "claim only open synthetic packed fds").
 This includes reserved low descriptors, read-only indexed-directory opens, and

@@ -2911,12 +2911,13 @@ def cmd_remove(args) -> int:
     if running and q.get("current") and out.name in (f"{q['current']}-lz4", f"{q['current']}-zstd"):
         raise SystemExit("that game is being packed right now; stop the job first")
     _files, size = tree_bytes(out)
+    host = host_output_path(out)
     shutil.rmtree(out)
     for e in scan_library():
         if e.output == out:
             (REPORTS / f"{e.id}.json").unlink(missing_ok=True)
     (REPORTS / f"{out.name.rsplit('-', 1)[0]}.json").unlink(missing_ok=True)
-    print(f"deleted {out.name} ({human(size)}) from {HOST_OUTPUT}; the original is untouched")
+    print(f"deleted {out.name} ({human(size)}) from {Path(host).parent}; the original is untouched")
     return 0
 
 
@@ -7430,6 +7431,18 @@ def run_request(req: dict) -> dict:
     return {"ok": out.returncode == 0, "output": text[-3000:]}
 
 
+def log_action(res: dict) -> None:
+    """Append one line per page action to state/actions.log. The page keeps only
+    the last 20 results; this file keeps them all, to trace what was done when."""
+    try:
+        line = {k: res.get(k) for k in ("finished", "action", "game", "result", "ok")}
+        line["output"] = (res.get("output") or "")[-600:]
+        with open(STATE / "actions.log", "a", encoding="utf-8") as f:
+            f.write(json.dumps(line, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
 def cmd_agent(_args) -> int:
     """Runs in the ps5-lz4 container: carries out requests from the web page."""
     ensure_dirs()
@@ -7451,6 +7464,7 @@ def cmd_agent(_args) -> int:
             res.update(action=req.get("action"), game=req.get("game"), result=req.get("result"),
                        asked=req.get("asked"), finished=now())
             write_json(REQUESTS / (f.name[: -len(".req.json")] + ".done.json"), res)
+            log_action(res)
         olds = sorted(REQUESTS.glob("*.done.json"), key=lambda f: f.stat().st_mtime)
         for f in olds[:-20]:
             f.unlink(missing_ok=True)

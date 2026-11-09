@@ -2284,8 +2284,12 @@ function deleteOriginal(gid) {
     "\n\nThis can't be undone.", {game: gid});
 }
 function deleteLz4(id, name) {
+  // The exact folder is named and sent, so only that copy can go (never "the other format").
+  const g = (data.games || []).find(x => x.id === id) || {};
+  const folder = (g.output || '').split('/').pop();
+  if (!folder) { alert('Use the LZ4 or Zstd sub-tab and press Delete copy on the copy you mean.'); return; }
   closeGame();
-  act('remove', `Delete the LZ4 copy of ${name} on the NAS?\n\nIt frees its space and the game shows as "can be LZ4" again. The original game is never touched, and a copy on the PS5 stays.`, {game: id});
+  act('remove', `Delete the packed copy ${folder} of ${name} on the NAS?\n\nIt frees its space. The original game is never touched, and a copy on the PS5 stays.`, {game: folder});
 }
 let pgAt = 0;
 async function ps5Copies(tid) {

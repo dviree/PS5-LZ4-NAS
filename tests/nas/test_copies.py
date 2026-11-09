@@ -104,3 +104,18 @@ class CopyRuntimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ActionLogTests(unittest.TestCase):
+    def test_every_action_is_appended_to_the_log(self):
+        import json, tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from test_community import app
+        with tempfile.TemporaryDirectory() as tmp, patch.object(app, 'STATE', Path(tmp)):
+            for n in range(25):
+                app.log_action({'action': 'remove', 'game': f'G{n}-lz4', 'ok': True, 'finished': 't', 'output': 'x' * 900})
+            lines = (Path(tmp) / 'actions.log').read_text().splitlines()
+            self.assertEqual(len(lines), 25)
+            self.assertEqual(json.loads(lines[-1])['game'], 'G24-lz4')
+            self.assertEqual(len(json.loads(lines[0])['output']), 600)

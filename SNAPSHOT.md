@@ -71,13 +71,13 @@ callers/skeleton`); line numbers below drift, names don't.
 ### State on the NAS (`/volume2/docker/ps5-lz4/state`)
 
 `queue.json`, `reports/`, `requests/`, `profiles/` (custom TOMLs + lists),
-`profile-choice.json`, `verify/`, `transfers/`, `settings.json`, `ps5lz4.db`.
+`profile-choice.json`, `actions.log` (every page action, append-only), `verify/`, `transfers/`, `settings.json`, `ps5lz4.db`.
 
 ## Upstreams and pins
 
 - theghostonline/PS5-LZ4-Compression (Forgejo): engine + packer in `src/`;
   `sync-upstream.yml` → `upstream-raw`/`upstream-sync`, review-gated.
-- quer3q/ampr-emu-ng main (pin `NG_COMMIT` in Dockerfile, `e18a703` v0.3.3,
+- quer3q/ampr-emu-ng main (pin `NG_COMMIT` in Dockerfile, `cbdafd8` v0.3.4,
   kernel AIO built in; the old James AIO patch is gone).
 - quer3q/ps5-dump-forge releases (pin in `install-forge.py`).
 - `tools/quer3q_update.py` moves pins (checks SHA256SUMS), reports James's

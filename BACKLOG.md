@@ -18,9 +18,10 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
   Actions › General); until then the quer3q/James follower pushes a branch only.
 - Test on the NAS/PS5 (the session can't reach the NAS): Compress dialog and
   estimates, TOML chooser, sub-tabs, LZ4 NG with theghostonline's packer +
-  ampr-emu-ng `e18a703`, Start check (ShadowMountPlus fields `runtime_path`,
+  ampr-emu-ng `cbdafd8`, Start check (ShadowMountPlus fields `runtime_path`,
   `fakelib_mode` are taken from exFAT2AMPR's code, unverified); LZ4 NG/Zstd games
-  on ampr-emu-ng v0.3.3 (kernel AIO now upstream's, not James's patch).
+  on ampr-emu-ng v0.3.4 (upstream kernel AIO, save-load hang fix, 192 MiB pool:
+  check save loading and memory-tight games).
 - Old git tags still point to history before the personal-data rewrite (owner
   has the retag commands).
 - PR #2 (Trail-Code + Claude Code in Codespaces) is open, not merged.
@@ -31,9 +32,8 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
   page now uses `copies` per folder and `requires_ng` checks the report's
   `output`, but other report readers (e.g. community report level) still see
   the last pack only.
-- `cmd_remove` prints `HOST_OUTPUT` even for a Zstd copy in the Zstd folder.
-- Game detail "Delete LZ4 copy" sends the game id; `output_for` tries `-lz4`
-  first, then `-zstd`, so with only a Zstd copy it deletes that one.
+- Forge v0.5.5 is tagged (`8a3c7d3`) but its release files were not up on
+  2026-11-09 (SHA256SUMS 404): run `tools/quer3q_update.py --apply` again later.
 - With Repair gone from the page, a wrong APR-EMU is fixed by repacking or
   `./lz4-ps5.sh apr --fix`.
 - GitHub runs scheduled workflows rarely for this repo (~every 6 h).
@@ -51,6 +51,9 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- ampr-emu-ng → `cbdafd8` (v0.3.4). Delete packed copy names and sends the exact
+  folder; `cmd_remove` prints the right folder; `state/actions.log` keeps every
+  page action (the page still shows the last 20).
 - TOML switch off no longer drops theghostonline's bundled game/engine profiles
   (e.g. Insomniac layout) for LZ4 or Zstd.
 - ampr-emu-ng → `e18a703` (v0.3.3, quer3q's own kernel AIO); our AIO patch removed.
