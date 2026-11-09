@@ -119,3 +119,29 @@ class ActionLogTests(unittest.TestCase):
             self.assertEqual(len(lines), 25)
             self.assertEqual(json.loads(lines[-1])['game'], 'G24-lz4')
             self.assertEqual(len(json.loads(lines[0])['output']), 600)
+
+
+class RemoveKeepsOtherReportTests(unittest.TestCase):
+    def test_removing_one_copy_keeps_the_report_of_the_other_format(self):
+        import contextlib, io, json, tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from test_community import app
+        with tempfile.TemporaryDirectory() as tmp:
+            t = Path(tmp)
+            out, zout, reports = t / 'out', t / 'zout', t / 'reports'
+            for d in (out / 'G-lz4', zout / 'G-zstd', reports):
+                d.mkdir(parents=True)
+            (reports / 'G.json').write_text(json.dumps({'output': '/host/out/G-lz4', 'ps5_result': 'works'}))
+            with patch.multiple(app, OUTPUT=out, ZSTD_OUTPUT=zout, HOST_OUTPUT='/host/out', HOST_ZSTD_OUTPUT='/host/zout',
+                                REPORTS=reports, LIBRARY=t / 'lib', ensure_dirs=lambda: None,
+                                is_packed=lambda p: True, scan_library=lambda: [],
+                                job_running=lambda: (False, '')), contextlib.redirect_stdout(io.StringIO()) as said:
+                app.cmd_remove(SimpleNamespace(game='G-zstd'))
+                self.assertFalse((zout / 'G-zstd').exists())
+                self.assertTrue((out / 'G-lz4').is_dir())
+                self.assertTrue((reports / 'G.json').is_file())
+                self.assertIn('/host/zout', said.getvalue())
+                app.cmd_remove(SimpleNamespace(game='G-lz4'))
+                self.assertFalse((reports / 'G.json').exists())

@@ -41,7 +41,6 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
   self-modification in an earlier session).
 - `src/lzc_api.c` (upstream) names a real game in a comment (`.ffpfsc` example);
   owner to decide whether to patch upstream's text.
-- `--learn` in the LZ4 pack writes learned profiles into `PROFILES`.
 
 ## Ideas
 
@@ -51,6 +50,9 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- Removing a copy keeps the report (and PS5 result) of the other format's copy.
+- Follower no longer crashes when a Forge tag has no release files yet. (`--learn`
+  only reads the bundled profiles; the old known issue was wrong.)
 - ampr-emu-ng → `cbdafd8` (v0.3.4). Delete packed copy names and sends the exact
   folder; `cmd_remove` prints the right folder; `state/actions.log` keeps every
   page action (the page still shows the last 20).

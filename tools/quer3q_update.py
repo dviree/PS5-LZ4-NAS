@@ -28,6 +28,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -190,7 +191,15 @@ def main() -> int:
             print(f"{label}: {cur[key][:12]} -> {new[key][:12]}")
             if not a.apply:
                 continue
-            report.append(apply_ng(cur[key], new[key], tmp) if key == "ng" else apply_forge(cur[key], new[key], tmp))
+            try:
+                report.append(apply_ng(cur[key], new[key], tmp) if key == "ng" else apply_forge(cur[key], new[key], tmp))
+            except urllib.error.HTTPError as err:
+                if key != "forge" or err.code != 404:
+                    raise
+                # Tagged, but the release files are not uploaded yet: nothing to verify against.
+                print(f"{label}: v{new[key]} has no release files yet (404); staying on {cur[key]}")
+                report.append(f"**Forge** v{new[key]} is tagged but has no release files yet; still on {cur[key]}.\n")
+                continue
             changed = True
             if a.trail:
                 old, nw = (cur[key], new[key]) if key == "ng" else (f"v{cur[key]}", f"v{new[key]}")

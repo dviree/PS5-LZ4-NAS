@@ -2913,10 +2913,13 @@ def cmd_remove(args) -> int:
     _files, size = tree_bytes(out)
     host = host_output_path(out)
     shutil.rmtree(out)
-    for e in scan_library():
-        if e.output == out:
-            (REPORTS / f"{e.id}.json").unlink(missing_ok=True)
-    (REPORTS / f"{out.name.rsplit('-', 1)[0]}.json").unlink(missing_ok=True)
+    # A game's report describes its last pack only: drop it when it is about the
+    # copy just removed (or names none), not when it belongs to the other format.
+    names = {e.id for e in scan_library() if e.output == out} | {out.name.rsplit("-", 1)[0]}
+    for name in names:
+        rep = read_json(REPORTS / f"{name}.json") or {}
+        if rep.get("output") in (None, host):
+            (REPORTS / f"{name}.json").unlink(missing_ok=True)
     print(f"deleted {out.name} ({human(size)}) from {Path(host).parent}; the original is untouched")
     return 0
 
