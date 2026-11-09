@@ -51,6 +51,8 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- Game reports tab: quer3q's reports as a compatibility list (search, filters,
+  in-your-library mark); list-style reports (a table of Title IDs) count per row.
 - quer3q's game reports (issues labelled `test report` on quer3q/ampr-emu-ng):
   counts per Title ID for Zstd/LZ4 in the game sheet, and a filled-in report
   link after setting the PS5 result of a Zstd or LZ4 NG copy.

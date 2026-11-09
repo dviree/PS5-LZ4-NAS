@@ -250,6 +250,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
   <button id="t-smp" onclick="tab('smp')">ShadowMount</button>
   <button id="t-sav" onclick="tab('sav')">Saves</button>
   <button id="t-up" onclick="tab('up')">PS5 Upload</button>
+  <button id="t-comm" onclick="tab('comm')">Game reports</button>
   <button id="t-ps5" onclick="tab('ps5')">Remote</button>
   <button id="t-ftp" onclick="tab('ftp')">FTP</button>
 </nav>
@@ -529,13 +530,14 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
 </main>
 <main id="p-comm" hidden>
   <div class="card">
-    <h2>Community reports</h2>
+    <h2>Game reports <span class="mut" style="font-weight:500">· ampr-emu-ng (Zstd and LZ4 NG)</span></h2>
     <div class="mut" id="c-sub"></div>
     <div class="filters">
       <input id="c-q" placeholder="Search game or Title ID" oninput="renderComm()">
       <select id="c-f" onchange="renderComm()">
         <option value="">All</option><option value="works">Works</option>
-        <option value="problems">Problems (issues / won't start / crashes)</option><option value="mine">Only my games</option>
+        <option value="problems">Problems (won't start / crash / hang / slow)</option>
+        <option value="zstd">Zstd reports</option><option value="lz4">LZ4 reports</option><option value="mine">Only my games</option>
       </select>
       <select id="c-s" onchange="renderComm()">
         <option value="date">Latest report</option><option value="reports">Most reports</option><option value="name">Name</option>
@@ -1510,7 +1512,7 @@ function ffpfscHtml(g, det) {
 function ngCounts(c) {
   if (!c || !c.reports) return '<span class="mut">no reports</span>';
   const p = [], add = (k, cls, t) => { if (c[k]) p.push(`<span class="${cls}">${c[k]} ${t}</span>`); };
-  add('works', 'good', 'work'); add('issues', 'warn', 'slow/stutter'); add('noStart', 'bad', "won't start");
+  add('works', 'good', c.works === 1 ? 'works' : 'work'); add('issues', 'warn', 'slow/stutter'); add('noStart', 'bad', "won't start");
   add('crash', 'bad', 'crash'); add('hang', 'bad', 'hang'); add('other', 'mut', 'other');
   return p.join(' · ');
 }
@@ -2327,10 +2329,11 @@ async function ps5Copies(tid) {
 }
 let comm = null;
 function tab(t) {
-  for (const k of ['mine', 'act', 'pg', 'pkg', 'ps4', 'smp', 'sav', 'up', 'ps5', 'ftp']) {
+  for (const k of ['mine', 'act', 'pg', 'pkg', 'ps4', 'smp', 'sav', 'up', 'ps5', 'comm', 'ftp']) {
     document.getElementById('p-' + k).hidden = t !== k;
     document.getElementById('t-' + k).classList.toggle('on', t === k);
   }
+  if (t === 'comm') loadComm();
   try { localStorage.setItem('tab', t); } catch (e) {}
   if (t === 'zstd') renderZstd();
   if (t === 'smp') loadSmp();
@@ -2349,49 +2352,49 @@ function ago(iso) {
 }
 async function loadComm(refresh) {
   try {
-    if (refresh) document.getElementById('c-sub').textContent = 'Fetching community reports…';
-    const r = await fetch('/api/community' + (refresh ? '?refresh=1' : ''), {cache: 'no-store'});
+    if (refresh) document.getElementById('c-sub').textContent = 'Fetching game reports…';
+    const r = await fetch('/api/ng-reports' + (refresh ? '?refresh=1' : ''), {cache: 'no-store'});
     const next = await r.json();
     if (!r.ok) throw new Error(next.error || r.status);
     comm = next;
     renderComm();
   } catch (e) { document.getElementById('c-sub').textContent = 'Could not read the reports: ' + e; }
 }
-const ST_EN = {works: 'works', issues: 'with issues', noStart: "won't start", crash: 'crashes'};
+const NG_EN = {works: 'works', issues: 'slow or stutters', noStart: "won't start", crash: 'crashes', hang: 'hangs', other: 'other'};
+const NG_BAD = ['issues', 'noStart', 'crash', 'hang'];
 function renderComm() {
   if (!comm) return;
   const mine = new Set((data ? data.games : []).map(g => (g.title_id || '').toUpperCase()));
   const q = document.getElementById('c-q').value.trim().toLowerCase();
   const f = document.getElementById('c-f').value, sort = document.getElementById('c-s').value;
+  const kinds = r => [r.zstd, r.lz4, r.plain, r.other].filter(Boolean);
   let rows = Object.entries(comm.games || {}).map(([tid, g]) => ({tid, ...g}));
   const total = rows.reduce((n, r) => n + (r.reports || 0), 0);
   document.getElementById('c-sub').innerHTML =
-    `${rows.length} games, ${total} reports from <a href="${esc(comm.web || ORIGIN_WEB)}/issues?state=all&labels=" target="_blank" rel="noopener">${esc(comm.repo)}</a>` +
-    ` · ${{live: 'live from theghostonline.dev', repo: "from the original project's list", mirror: "from this fork's copy", bundled: 'from this image', image: 'from this image'}[comm.source] || ''}` +
-    (comm.updated ? `, updated ${esc(ago(comm.updated))}` : '') +
+    `${rows.length} games, ${total} reports from <a href="${esc(comm.web)}/issues?q=${encodeURIComponent('label:"test report"')}" target="_blank" rel="noopener">${esc(comm.repo)}</a>` +
+    (comm.updated ? `, updated ${esc(ago(comm.updated.replace(' ', 'T')))}` : ', not fetched yet') +
     (comm.refresh_error ? ` · <span class="bad">Refresh failed; showing saved reports: ${esc(comm.refresh_error)}</span>` : '') +
-    ` · <button class="sm" onclick="loadComm(true)">Refresh now</button>`;
+    ` · <button class="sm" onclick="loadComm(true)">Refresh now</button>` +
+    `<div>Set the PS5 result of a Zstd or LZ4 NG copy to get a filled-in report link under Recent actions.</div>`;
   if (q) rows = rows.filter(r => (r.name || '').toLowerCase().includes(q) || r.tid.toLowerCase().includes(q));
-  if (f === 'works') rows = rows.filter(r => r.works);
-  if (f === 'problems') rows = rows.filter(r => r.issues || r.noStart || r.crash);
+  if (f === 'works') rows = rows.filter(r => kinds(r).some(c => c.works));
+  if (f === 'problems') rows = rows.filter(r => kinds(r).some(c => NG_BAD.some(k => c[k])));
+  if (f === 'zstd' || f === 'lz4') rows = rows.filter(r => r[f]);
   if (f === 'mine') rows = rows.filter(r => mine.has(r.tid));
-  const date = r => (r.lastReport || {}).date || '';
-  rows.sort(sort === 'name' ? (a, b) => (a.name || '').localeCompare(b.name || '') :
-            sort === 'date' ? (a, b) => date(b).localeCompare(date(a)) :
+  const date = r => (r.latest || {}).date || '';
+  rows.sort(sort === 'name' ? (a, b) => (a.name || a.tid).localeCompare(b.name || b.tid) :
+            sort === 'date' ? (a, b) => date(b).localeCompare(date(a)) || b.tid.localeCompare(a.tid) :
             (a, b) => (b.reports || 0) - (a.reports || 0) || (a.name || '').localeCompare(b.name || ''));
   document.getElementById('comm').innerHTML =
-    '<tr><th>Game</th><th>Result</th><th>Latest report</th><th>Packed from</th><th>Firmware</th><th>Version</th></tr>' +
+    '<tr><th>Game</th><th>Zstd</th><th>LZ4</th><th>Latest report</th><th>ampr-emu-ng</th></tr>' +
     (rows.length ? rows.map(r => {
-      const l = r.lastReport || {};
-      // Issue numbers changed with the move: link them only when counted from the new site.
-      const link = l.issue && comm.source === 'live' ? `${comm.web || ORIGIN_WEB}/issues/${l.issue}` : '';
+      const l = r.latest || {}, cell = c => c ? ngCounts(c) : '<span class="mut">–</span>';
       return `<tr><td>${esc(r.name || r.tid)}${mine.has(r.tid) ? '<span class="mine">IN YOUR LIBRARY</span>' : ''}<div class="why">${esc(r.tid)}</div></td>
-        <td>${community(r)}</td>
-        <td>${l.status ? `<span class="${l.status === 'works' ? 'good' : (l.status === 'noStart' || l.status === 'crash') ? 'bad' : ''}">${esc(ST_EN[l.status] || l.status)}</span>` : '–'}
-          <div class="why">${esc((l.date || '').slice(0, 10))}${link ? ` · <a href="${esc(link)}" target="_blank" rel="noopener">#${esc(l.issue)}</a>` : ''}</div></td>
-        <td>${esc(l.source || '–')}${l.level ? `<div class="why">level ${esc(l.level)}</div>` : ''}</td>
-        <td>${esc(l.firmware || '–')}</td><td>${esc(l.appVersion || '–')}</td></tr>`;
-    }).join('') : '<tr><td colspan="6" class="mut">No reports match.</td></tr>');
+        <td>${cell(r.zstd)}${r.other ? `<div class="why">pack kind not given: ${ngCounts(r.other)}</div>` : ''}</td><td>${cell(r.lz4)}${r.plain ? `<div class="why">no packs: ${ngCounts(r.plain)}</div>` : ''}</td>
+        <td>${l.result ? `<span class="${l.result === 'works' ? 'good' : NG_BAD.includes(l.result) ? 'bad' : ''}">${esc(NG_EN[l.result] || l.result)}</span> <span class="mut">(${esc(!l.packs || l.packs === 'other' ? 'pack kind not given' : l.packs)})</span>` : '–'}
+          <div class="why">${esc(l.date || '')}${l.issue ? ` · <a href="${esc(comm.web)}/issues/${esc(l.issue)}" target="_blank" rel="noopener">#${esc(l.issue)}</a>${l.open ? ' open' : ''}` : ''}</div></td>
+        <td>${esc(l.version || '–')}</td></tr>`;
+    }).join('') : '<tr><td colspan="5" class="mut">No reports match.</td></tr>');
 }
 
 async function load() {
@@ -2699,7 +2702,7 @@ loadPkgAct(); setInterval(loadPkgAct, 3000);
 ps5State(); setInterval(ps5State, 15000); rcvCheck(); setInterval(rcvCheck, 60000);
 try {
   const saved = {'#remote': 'ps5', '#ftp': 'ftp', '#activity': 'act', '#games': 'pg', '#pkg': 'pkg', '#ps4': 'ps4'}[location.hash] || localStorage.getItem('tab');
-  if (['zstd', 'ps5', 'ftp', 'act', 'pg', 'pkg', 'ps4'].includes(saved)) tab(saved);
+  if (['zstd', 'comm', 'ps5', 'ftp', 'act', 'pg', 'pkg', 'ps4'].includes(saved)) tab(saved);
 } catch (e) {}
 </script>
 <footer class="mut" style="text-align:center;padding:16px;font-size:12px">ps5lz4zstd ·

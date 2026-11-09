@@ -49,3 +49,18 @@ class NgReportTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class NgListReportTests(unittest.TestCase):
+    def test_a_report_listing_several_games_counts_for_each(self):
+        table = ("### Compatibility Table\n\n| Game ID | Title | Status (ZSTD) |\n|---|---|---|\n"
+                 "| **PPSA00001** | Example One | ok |\n| **PPSA00002** | Example Two | ok |\n")
+        one = issue(1, 'List of games tested', 'zstd', 'Works (played past the first level load)', game='List of games')
+        one['body'] += "\n\n" + table
+        one['labels'].append({'name': 'works'})
+        two = issue(2, '[PPSA00003] Example Three', 'zstd', '', game='Example Three')
+        two['labels'].append({'name': 'works'})
+        games = app.ng_reports_aggregate([one, two])['games']
+        self.assertEqual(sorted(games), ['PPSA00001', 'PPSA00002', 'PPSA00003'])
+        self.assertEqual((games['PPSA00002']['name'], games['PPSA00002']['zstd']['works']), ('Example Two', 1))
+        self.assertEqual(games['PPSA00003']['zstd']['works'], 1)  # no Result answer: the "works" label counts

@@ -2454,10 +2454,15 @@ def ng_form_sections(body: str) -> dict:
     return out
 
 
+NG_TABLE_ROW = re.compile(r"^\|\s*\**((?:PPSA|CUSA|PPSM)\d{5})\**\s*\|\s*([^|\n]+?)\s*\|", re.I | re.M)
+
+
 def ng_reports_aggregate(issues: list[dict]) -> dict:
     """quer3q's report issues -> {"games": {TITLEID: {"name", "zstd": counts, "lz4": counts,
-    "plain": counts, "latest": {...}}}}. One issue is one report; pull requests and
-    issues without a Title ID are left out."""
+    "plain": counts, "latest": {...}}}}. An issue is one report for the game in its
+    title or Game field; one that lists several games in a table (no Title ID in the
+    title) counts once for each row. Pull requests and issues without a Title ID
+    are left out."""
     games = {}
     for issue in sorted(issues, key=lambda i: i.get("created_at") or ""):
         if issue.get("pull_request"):
@@ -2465,24 +2470,30 @@ def ng_reports_aggregate(issues: list[dict]) -> dict:
         labels = {(lb.get("name") or "").lower() for lb in issue.get("labels") or []}
         if labels & {"invalid", "duplicate", "spam"}:
             continue
-        f = ng_form_sections(issue.get("body") or "")
+        body = issue.get("body") or ""
+        f = ng_form_sections(body)
         game = f.get("game, title id and game version", "")
         m = TITLE_RE.search(issue.get("title") or "") or TITLE_RE.search(game)
-        if not m:
-            continue
+        if m:
+            name = re.sub(r"\s+", " ", TITLE_RE.sub("", game).split(",")[0]).strip(" ,:-[]")[:60]
+            found = [(m.group(0).upper(), name)]
+        else:
+            found = list({t.upper(): (t.upper(), re.sub(r"\s+", " ", n).strip("* ")[:60])
+                          for t, n in NG_TABLE_ROW.findall(body)}.values())
         answer = (f.get("result") or "").lower()
-        key = next((k for start, k, _ in NG_RESULTS if answer.startswith(start)), "other")
+        key = next((k for start, k, _ in NG_RESULTS if answer.startswith(start)), "works" if "works" in labels else "other")
         packs = (f.get("packs") or "").lower()
         packs = "zstd" if packs.startswith("zstd") else "lz4" if packs.startswith("lz4") else "plain" if packs.startswith("plain") else "other"
-        tid = m.group(0).upper()
-        g = games.setdefault(tid, {"name": ""})
-        c = g.setdefault(packs, {"works": 0, "issues": 0, "noStart": 0, "crash": 0, "hang": 0, "other": 0, "reports": 0})
-        c[key] += 1
-        c["reports"] += 1
-        g["name"] = re.sub(r"\s+", " ", game.split(",")[0]).strip()[:60] or g["name"]
-        g["latest"] = {"issue": issue.get("number"), "result": key, "packs": packs,
-                       "version": re.sub(r"\s+", " ", f.get("ampr-emu-ng version", ""))[:24],
-                       "date": (issue.get("created_at") or "")[:10], "open": issue.get("state") == "open"}
+        for tid, name in found:
+            g = games.setdefault(tid, {"name": ""})
+            c = g.setdefault(packs, {"works": 0, "issues": 0, "noStart": 0, "crash": 0, "hang": 0, "other": 0, "reports": 0})
+            c[key] += 1
+            c["reports"] += 1
+            g["name"] = name or g["name"]
+            g["reports"] = g.get("reports", 0) + 1
+            g["latest"] = {"issue": issue.get("number"), "result": key, "packs": packs,
+                           "version": re.sub(r"\s+", " ", f.get("ampr-emu-ng version", ""))[:24],
+                           "date": (issue.get("created_at") or "")[:10], "open": issue.get("state") == "open"}
     return {"updated": now(), "repo": NG_REPORT_REPO, "games": games}
 
 
@@ -8055,6 +8066,18 @@ def cmd_ui(args) -> int:
                 body = {"repo": COMPAT_REPO, "web": ORIGIN_WEB, "updated": data.get("updated"), "source": data.get("source") or "image",
                         "games": (data.get("games") or {}) if COMMUNITY_REPORTS else {}, "refresh_error": data.get("refresh_error")}
                 return self.send(200, json.dumps(body, ensure_ascii=False).encode())
+            if self.path.startswith("/api/ng-reports"):
+                err = None
+                if NG_REPORTS_ON and "refresh=1" in self.path and time.time() - refreshed[0] > 60:
+                    refreshed[0] = time.time()
+                    try:
+                        ng_reports_refresh()
+                    except Exception as e:
+                        err = str(e)
+                saved = (read_json(NG_REPORTS, {}) or {}) if NG_REPORTS_ON else {}
+                return self.send(200, json.dumps({"repo": NG_REPORT_REPO, "web": NG_REPORT_WEB, "updated": saved.get("updated"),
+                                                  "games": saved.get("games") or {}, "refresh_error": err},
+                                                 ensure_ascii=False).encode())
             if self.path == "/api/dashboard":
                 with lock:
                     if time.time() - cache["at"] > 4:

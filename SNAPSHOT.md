@@ -25,7 +25,8 @@ callers/skeleton`); line numbers below drift, names don't.
   (`cmd_ui` → class `H`, port 5921) and catalog server (port 9898).
 - `ui.html`: the whole page (vanilla JS; not indexed by Trail). Tabs: My games
   (sub-tabs Folder/exFAT · LZ4 · Zstd), Activity, PS5 games, PKG installer,
-  PS4 games, ShadowMount, Saves, PS5 Upload, Remote, FTP (no Community tab). Header:
+  PS4 games, ShadowMount, Saves, PS5 Upload, Game reports (quer3q's ampr-emu-ng reports, `/api/ng-reports`),
+  Remote, FTP. Header:
   Check all, Full re-check (no Compress all / Repair buttons; CLI only).
 - `Dockerfile`: stage `ng-runtime` builds ampr-emu-ng (quer3q main as is, no
   patch), `build` builds `ampr_pack_cli`, `forge`
