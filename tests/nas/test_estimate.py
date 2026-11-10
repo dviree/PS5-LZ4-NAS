@@ -20,7 +20,7 @@ class EstimateTests(unittest.TestCase):
             (game / "data" / "text.bin").write_bytes(b" ".join(random.choice(words) for _ in range(400000)))
             (game / "data" / "noise.bin").write_bytes(os.urandom(1_500_000))
             entry = type("E", (), {"id": "g", "path": game})()
-            with patch.object(app, "profile_entry", lambda gid: entry), patch.object(app, "_estimates", {}):
+            with patch.object(app, "game_entry", lambda gid: entry), patch.object(app, "_estimates", {}):
                 r = app.estimate_game("g")
             src = r["source_bytes"]
             self.assertEqual(src, sum(p.stat().st_size for p in game.rglob("*") if p.is_file()))
@@ -30,7 +30,7 @@ class EstimateTests(unittest.TestCase):
             image = Path(tmp) / "x.ffpfsc"
             image.touch()
             entry.path = image
-            with patch.object(app, "profile_entry", lambda gid: entry), self.assertRaises(ValueError):
+            with patch.object(app, "game_entry", lambda gid: entry), self.assertRaises(ValueError):
                 app.estimate_game("g")
 
 

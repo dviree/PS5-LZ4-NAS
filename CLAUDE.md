@@ -34,6 +34,8 @@
   (after the `Build NAS image` run on `nas-build` is green).
 - No theghostonline community reports in the page (no tab, counts or share
   links). Game reports come from and go to quer3q/ampr-emu-ng (Zstd, LZ4 NG).
+- No TOML profiles (owner, 2026-11-10): no chooser, editor, upload or switch;
+  Forge's own packing rules decide every pack.
 - Show mockups/screenshots before building larger UI changes when asked.
 
 ## Mandatory Trail-Code workflow

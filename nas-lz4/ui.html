@@ -81,12 +81,9 @@ tr.row{cursor:pointer}tr.row td{transition:background .12s}tr.row:hover td{backg
 .seg button{border:0;border-radius:0;box-shadow:none;background:transparent;color:inherit;text-shadow:none;padding:9px 15px;display:flex;flex-direction:column;align-items:flex-start;gap:2px}
 .seg button small{font-weight:500;opacity:.75;font-size:11.5px}
 .seg button.on{background:linear-gradient(135deg,var(--btn1),var(--btn2));color:#fff}
-.tomlopts{display:grid;gap:8px;margin-top:12px}
 .topt{display:flex;gap:12px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;background:rgba(255,255,255,.03)}
 .topt:hover{background:rgba(255,255,255,.07)}.topt.on{border-color:#38bdf8;background:rgba(56,189,248,.10)}
 .topt .ti{font-size:20px}.topt .tn{font-weight:600;overflow-wrap:anywhere}.topt .sp{flex:1}
-.tomldrop{display:block;border:2px dashed var(--line);border-radius:14px;padding:16px;text-align:center;cursor:pointer;margin-top:12px}
-.tomldrop.over{border-color:#38bdf8;background:rgba(56,189,248,.08)}
 .subtabs{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 14px;border-bottom:1px solid var(--line);padding-bottom:10px}
 .subtabs button{background:transparent;box-shadow:none;border:1px solid var(--line);color:inherit;text-shadow:none;border-radius:12px;padding:8px 14px;display:flex;gap:8px;align-items:center}
 .subtabs button.on{background:linear-gradient(135deg,var(--btn1),var(--btn2));color:#fff;border-color:transparent}
@@ -304,20 +301,6 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
     The newest is marked; deleting an older one frees its space (needs DELETE_ORIGINALS=yes). Its LZ4 copy, if any, stays.</div>
     <div id="dups"></div></div>
   <div class="card"><h2>Library</h2><div class="subtabs" id="libtabs" role="tablist"></div><div id="fmtbar"></div><div id="unread"></div><div class="scroll" id="games-wrap"><table id="games"></table></div><div id="copies" hidden></div></div>
-  <div class="card" id="profile-editor" hidden>
-    <h2>TOML · <span id="profile-name"></span></h2>
-    <div class="why" id="profile-inuse"></div>
-    <div class="tomlopts" id="profile-options"></div>
-    <label class="tomldrop" id="profile-drop">⬆️ <b>Upload a .toml</b> <span class="mut">with the .include.txt lists it names · or drop them here</span>
-      <input type="file" multiple accept=".toml,.txt" hidden onchange="uploadProfile(this.files); this.value = ''"></label>
-    <details id="profile-text" style="margin-top:10px"><summary>Edit as text</summary>
-      <p class="mut">Saved text applies to this game's LZ4, LZ4 NG and Zstd copies. Mandatory boot fixes, PlayGo markers and empty files stay loose for Zstd, even if the profile says compress.</p>
-      <div class="acts"><label class="btn">Load .toml <input type="file" accept=".toml,text/plain" hidden onchange="importProfile(this)"></label></div>
-      <textarea id="profile-content" aria-label="Game TOML profile" spellcheck="false" rows="18" style="box-sizing:border-box;width:100%;margin-top:12px;font-family:monospace"></textarea>
-      <div class="acts" style="margin-top:10px"><button id="profile-save" onclick="saveProfile()">Save TOML</button></div></details>
-    <div class="acts" style="margin-top:10px"><button class="ghost" onclick="document.getElementById('profile-editor').hidden = true">Close</button></div>
-    <div class="why" id="profile-msg" role="status"></div>
-  </div>
 </main>
 <main id="p-pkg" hidden></main>
 <main id="p-ps4" hidden></main>
@@ -1058,7 +1041,7 @@ function render() {
       const txr = g.output ? (data.transfers || {})[g.output.split('/').pop()] : null;
       const fmt = PACK_FMT[packMode], send = !!(data.settings || {}).ps5_ftp;
       const other = !canPack(g) && !g.output_only && !g.running && !g.queued && ['zstd', 'ng'].some(m => m !== packMode && canPack(g, m));
-      const toml = !g.output_only ? `<button class="sm ghost" data-game="${esc(g.id)}" onclick="event.stopPropagation();openProfile(this.dataset.game)" title="See or edit this game's TOML profile">TOML</button>` : '';
+      const toml = '';
       const action = waiting ? `<span class="pill p-run" title="${esc(waitWhy())}">waiting</span>` : canPack(g)
         ? `<div class="rowbtns"><button class="sm pri" data-game="${esc(g.id)}" onclick="event.stopPropagation();packDialog(this.dataset.game, ${send})" title="Compress with ${esc(fmt.name)}${send ? ', then send it to the PS5 by itself' : ''}">${fmt.icon} ${esc(fmt.name)}${send ? ' &amp; send' : ''}</button>${toml}</div>`
         : other ? `<div class="rowbtns"><span class="mut" style="font-size:12px">${packMode === 'legacy' ? 'needs Zstd or LZ4 NG' : 'already packed this way'}</span>${toml}</div>`
@@ -1210,8 +1193,6 @@ function renderFmtBar() {
       `<button class="${packMode === k ? 'on' : ''}" aria-pressed="${packMode === k}" onclick="setPackMode('${k}')">${f.icon} ${f.name}<small>${f.sub}</small></button>`).join('')}</div>
     <label class="mut">Level <input type="number" min="1" max="${packMode === 'zstd' ? 22 : 12}" value="${packLevel}" style="width:64px;min-width:0"
       onchange="packLevel = Number(this.value); savePackPrefs()"></label>
-    <label class="mut" title="Off: no game TOML (yours or next to the game); the built-in game and engine fixes still apply"><input type="checkbox" style="width:auto;min-width:0"
-      ${packProfile ? 'checked' : ''} onchange="packProfile = this.checked; savePackPrefs()"> TOML profile</label>
     ${typeof packSkip !== 'undefined' && packSkip ? '<button class="sm ghost" onclick="askEachTime()" title="Show the Compress dialog again">Ask each time</button>' : ''}
     <span class="mut">${packMode === 'legacy' ? 'The Compress buttons below use this.'
       : 'The Compress buttons below use this. Turn off fakelib updates in ShadowMountPlus so it keeps ampr-emu-ng.'}</span></div>`;
@@ -1263,93 +1244,6 @@ function canPack(g, mode = packMode) {
   if (mode === 'ng') return !g.output;
   return !!g.can_queue;
 }
-// The TOML choices for one game: automatic, none, the TOMLs next to it and in state/profiles.
-function renderProfileOptions(j) {
-  const el = document.getElementById('profile-options'), c = j.choice || {kind: 'auto'};
-  document.getElementById('profile-inuse').innerHTML = `In use: <b>${esc(j.in_use || 'no TOML')}</b> · ${esc(j.description || '')}`;
-  const on = o => c.kind === o.kind && (o.kind !== 'game' || c.path === o.path) && (o.kind !== 'nas' || c.name === o.name);
-  const badge = m => m === true ? '<span class="chip ok">✓ matches this game</span>' : m === false ? '<span class="chip">files not in this game</span>' : '';
-  const opts = [{kind: 'auto', icon: '✨', name: 'Automatic', sub: 'a TOML next to the game, then one that matches, then a bundled one'},
-    {kind: 'none', icon: '⛔', name: 'No TOML', sub: "the packer's own scan decides"}]
-    .concat((j.options || []).map(o => ({...o, icon: o.kind === 'game' ? '📁' : '🗂', sub: o.where})));
-  el.innerHTML = opts.map((o, i) => `<div class="topt${on(o) ? ' on' : ''}" role="radio" aria-checked="${on(o)}" tabindex="0" data-i="${i}"
-      onclick="chooseProfile(${i})"><span class="ti">${o.icon}</span><div><div class="tn">${esc(o.name)}</div><div class="mut" style="font-size:12px">${esc(o.sub)}</div></div>
-      <span class="sp"></span>${badge(o.match)}${on(o) ? '<span class="chip ok">chosen</span>' : ''}</div>`).join('');
-  profileOpts = opts;
-}
-let profileOpts = [];
-async function profilePost(body) {
-  const editor = document.getElementById('profile-editor'), id = editor.dataset.game;
-  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({...body, game: id})});
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.error || r.status);
-  if (editor.dataset.game !== id) return null;
-  renderProfileOptions(j);
-  if (j.content != null) document.getElementById('profile-content').value = j.content;
-  return j;
-}
-async function chooseProfile(i) {
-  const o = profileOpts[i], msg = document.getElementById('profile-msg');
-  try { await profilePost({action: 'profile_choose', choice: {kind: o.kind, path: o.path, name: o.name}}); msg.textContent = 'Chosen: ' + o.name; }
-  catch (e) { msg.textContent = 'Failed: ' + e.message; }
-}
-async function uploadProfile(list) {
-  const msg = document.getElementById('profile-msg'), files = [...(list || [])];
-  if (!files.length) return;
-  try {
-    const sent = await Promise.all(files.map(async f => ({name: f.name, content: await f.text()})));
-    const j = await profilePost({action: 'profile_upload', files: sent});
-    msg.textContent = j ? `Uploaded and chosen: ${j.in_use}` : '';
-  } catch (e) { msg.textContent = 'Upload failed: ' + e.message; }
-}
-async function openProfile(id) {
-  closeGame();
-  tab('mine');
-  const editor = document.getElementById('profile-editor'), button = document.getElementById('profile-save');
-  editor.hidden = false; editor.dataset.game = id;
-  document.getElementById('profile-name').textContent = id;
-  document.getElementById('profile-content').value = '';
-  document.getElementById('profile-msg').textContent = 'Loading…';
-  button.disabled = true;
-  editor.scrollIntoView({behavior: 'smooth', block: 'start'});
-  try {
-    const r = await fetch('/api/profile?id=' + encodeURIComponent(id), {cache: 'no-store'}), j = await r.json();
-    if (editor.dataset.game !== id) return;
-    if (!r.ok) throw new Error(j.error || r.status);
-    document.getElementById('profile-name').textContent = j.name;
-    document.getElementById('profile-content').value = j.content;
-    document.getElementById('profile-msg').textContent = '';
-    renderProfileOptions(j);
-    const drop = document.getElementById('profile-drop');
-    drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
-    drop.ondragleave = () => drop.classList.remove('over');
-    drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); uploadProfile(e.dataTransfer.files); };
-    button.disabled = false;
-  } catch (e) { if (editor.dataset.game === id) document.getElementById('profile-msg').textContent = 'Failed: ' + e.message; }
-}
-async function importProfile(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const msg = document.getElementById('profile-msg');
-  if (file.size > 256 * 1024) { msg.textContent = 'TOML must be at most 256 KiB.'; input.value = ''; return; }
-  try {
-    document.getElementById('profile-content').value = await file.text();
-    msg.textContent = 'Loaded ' + file.name + '. Press Save TOML to apply it.';
-  } catch (e) { msg.textContent = 'Failed: ' + e.message; }
-  input.value = '';
-}
-async function saveProfile() {
-  const editor = document.getElementById('profile-editor'), id = editor.dataset.game;
-  const button = document.getElementById('profile-save'); button.disabled = true;
-  try {
-    const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({action: 'profile_save', game: id, content: document.getElementById('profile-content').value})});
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error || r.status);
-    if (editor.dataset.game === id) document.getElementById('profile-msg').textContent = j.description;
-  } catch (e) { if (editor.dataset.game === id) document.getElementById('profile-msg').textContent = 'Failed: ' + e.message; }
-  finally { if (editor.dataset.game === id) button.disabled = false; }
-}
 let packMode = 'ng', packLevel = 9, packProfile = true;  // APR-EMU LZ4 is no longer packed
 try {
   const p = JSON.parse(localStorage.getItem('pack') || 'null');
@@ -1375,8 +1269,6 @@ function packControls() {
     </select></label>
     <label>Level <input id="pack-level" type="number" min="1" max="${packMode === 'zstd' ? 22 : 12}" value="${packLevel}"
       style="width:70px;min-width:0" onchange="packLevel = Number(this.value)"></label>
-    <label title="Off: no TOML profile (yours in state/profiles or a bundled one); the packer's own scan decides what is packed. ampr-emu-ng always uses its own safety rules.">
-      <input type="checkbox" style="width:auto;min-width:0" ${packProfile ? 'checked' : ''} onchange="packProfile = this.checked"> Use TOML profile</label>
     <span class="mut">ampr-emu-ng: disable fakelib updates in ShadowMountPlus.</span></div>`;
 }
 // The Compress dialog: LZ4 and Zstd side by side with sizes estimated from a
@@ -1431,7 +1323,6 @@ function renderPack() {
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center">
       <label class="mut">Level <input type="range" min="1" max="${max}" value="${Math.min(pk.level, max)}" oninput="pk.level = Number(this.value); this.nextElementSibling.textContent = this.value"> <b>${Math.min(pk.level, max)}</b></label>
-      <label class="mut"><input type="checkbox" style="width:auto;min-width:0" ${pk.profile ? 'checked' : ''} onchange="pk.profile = this.checked"> TOML profile</label>
       <label class="mut" title="Compress buttons then start straight away with this choice; Ask each time above the library brings this back"><input type="checkbox" style="width:auto;min-width:0" ${pk.remember ? 'checked' : ''} onchange="pk.remember = this.checked"> Remember for every game</label>
       <span style="flex:1"></span><button class="ghost" onclick="closePack()">Cancel</button>
       <button class="${send ? '' : 'pri'}" onclick="pkGo(false)">Compress</button>${send ? '<button class="pri" onclick="pkGo(true)">Compress &amp; send</button>' : ''}</div>
@@ -1470,7 +1361,7 @@ async function compress(id, send, image, options = packOptions(), ask = true) {
   if (opts.runtime === 'legacy' && !g.can_queue && !g.output) { alert(g.why || 'Use ampr-emu-ng for this game.'); return; }
   if (send && !s.ps5_ftp) { alert('Enter the PS5 address on the Remote tab first.'); tab('ps5'); return; }
   const label = `${opts.codec.toUpperCase()} level ${opts.level} · ${opts.runtime === 'ng' ? 'ampr-emu-ng' : 'APR-EMU'}` +
-    (opts.runtime === 'legacy' && opts.profile === false ? ' · no TOML profile' : '');
+    '';
   const note = data.running ? '\n\nStarts after the current job.' : '';
   const runtime = opts.runtime === 'ng' ? '\n\nDisable ShadowMountPlus fakelib updates so it keeps ampr-emu-ng.' : '';
   const then = image ? '\n\nThen make a verified exFAT image and send it to the PS5.' : send ? '\n\nSend the verified packed folder to the PS5.' : '';
@@ -1617,7 +1508,7 @@ function gameHtml(g, det) {
     (g.title_id ? `<button class="sm" style="margin-top:6px" data-t="${esc(g.title_id)}" onclick="launchCheck(this.dataset.t, this.nextElementSibling)" title="Checks on the PS5 what would stop the LZ4 game from starting: fakelib off in ShadowMountPlus, APR-EMU missing, fakelib2, eboot.bin, a backport with its own AMPR library">🚦 Start check</button><div></div>` : '')]);
   if (f) rows.push(['LZ4 folder', `${esc(f.path)}<div class="why">${f.files} files · ${f.paks} LZ4 volumes · ${gb(f.bytes)}${f.problem ? ' · <span class="bad">' + esc(f.problem) + '</span>' : ' · format ok'}</div>`]);
   if (r) {
-    rows.push(['Compression', `${esc(r.codec || '')}${r.profile ? `<div class="why">profile: ${esc(r.profile)}</div>` : ''}`]);
+    rows.push(['Compression', `${esc(r.codec || '')}${r.profile ? `<div class="why">${esc(r.profile)}</div>` : ''}`]);
     if (r.pack) rows.push(['Pack', `${r.pack.packed} files packed, ${r.pack.loose} loose · ${r.pack.lz4} LZ4 blocks`]);
     rows.push(['Checks', `NAS: ${r.verified_on_nas ? '<span class="good">ok</span>' : 'no'}${r.verification ? `<div class="why">${esc(r.verification.restore_test || '')}</div>` : ''}`]);
     rows.push(['PS5', esc(r.playable_on_ps5 || 'not tested')]);
@@ -1634,7 +1525,6 @@ function gameHtml(g, det) {
   if (w && w.error) rows.push(['Last error', `<span class="bad">${esc(w.error)}</span><div class="why">step ${esc(w.step || '')}</div>`]);
 
   const acts = [];
-  if (!g.output_only && !g.source_codec) acts.push(`<button class="ghost" data-game="${esc(g.id)}" onclick="openProfile(this.dataset.game)">TOML profile</button>`);
   if (!g.output && !g.output_only && !g.source_codec && !g.running && !g.queued && !pendingFor(g.id)) {
     acts.push(packControls());
     acts.push(`<button class="pri" data-game="${esc(g.id)}" onclick="convertGame(this.dataset.game, 'zstd')" title="Zstd level 5 with ampr-emu-ng; keeps the original">Convert to Zstd</button>`,

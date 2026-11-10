@@ -57,6 +57,8 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- TOML profiles removed (chooser, editor, upload, the TOML switch, `/api/profile`,
+  `profile_*` actions, state/profiles); Forge's own rules decide every pack.
 - `profiles/nas-ng.toml` and the added loose rules (PlayGo markers, the
   PPSA26344 boot files, `*.rmdtoc`, empty files) removed: they came from
   theghostonline's packer. Forge now packs those files unless a game TOML

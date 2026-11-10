@@ -68,32 +68,6 @@ console.log('Copy tab tests passed');
 console.log('Compress dialog tests passed');
 console.log('Format switch tests passed');
 
-(async () => {
-  context.closeGame = () => {};
-  context.tab = t => { context.tabbed = t; };
-  const editor = document.getElementById('profile-editor');
-  editor.dataset = {};
-  editor.scrollIntoView = () => {};
-  let saved;
-  context.fetch = async (url, options) => {
-    if (options?.method === 'POST') {
-      saved = JSON.parse(options.body);
-      return {ok: true, json: async () => ({description: 'Saved'})};
-    }
-    return {ok: true, json: async () => ({name: 'Game', content: '[pack]', description: 'custom'})};
-  };
-  await vm.runInContext("openProfile('source')", context);
-  assert.equal(context.tabbed, 'mine');
-  assert.equal(editor.dataset.game, 'source');
-  assert.equal(document.getElementById('profile-content').value, '[pack]');
-  context.input = {files: [{name: 'game.toml', size: 40, text: async () => '[pack]\ndefault_action="loose"'}]};
-  await vm.runInContext('importProfile(input)', context);
-  assert.equal(document.getElementById('profile-content').value, '[pack]\ndefault_action="loose"');
-  await vm.runInContext('saveProfile()', context);
-  assert.deepEqual(saved, {action: 'profile_save', game: 'source', content: '[pack]\ndefault_action="loose"'});
-  context.fetch = async () => ({ok: false, json: async () => ({error: 'invalid TOML'})});
-  await vm.runInContext('saveProfile()', context);
-  assert.ok(document.getElementById('profile-msg').textContent.includes('invalid TOML'));
-  assert.equal(document.getElementById('profile-save').disabled, false);
-  console.log('TOML editor tests passed');
-})().catch(error => {console.error(error); process.exitCode = 1;});
+// TOML profiles are gone: no editor, no chooser, no TOML switch.
+assert.ok(!html.includes('profile-editor') && !html.includes('openProfile') && !/TOML profile/.test(html));
+console.log('No TOML tests passed');

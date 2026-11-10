@@ -49,7 +49,6 @@ ZSTD_OUTPUT = Path(os.environ["PS5LZ4_ZSTD_OUTPUT"]) if os.environ.get("PS5LZ4_Z
 STATE = Path(os.environ.get("PS5LZ4_STATE", "/state"))
 WORK = OUTPUT / ".ps5lz4-work"
 MKPFS = os.environ.get("PS5LZ4_MKPFS", "mkpfs")
-CUSTOM_PROFILES = STATE / "profiles"
 LOGS = STATE / "logs"
 REPORTS = STATE / "reports"
 PLAYED = STATE / "played"  # PS5 result of games that are not LZ4 (a sent original, an extracted RAR)
@@ -526,233 +525,12 @@ def exfat_inspect(image: Path) -> dict:
                 "game_prefix": prefix, "listing": listing}
 
 
-def load_bundled_profiles() -> list[dict]:
-    return []  # no bundled game/engine profiles: Forge's own rules decide
-
-
-def detect_engine(root: Path) -> str:
-    if (root / "toc").is_file() and (root / "dag").is_file() and (root / "d").is_dir():
-        return "insomniac"
-    for base in ("", "Media"):
-        if (root / base / "StreamingAssets").is_dir():
-            for base2 in ("", "Media"):
-                for marker in ("Data/globalgamemanagers", "Data/data.unity3d",
-                               "Data/Managed/Metadata/global-metadata.dat"):
-                    if (root / base2 / marker).is_file():
-                        return "unity"
-    return ""
-
-
-def profile_paths(toml: Path) -> list[str]:
-    """The plain file paths a profile's rules list (include and include_from,
-    globs left out), for matching a profile to a game by its files."""
-    import tomllib
-    try:
-        rules = tomllib.loads(toml.read_text(encoding="utf-8-sig")).get("rule") or []
-    except (OSError, ValueError):
-        return []
-    out = []
-    for r in rules if isinstance(rules, list) else []:
-        inc = r.get("include") or []
-        frm = r.get("include_from") or []
-        for v in ([inc] if isinstance(inc, str) else inc):
-            out.append(str(v))
-        for f in ([frm] if isinstance(frm, str) else frm):
-            try:
-                out += (toml.parent / str(f)).read_text(encoding="utf-8-sig").splitlines()
-            except OSError:
-                pass
-    return [p.strip().strip("/") for p in out if p.strip() and not any(c in p for c in "*?[")]
-
-
-def path_ci(root: Path, rel: str, cache: dict) -> bool:
-    """Whether rel exists under root, any letter case (profiles list lowercase paths)."""
-    cur = root
-    for part in rel.split("/"):
-        if cur not in cache:
-            try:
-                cache[cur] = {p.name.lower(): p for p in cur.iterdir()}
-            except OSError:
-                cache[cur] = {}
-        cur = cache[cur].get(part.lower())
-        if cur is None:
-            return False
-    return True
-
-
-def custom_profile_for(root: Path, name: str) -> tuple[Path | None, str]:
-    """A profile in state/profiles named any way (e.g. after the game) that
-    fits this game: every file its rules list (first 20 checked) is in the
-    game; else one whose file name is in the game's name."""
-    cache: dict = {}
-    best, best_n = None, 0
-    for toml in sorted(CUSTOM_PROFILES.glob("*.toml")):
-        paths = profile_paths(toml)[:20]
-        if paths and all(path_ci(root, p, cache) for p in paths) and len(paths) > best_n:
-            best, best_n = toml, len(paths)
-    if best:
-        return best, f"custom ({best.name}: the {best_n} files it lists are in the game)"
-    norm = "".join(c.lower() for c in name if c.isalnum())
-    for toml in sorted(CUSTOM_PROFILES.glob("*.toml")):
-        stem = "".join(c.lower() for c in toml.stem if c.isalnum())
-        if len(stem) >= 4 and stem in norm:
-            return toml, f"custom ({toml.name}: name match)"
-    return None, ""
-
-
-PROFILE_CHOICE = STATE / "profile-choice.json"  # {game id: {"kind": "none"|"game"|"nas", "path"}}
-PROFILE_NAME_RE = re.compile(r"[\w][\w .()+-]{0,120}")
-
-
-def game_tomls(source: Path | None) -> list[Path]:
-    """TOML files that came with a game: at the top of its folder, or next to
-    its image named like it (or any, when the image has its folder to itself)."""
-    if not source:
-        return []
-    try:
-        if source.is_dir():
-            return sorted(f for f in source.iterdir() if f.is_file() and f.suffix.lower() == ".toml")
-        files = [f for f in source.parent.iterdir() if f.is_file()]
-    except OSError:
-        return []
-    alone = sum(1 for f in files if f.suffix.lower() in IMAGE_EXTS) == 1
-    stems = {source.stem.lower(), source.name.lower()}
-    return sorted(f for f in files if f.suffix.lower() == ".toml" and (alone or f.stem.lower() in stems))
-
-
-def profile_choice(game_id: str) -> dict:
-    return (read_json(PROFILE_CHOICE, {}) or {}).get(game_id) or {}
-
-
-def chosen_profile(game_id: str, source: Path | None) -> tuple[str | None, str] | None:
-    """The TOML picked for this game on the page, or None for automatic."""
-    c = profile_choice(game_id)
-    if c.get("kind") == "none":
-        return None, "no TOML (chosen for this game)"
-    if c.get("kind") == "game":
-        f = Path(str(c.get("path") or ""))
-        if f in game_tomls(source):
-            return str(f), f"{f.name} (next to the game, chosen)"
-    if c.get("kind") == "nas":
-        f = CUSTOM_PROFILES / str(c.get("name") or "")
-        if PROFILE_NAME_RE.fullmatch(f.name) and f.suffix.lower() == ".toml" and f.is_file():
-            return str(f), f"{f.name} (state/profiles, chosen)"
-    return None
-
-
-def choose_profile(title_id: str, name: str, root: Path, game_id: str = "",
-                   source: Path | None = None) -> tuple[str | None, str]:
-    """(toml path or None, description). The page's choice beats custom beats a
-    TOML next to the game beats a matching custom one beats bundled beats scan."""
-    picked = chosen_profile(game_id, source or root) if game_id else None
-    if picked:
-        return picked
-    if game_id:
-        custom = CUSTOM_PROFILES / ("game-" + hashlib.sha256(game_id.encode()).hexdigest()[:24] + ".toml")
-        if custom.is_file():
-            return str(custom), f"custom ({custom.name})"
-    if title_id:
-        custom = CUSTOM_PROFILES / f"{title_id.upper()}.toml"
-        if custom.is_file():
-            return str(custom), f"custom ({custom.name})"
-    found = game_tomls(source or root)
-    if len(found) == 1:
-        return str(found[0]), f"{found[0].name} (next to the game)"
-    custom, why = custom_profile_for(root, name)
-    if custom:
-        return str(custom), why
-    return bundled_profile(title_id, name, root)
-
-
-def bundled_profile(title_id: str, name: str, root: Path) -> tuple[str | None, str]:
-    """No bundled profiles any more: PS5 Dump Forge's own packing rules decide
-    when no game TOML is chosen."""
-    return None, "Forge's own packing rules"
-
-
-def profile_entry(game_id: str) -> Entry:
+def game_entry(game_id: str) -> Entry:
     entry = next((e for e in scan_library() if e.id == game_id), None)
     if entry is None:
         raise ValueError("original game not found in the library")
     return entry
 
-
-def editable_profile_path(entry: Entry) -> Path:
-    # Title IDs share a profile across versions; unlabelled games get an exact binding.
-    key = entry.title_id.upper() if re.fullmatch(r"PPSA\d{5}", entry.title_id.upper()) else \
-        "game-" + hashlib.sha256(entry.id.encode()).hexdigest()[:24]
-    return CUSTOM_PROFILES / (key + ".toml")
-
-
-def profile_options(entry: Entry) -> list[dict]:
-    """The TOMLs the page offers for a game: next to it, and in state/profiles
-    (match: every file the profile lists is in the game; None: an image, unknown)."""
-    cache: dict = {}
-    folder = entry.path if entry.path.is_dir() else None
-    def fits(f: Path):
-        paths = profile_paths(f)[:20]
-        return None if folder is None or not paths else all(path_ci(folder, p, cache) for p in paths)
-    out = [{"kind": "game", "name": f.name, "path": str(f), "where": "next to the game", "match": fits(f)}
-           for f in game_tomls(entry.path)]
-    out += [{"kind": "nas", "name": f.name, "where": "state/profiles", "match": fits(f)}
-            for f in sorted(CUSTOM_PROFILES.glob("*.toml")) if PROFILE_NAME_RE.fullmatch(f.name)]
-    return out
-
-
-def set_profile_choice(game_id: str, choice: dict) -> dict:
-    entry = profile_entry(game_id)
-    kind = choice.get("kind") if isinstance(choice, dict) else None
-    if kind == "auto":
-        c = None
-    elif kind == "none":
-        c = {"kind": "none"}
-    elif kind == "game" and any(o["kind"] == "game" and o["path"] == choice.get("path") for o in profile_options(entry)):
-        c = {"kind": "game", "path": str(choice["path"])}
-    elif kind == "nas" and any(o["kind"] == "nas" and o["name"] == choice.get("name") for o in profile_options(entry)):
-        c = {"kind": "nas", "name": str(choice["name"])}
-    else:
-        raise ValueError("unknown TOML choice")
-    allc = read_json(PROFILE_CHOICE, {}) or {}
-    if c is None:
-        allc.pop(entry.id, None)
-    else:
-        allc[entry.id] = c
-    write_json(PROFILE_CHOICE, allc)
-    return game_profile(entry.id)
-
-
-def upload_profile(game_id: str, files) -> dict:
-    """A .toml and the .txt lists its include_from/exclude_from name, saved in
-    state/profiles and chosen for this game."""
-    import tomllib
-    entry = profile_entry(game_id)
-    if not isinstance(files, list) or not files or len(files) > 20:
-        raise ValueError("upload one .toml and its .txt lists")
-    names = {}
-    for f in files:
-        name = Path(str((f or {}).get("name") or "")).name
-        content = (f or {}).get("content")
-        if not PROFILE_NAME_RE.fullmatch(name) or Path(name).suffix.lower() not in (".toml", ".txt") or not isinstance(content, str):
-            raise ValueError(f"not a .toml or .txt file name: {name or '?'}")
-        names[name] = content
-    tomls = [n for n in names if n.lower().endswith(".toml")]
-    if len(tomls) != 1 or sum(len(c.encode()) for c in names.values()) > 900 * 1024:
-        raise ValueError("upload exactly one .toml (and its .txt lists), 900 KiB at most")
-    parsed = tomllib.loads(names[tomls[0]])
-    if not isinstance(parsed.get("pack"), dict):
-        raise ValueError("TOML needs a [pack] table")
-    for rule in parsed.get("rule", []) if isinstance(parsed.get("rule"), list) else []:
-        for key in ("include_from", "exclude_from"):
-            lists = rule.get(key) or []
-            for n in ([lists] if isinstance(lists, str) else lists):
-                if str(n) not in names and not (CUSTOM_PROFILES / str(n)).is_file():
-                    raise ValueError(f"{tomls[0]} lists {n}: upload it with the .toml")
-    CUSTOM_PROFILES.mkdir(parents=True, exist_ok=True)
-    for name, content in names.items():
-        tmp = CUSTOM_PROFILES / f".{name}.tmp"
-        tmp.write_text(content, encoding="utf-8")
-        os.replace(tmp, CUSTOM_PROFILES / name)
-    return set_profile_choice(entry.id, {"kind": "nas", "name": tomls[0]})
 
 
 _estimates: dict = {}
@@ -775,7 +553,7 @@ def estimate_game(game_id: str) -> dict:
     """LZ4 HC and Zstd sizes of a game, from a sample of its files (64 spots
     spread by size, 512 KiB each, compressed with the lz4 and zstd tools at
     the page's levels), and how long a pack took here per mode."""
-    entry = profile_entry(game_id)
+    entry = game_entry(game_id)
     st = entry.path.stat()
     key = (str(entry.path), st.st_mtime_ns, st.st_size)
     if key in _estimates:
@@ -848,104 +626,6 @@ def estimate_game(game_id: str) -> dict:
            "method": f"{len(sample)} sample{'s' if len(sample) != 1 else ''}, {human(len(raw))}"}
     _estimates[key] = res
     return {**res, "speed": pack_speeds()}
-
-
-def game_profile(game_id: str) -> dict:
-    entry = profile_entry(game_id)
-    path, description = choose_profile(entry.title_id, entry.name or entry.id, entry.path, entry.id, entry.path)
-    c = profile_choice(entry.id)
-    return {"game": entry.id, "name": entry.name or entry.id, "description": description,
-            "choice": {"kind": c.get("kind") or "auto", "path": c.get("path"), "name": c.get("name")},
-            "options": profile_options(entry), "in_use": Path(path).name if path else None,
-            "content": Path(path).read_text(encoding="utf-8-sig") if path else
-                '[pack]\ndefault_action = "compress"\n\n[[rule]]\naction = "loose"\ninclude = []\n'}
-
-
-def save_game_profile(game_id: str, content: str) -> dict:
-    import tempfile
-    import tomllib
-    entry = profile_entry(game_id)
-    if not isinstance(content, str) or len(content.encode()) > 256 * 1024:
-        raise ValueError("TOML must be text, at most 256 KiB")
-    parsed = tomllib.loads(content)
-    if not isinstance(parsed.get("pack"), dict):
-        raise ValueError("TOML needs a [pack] table")
-    rules = parsed.get("rule", [])
-    if not isinstance(rules, list) or any(not isinstance(r, dict) for r in rules):
-        raise ValueError("Use [[rule]] tables for the rules")
-    # include_from/exclude_from lists are read next to the saved TOML (state/profiles):
-    # they must be there already, or next to the TOML the game uses now (then copied).
-    in_use = choose_profile(entry.title_id, entry.name or entry.id, entry.path, entry.id, entry.path)[0]
-    copy = {}
-    for rule in rules:
-        for key in ("include_from", "exclude_from"):
-            lists = rule.get(key) or []
-            for name in ([lists] if isinstance(lists, str) else lists if isinstance(lists, list) else [None]):
-                name = str(name)
-                if not PROFILE_NAME_RE.fullmatch(name) or Path(name).name != name:
-                    raise ValueError(f"{key} must name a list file in state/profiles, not {name!r}")
-                if (CUSTOM_PROFILES / name).is_file():
-                    continue
-                beside = Path(in_use).parent / name if in_use else None
-                if beside is None or not beside.is_file():
-                    raise ValueError(f"{name} is not in state/profiles: upload it with the .toml (Upload a .toml)")
-                copy[name] = beside
-    target = editable_profile_path(entry)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    for name, src in copy.items():
-        shutil.copyfile(src, CUSTOM_PROFILES / name)
-    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent, delete=False) as temp:
-        temp.write(content)
-    os.replace(temp.name, target)
-    allc = read_json(PROFILE_CHOICE, {}) or {}
-    if allc.pop(entry.id, None) is not None:  # the edited text is what this game uses now
-        write_json(PROFILE_CHOICE, allc)
-    return {"saved": target.name, "description": "Saved for this game's LZ4 and Zstd jobs. Mandatory boot fixes stay active."}
-
-
-def toml_value(value) -> str:
-    """Encode parsed TOML as inline tables, retaining all profile options."""
-    if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False)
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value).lower()
-    if isinstance(value, list):
-        return "[" + ", ".join(toml_value(v) for v in value) + "]"
-    if isinstance(value, dict):
-        return "{ " + ", ".join(json.dumps(k) + " = " + toml_value(v) for k, v in value.items()) + " }"
-    if isinstance(value, (_dt.datetime, _dt.date, _dt.time)):
-        return value.isoformat()
-    raise ValueError("unsupported TOML value")
-
-
-def ng_profile(root: Path, selected: str | None, destination: Path) -> str | None:
-    """The job's own copy of the chosen game TOML, its include_from lists written
-    out. No TOML chosen: None, and PS5 Dump Forge's own packing rules decide.
-    Nothing is added to the profile here."""
-    import tomllib
-    if not selected:
-        return None
-    config = tomllib.loads(Path(selected).read_text(encoding="utf-8-sig"))
-    rules = config.setdefault("rule", [])
-    # Resolve existing profiles' list files before moving the profile into the job.
-    for rule in rules:
-        for key in ("include", "exclude"):
-            lists = rule.pop(key + "_from", [])
-            if isinstance(lists, str):
-                lists = [lists]
-            if lists:
-                values = rule.get(key, [])
-                if isinstance(values, str):
-                    values = [values]
-                for name in lists:
-                    values += [line.strip() for line in (Path(selected).parent / name).read_text(encoding="utf-8-sig").splitlines()
-                               if line.strip() and not line.lstrip().startswith("#")]
-                rule[key] = values
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text("\n".join(json.dumps(k) + " = " + toml_value(v) for k, v in config.items()) + "\n")
-    return str(destination)
 
 
 # --------------------------------------------------------------------------
@@ -1110,7 +790,7 @@ class Job:
         if not 1 <= level <= (22 if codec == "zstd" else 12):
             raise JobError("compression level out of range")
         self.codec, self.runtime = codec, runtime
-        self.use_profile = use_profile  # False: no TOML, the packer's own scan decides
+        self.use_profile = use_profile  # kept for old queue entries; TOML profiles are gone
         entry.pack_codec = codec
         self.e = entry
         self.level = level
@@ -1312,26 +992,14 @@ class Job:
                 raise Skip("source is already packed; unpack it before making a new copy")
             if not (root / "eboot.bin").is_file():
                 raise Skip("no eboot.bin in source")
-            snapshot = self.work / "pack-profile.toml"
             if self.done("check"):
-                return  # Resume with the profile used by this job, even after a UI edit.
-            if self.use_profile:
-                selected, desc = choose_profile(self.state["title_id"], name, root, self.e.id, self.e.path)
-            else:  # no game TOML, but theghostonline's bundled game/engine fixes still apply
-                selected, desc = bundled_profile(self.state["title_id"], name, root)
-                desc = "no game TOML; " + desc
-            self.mark("check", ampr=NG_NAME, profile_path=ng_profile(root, selected, snapshot),
-                      profile=desc)
+                return
+            self.mark("check", ampr=NG_NAME, profile_path=None, profile="Forge's own packing rules")
             return
         if status != "compatible":
             raise Skip(reason)
-        if self.use_profile:
-            profile, desc = choose_profile(self.state["title_id"], name, root, self.e.id, self.e.path)
-        else:
-            profile, desc = bundled_profile(self.state["title_id"], name, root)
-            desc = "no game TOML; " + desc
-        self.mark("check", ampr=reason, profile_path=profile, profile=desc)
-        self.log(f"compatible: {reason}; profile: {desc}")
+        self.mark("check", ampr=reason, profile_path=None, profile="Forge's own packing rules")
+        self.log(f"compatible: {reason}")
 
     def step_pack(self, root: Path) -> Path:
         pack = zstd_stage() / self.e.id / "pack" if self.codec == "zstd" else self.work / "pack"
@@ -1346,7 +1014,7 @@ class Job:
         # Forge packs both formats: codec, runtime injection, indexes and full read-back
         # verification. Our own ampr-emu-ng build then replaces the one Forge ships.
         t0 = time.time()
-        self.run_tool(forge_command(root, pack, self.codec, self.level, profile=self.state.get("profile_path")), "pack")
+        self.run_tool(forge_command(root, pack, self.codec, self.level), "pack")
         install_ng_runtime(pack)
         problem = lz4_format_problem(pack)
         if problem or runtime_sha(pack) != NG_SHA256:
@@ -1665,7 +1333,7 @@ def process(entries: list[Entry], args) -> int:
 # commands
 
 def ensure_dirs() -> None:
-    for d in (STATE, LOGS, REPORTS, CUSTOM_PROFILES):
+    for d in (STATE, LOGS, REPORTS):
         d.mkdir(parents=True, exist_ok=True)
     if OUTPUT.is_dir():
         WORK.mkdir(exist_ok=True)
@@ -1908,15 +1576,12 @@ def compare_game_files(source: Path, decoded: Path) -> list[str]:
     return problems
 
 
-def forge_command(source: Path, output: Path, codec: str, level: int, unpack: bool = False,
-                  profile: str | None = None) -> list[str]:
+def forge_command(source: Path, output: Path, codec: str, level: int, unpack: bool = False) -> list[str]:
     if codec not in ("lz4", "zstd") or not 1 <= level <= (22 if codec == "zstd" else 12):
         raise JobError("invalid compression codec or level")
     argv = [FORGE, "convert", str(source), "--to", "folder", "-o", str(output), "--full-verify", "--threads", str(workers())]
     if unpack:
         return argv + ["--zstd-unpack" if codec == "zstd" else "--lz4-unpack"]
-    if profile:
-        argv += ["--pack-profile", profile]
     if codec == "zstd":
         return argv + ["--zstd-pack", "--zstd-level", str(level)]
     return argv + ["--lz4-pack", "--lz4-runtime", "ng", "--lz4-level", str(level if level >= 5 else 0)]
@@ -7536,13 +7201,6 @@ def cmd_ui(args) -> int:
                     return self.send(200, json.dumps(estimate_game((parse_qs(urlparse(self.path).query).get("id") or [""])[0])).encode())
                 except (ValueError, OSError, subprocess.SubprocessError) as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
-            if self.path.startswith("/api/profile?"):
-                from urllib.parse import parse_qs, urlparse
-                gid = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
-                try:
-                    return self.send(200, json.dumps(game_profile(gid)).encode())
-                except (ValueError, OSError) as err:
-                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if self.path in ("/store", "/store/"):
                 return self.send(200, STORE_HTML.encode(), "text/html")
             if self.path.startswith("/api/game?"):
@@ -7827,18 +7485,6 @@ def cmd_ui(args) -> int:
                 req = json.loads(self.rfile.read(min(n, 1 << 20)) or b"{}")
             except ValueError:
                 return self.send(400, b'{"error":"bad request"}')
-            if req.get("action") in ("profile_choose", "profile_upload"):
-                try:
-                    gid = str(req.get("game") or "")
-                    res = set_profile_choice(gid, req.get("choice")) if req["action"] == "profile_choose" else upload_profile(gid, req.get("files"))
-                    return self.send(200, json.dumps(res).encode())
-                except (ValueError, OSError) as err:
-                    return self.send(400, json.dumps({"error": str(err)}).encode())
-            if req.get("action") == "profile_save":
-                try:
-                    return self.send(200, json.dumps(save_game_profile(str(req.get("game") or ""), req.get("content"))).encode())
-                except (ValueError, OSError) as err:
-                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if req.get("action") == "pair":
                 try:
                     if req.get("ps5_ftp"):  # the address typed on the page, saved or not
@@ -8213,7 +7859,7 @@ def main() -> int:
         sp.add_argument("--force-image", action="store_true",
                         help="pack an image even when a folder of the same game exists")
         sp.add_argument("--no-profile", action="store_true",
-                        help="use no TOML profile (custom or bundled): the packer's own scan decides")
+                        help="ignored: there are no TOML profiles any more")
 
     sp = sub.add_parser("doctor", help="check the installation")
     sp.set_defaults(func=cmd_doctor)

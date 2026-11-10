@@ -33,7 +33,7 @@ class CopyRuntimeTests(unittest.TestCase):
             with patch.multiple(app, LIBRARY=library, HOST_LIBRARY=str(library), OUTPUT=output,
                                 HOST_OUTPUT=str(output), ZSTD_OUTPUT=None, STATE=state,
                                 WORK=output / ".work", LOGS=state / "logs", REPORTS=state / "reports",
-                                CUSTOM_PROFILES=state / "profiles", DB_PATH=state / "checks.db"), \
+                                DB_PATH=state / "checks.db"), \
                     patch.dict(sys.modules, {"mkpfs.exfat": SimpleNamespace(ExfatReader=image_reader)}), \
                     patch.object(app, "classify", return_value=("LZ4", "has a separate copy", False)):
                 data = app.dashboard_data()

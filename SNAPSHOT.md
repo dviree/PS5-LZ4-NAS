@@ -38,13 +38,12 @@ removed on 2026-11-10. Left in `ps5lz4.py` as dead code to prune: the bodies of
 ### Packing pipeline (class `Job`)
 
 `step_source` (folder as is; `.exfat/.ffpfs/.ffpfsc` unpacked to a work folder)
-→ `step_check` (AMPR check, profile via `choose_profile`) → `step_pack` →
+→ `step_check` (unpacked, has eboot.bin) → `step_pack` (Forge) →
 `step_verify` → `step_restore` (full unpack + byte compare, games ≤ 25 GB) →
 `step_publish` (boot files, permissions, report in `state/reports/<id>.json`).
 
 - **LZ4 NG** and **Zstd**: PS5 Dump Forge (`forge_command`), then our ampr-emu-ng
-  build (`install_ng_runtime`); profile = the chosen game TOML as it is
-  (`ng_profile` only writes out its lists), else none: Forge's own rules. APR-EMU LZ4 is no longer packed (`Job` refuses runtime legacy).
+  build (`install_ng_runtime`); no profile: Forge's own rules. APR-EMU LZ4 is no longer packed (`Job` refuses runtime legacy).
   Zstd output in the Zstd output folder (`zstd_output`).
 - Always from the original; never from an LZ4 copy.
 - Queue: `state/queue.json`; `cmd_start` → background `run --from-queue`.
@@ -57,10 +56,7 @@ removed on 2026-11-10. Left in `ps5lz4.py` as dead code to prune: the bodies of
   describes), `update_runtime_index`.
 - Library: `scan_library` → `Entry` (`kind` folder/exfat/ffpfs/ffpfsc),
   `classify`, `result_for`, `CheckDB` cache (`state/ps5lz4.db`).
-- Profiles: `choose_profile` (page choice → game-hash/TitleID custom → TOML
-  next to the game → matching custom → none: Forge's own rules); `bundled_profile` (game/engine fixes, used
-  even with the TOML switch off), `game_tomls`,
-  `profile_options`, `set_profile_choice`, `upload_profile`, `save_game_profile`.
+- Profiles: none. Forge's own packing rules decide (no TOML anywhere).
 - Estimates: `estimate_game` (`/api/estimate`), `pack_speeds`.
 - Page data: `dashboard_data` (`/api/dashboard`: `games` rows for originals,
   `copies` one per packed folder, `pkgs`, …), `game_detail`.
@@ -73,8 +69,7 @@ removed on 2026-11-10. Left in `ps5lz4.py` as dead code to prune: the bodies of
 
 ### State on the NAS (`/volume2/docker/ps5-lz4/state`)
 
-`queue.json`, `reports/`, `requests/`, `profiles/` (custom TOMLs + lists),
-`profile-choice.json`, `actions.log` (every page action, append-only), `verify/`, `transfers/`, `settings.json`, `ps5lz4.db`.
+`queue.json`, `reports/`, `requests/`, `actions.log` (every page action, append-only), `verify/`, `transfers/`, `settings.json`, `ps5lz4.db`.
 
 ## Upstreams and pins
 
