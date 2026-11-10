@@ -91,19 +91,9 @@ class EditableProfileTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             app.save_game_profile('../../escape', self.text)
 
-    def test_lz4_ng_uses_the_game_profile_with_theghostonlines_packer(self):
-        # LZ4 is always theghostonline's ampr_pack_cli, which keeps the disk and
-        # boot files loose itself (test_packer_keeps_boot_files_loose).
-        path = app.save_game_profile(self.entry.id, self.text) and app.editable_profile_path(self.entry)
-        job = app.Job(self.entry, 5, True, False, 'lz4', 'ng')
-        job.work.mkdir(parents=True, exist_ok=True)
-        with patch.object(app, 'ampr_status_folder', return_value=('compatible', 'fixture')):
-            job.step_check(self.source)
-        self.assertEqual(Path(job.state['profile_path']), path)
-
     def test_zstd_uses_custom_profile_with_mandatory_fixes(self):
         app.save_game_profile(self.entry.id, self.text)
-        for codec in ('zstd',):
+        for codec in ('zstd', 'lz4'):  # Forge packs both; both get the mandatory fixes
             job = app.Job(self.entry, 5, True, False, codec, 'ng')
             job.work.mkdir(parents=True, exist_ok=True)
             with patch.object(app, 'ampr_status_folder', return_value=('compatible', 'fixture')):
@@ -140,7 +130,7 @@ class EditableProfileTests(unittest.TestCase):
             self.assertEqual(parsed['pack']['default_action'], 'loose')
             loose = [p for r in parsed['rule'] if r['action'] == 'loose' for p in r['include']]
             self.assertIn('d/*/bootload*', loose)
-            self.assertIn('cache_ps5/playgo.pgm' if codec == 'zstd' else 'toc', loose)
+            self.assertIn('cache_ps5/playgo.pgm', loose)
             app.remove_work_path(job.work)
 
     def test_no_profile_still_has_fixes_and_existing_sidecars_expand(self):

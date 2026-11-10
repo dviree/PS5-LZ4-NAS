@@ -1196,9 +1196,8 @@ function imageStop() {
 }
 // The format the Compress buttons in My games use (and the game sheet's controls).
 const PACK_FMT = {
-  legacy: {icon: '⚡', name: 'LZ4', sub: 'loads fastest · APR-EMU'},
   zstd: {icon: '🗜', name: 'Zstd', sub: 'smallest · ampr-emu-ng'},
-  ng: {icon: '🧪', name: 'LZ4 NG', sub: 'LZ4 · ampr-emu-ng'}};
+  ng: {icon: '⚡', name: 'LZ4 NG', sub: 'loads fastest · ampr-emu-ng'}};
 function savePackPrefs() {
   try { localStorage.setItem('pack', JSON.stringify({mode: packMode, level: packLevel, profile: packProfile})); } catch (e) {}
 }
@@ -1351,11 +1350,11 @@ async function saveProfile() {
   } catch (e) { if (editor.dataset.game === id) document.getElementById('profile-msg').textContent = 'Failed: ' + e.message; }
   finally { if (editor.dataset.game === id) button.disabled = false; }
 }
-let packMode = 'legacy', packLevel = 9, packProfile = true;
+let packMode = 'ng', packLevel = 9, packProfile = true;  // APR-EMU LZ4 is no longer packed
 try {
   const p = JSON.parse(localStorage.getItem('pack') || 'null');
   if (p && ['legacy', 'zstd', 'ng'].includes(p.mode)) {
-    packMode = p.mode; packLevel = Number(p.level) || (p.mode === 'zstd' ? 5 : 9); packProfile = p.profile !== false;
+    packMode = p.mode === 'legacy' ? 'ng' : p.mode; packLevel = Number(p.level) || (p.mode === 'zstd' ? 5 : 9); packProfile = p.profile !== false;
   }
 } catch (e) {}
 function packOptions() {
@@ -1371,7 +1370,6 @@ function selectPackMode(mode) {
 function packControls() {
   return `<div style="flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
     <label>Compression <select id="pack-mode" onchange="selectPackMode(this.value)">
-      <option value="legacy" ${packMode === 'legacy' ? 'selected' : ''}>LZ4 · APR-EMU (existing)</option>
       <option value="ng" ${packMode === 'ng' ? 'selected' : ''}>LZ4 · ampr-emu-ng</option>
       <option value="zstd" ${packMode === 'zstd' ? 'selected' : ''}>Zstd · ampr-emu-ng</option>
     </select></label>
@@ -1391,7 +1389,7 @@ function packDialog(id, send) {
   if (!g) return;
   if (packSkip) return compress(id, send && !!(data.settings || {}).ps5_ftp, false, packOptions(), true);
   pk = {id, g, est: null, err: '', mode: packMode, level: packLevel, profile: packProfile, remember: false};
-  if (pk.mode === 'legacy' && !g.can_queue) pk.mode = 'ng';
+  if (pk.mode === 'legacy') pk.mode = 'ng';
   document.body.insertAdjacentHTML('beforeend', '<div class="pkdlg" id="pkdlg" onclick="if(event.target===this)closePack()"><div class="pkbox" id="pkbox"></div></div>');
   renderPack();
   fetch('/api/estimate?id=' + encodeURIComponent(id), {cache: 'no-store'}).then(r => r.json().then(j => [r.ok, j]))
@@ -1415,11 +1413,11 @@ function renderPack() {
       <div class="pkbar"><i style="width:${bytes && src ? Math.max(2, 100 * bytes / src) : 0}%;background:${colour}"></i></div>
       ${rows.map(([k, v]) => `<div class="row"><span>${k}</span><b>${v}</b></div>`).join('')}</div>`;
   };
-  const lz4b = est && est.lz4.bytes, zb = est && est.zstd.bytes, lzMode = pk.mode === 'zstd' ? (g.can_queue ? 'legacy' : 'ng') : pk.mode;
+  const lz4b = est && est.lz4.bytes, zb = est && est.zstd.bytes, lzMode = 'ng';
   const extraSave = lz4b && zb ? lz4b - zb : 0, rec = extraSave > Math.max(1 << 30, 0.05 * src) ? 'zstd' : lz4b ? 'lz4' : '';
   const c = g.community || {}, reports = c.reports ? `<span class="good">✅ ${c.works || 0} works</span> of ${c.reports}` : '<span class="mut">no reports yet</span>';
   const recBadge = k => rec === k ? `<span class="pkrec">RECOMMENDED${k === 'zstd' ? ' · saves ' + gb(extraSave) + ' more' : ''}</span>` : '';
-  const rt = `<div class="pkrt" onclick="event.stopPropagation()"><button class="sm ${lzMode === 'legacy' ? 'pri' : 'ghost'}" ${g.can_queue ? '' : 'disabled title="APR-EMU cannot run this game"'} onclick="pkPick('legacy')">APR-EMU</button><button class="sm ${lzMode === 'ng' ? 'pri' : 'ghost'}" onclick="pkPick('ng')">ampr-emu-ng (NG)</button></div>`;
+  const rt = '';
   const max = pk.mode === 'zstd' ? 22 : 12, ng = pk.mode !== 'legacy', send = !!(data.settings || {}).ps5_ftp;
   box.innerHTML = `<h2 style="margin:0">Compress ${esc(g.name)}</h2>
     <div class="mut">${esc(g.title_id || '')} · ${esc(KIND_EN[g.kind] || g.kind || '')}${src ? ' · ' + gb(src) : ''}${est ? ' · estimated from ' + esc(est.method) : ''}</div>
@@ -1443,7 +1441,7 @@ function renderPack() {
 function pkPick(key) {
   if (!pk) return;
   const before = pk.mode;
-  pk.mode = key === 'zstd' ? 'zstd' : key === 'lz4' ? (pk.mode === 'zstd' ? (pk.g.can_queue ? 'legacy' : 'ng') : pk.mode) : key;
+  pk.mode = key === 'zstd' ? 'zstd' : key === 'lz4' || key === 'legacy' ? 'ng' : key;
   if ((before === 'zstd') !== (pk.mode === 'zstd')) pk.level = pk.mode === 'zstd' ? 5 : 9;
   renderPack();
 }

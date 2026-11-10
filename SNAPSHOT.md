@@ -42,10 +42,10 @@ callers/skeleton`); line numbers below drift, names don't.
 `step_verify` → `step_restore` (full unpack + byte compare, games ≤ 25 GB) →
 `step_publish` (boot files, permissions, report in `state/reports/<id>.json`).
 
-- **LZ4** (APR-EMU or LZ4 NG): always `ampr_pack_cli` (theghostonline's packer,
-  keeps boot/disk files loose itself). LZ4 NG: `install_ng_runtime` after verify.
-- **Zstd**: PS5 Dump Forge (`forge_command`), profile = game TOML + `nas-ng.toml`
-  merged by `ng_profile`; output in the Zstd output folder (`zstd_output`).
+- **LZ4 NG** and **Zstd**: PS5 Dump Forge (`forge_command`), then our ampr-emu-ng
+  build (`install_ng_runtime`); profile = game TOML + `nas-ng.toml` merged by
+  `ng_profile`. APR-EMU LZ4 is no longer packed (`Job` refuses runtime legacy).
+  Zstd output in the Zstd output folder (`zstd_output`).
 - Always from the original; never from an LZ4 copy.
 - Queue: `state/queue.json`; `cmd_start` → background `run --from-queue`.
 

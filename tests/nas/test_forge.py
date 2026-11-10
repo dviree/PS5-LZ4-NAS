@@ -37,11 +37,13 @@ class ForgeOptionsTests(unittest.TestCase):
             self.assertFalse(app.run_request({**req, 'level': 23})['ok'])
             run.assert_not_called()
 
-    def test_legacy_request_still_defaults_to_lz4(self):
+    def test_a_request_without_options_is_lz4_ng(self):
         with patch.object(app.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout='', stderr='')) as run:
             app.run_request(app.queued_request({'action': 'start', 'game': 'test'}))
             cmd = run.call_args.args[0]
-            self.assertEqual(cmd[cmd.index('--runtime') + 1], 'legacy')
+            self.assertEqual(cmd[cmd.index('--runtime') + 1], 'ng')
+        with self.assertRaisesRegex(app.JobError, 'no longer packed'):
+            app.Job(None, 9, True, False, 'lz4', 'legacy')
 
 
 @unittest.skipUnless(os.environ.get('FORGE_TEST_BINARY'), 'set FORGE_TEST_BINARY for real binary round trips')

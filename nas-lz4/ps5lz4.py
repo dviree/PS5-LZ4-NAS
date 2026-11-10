@@ -1134,12 +1134,14 @@ def resolve_targets(args_targets: list[str], entries: list[Entry]) -> list[Entry
 
 class Job:
     def __init__(self, entry: Entry, level: int, restore_test: bool,
-                 require_vhash: bool, codec: str = "lz4", runtime: str = "legacy",
+                 require_vhash: bool, codec: str = "lz4", runtime: str = "ng",
                  use_profile: bool = True):
         if codec not in ("lz4", "zstd") or runtime not in ("legacy", "ng"):
             raise JobError("invalid codec or runtime")
-        if codec == "zstd" and runtime != "ng":
-            raise JobError("zstd requires ampr-emu-ng")
+        if runtime != "ng":
+            # Owner's decision (2026-11-10): new packs are LZ4 NG or Zstd, both packed by
+            # PS5 Dump Forge for ampr-emu-ng. Existing APR-EMU copies stay as they are.
+            raise JobError("LZ4 with APR-EMU is no longer packed; choose LZ4 NG or Zstd (ampr-emu-ng)")
         if not 1 <= level <= (22 if codec == "zstd" else 12):
             raise JobError("compression level out of range")
         self.codec, self.runtime = codec, runtime
@@ -1346,18 +1348,13 @@ class Job:
             if not (root / "eboot.bin").is_file():
                 raise Skip("no eboot.bin in source")
             snapshot = self.work / "pack-profile.toml"
-            if self.done("check") and (snapshot.is_file() or self.codec == "lz4"):
+            if self.done("check") and snapshot.is_file():
                 return  # Resume with the profile used by this job, even after a UI edit.
             if self.use_profile:
                 selected, desc = choose_profile(self.state["title_id"], name, root, self.e.id, self.e.path)
             else:  # no game TOML, but theghostonline's bundled game/engine fixes still apply
                 selected, desc = bundled_profile(self.state["title_id"], name, root)
                 desc = "no game TOML; " + desc
-            if self.codec == "lz4":
-                # LZ4 is always theghostonline's packer (ampr_pack_cli); it keeps the
-                # disk and boot files loose itself, so the game's profile goes as is.
-                self.mark("check", ampr=NG_NAME, profile_path=selected, profile=desc)
-                return
             self.mark("check", ampr=NG_NAME, profile_path=ng_profile(root, selected, snapshot),
                       profile=desc + "; mandatory LZ4 disk-file and boot fixes")
             return
@@ -1381,69 +1378,29 @@ class Job:
         remove_work_path(pack)
         _files, total = tree_bytes(root)
         self.need_space(total, f"{self.codec.upper()} packs")
-        if self.codec == "zstd":
-            # Forge owns Zstd: codec, runtime injection, indexes and full read-back verification.
-            # LZ4 (APR-EMU or ampr-emu-ng) is always theghostonline's packer below.
-            t0 = time.time()
-            self.run_tool(forge_command(root, pack, self.codec, self.level, profile=self.state.get("profile_path")), "pack")
-            install_ng_runtime(pack)
-            problem = lz4_format_problem(pack)
-            if problem or runtime_sha(pack) != NG_SHA256:
-                raise JobError(problem or "Forge installed an unexpected runtime")
-            self.mark("pack", pack_stats={"engine": "PS5 Dump Forge", "full_verify": True},
-                      pack_seconds=round(time.time() - t0))
-            return pack
-        argv = [PACKER, "pack", str(root), str(pack), "--level", str(self.level),
-                "--workers", str(workers()), "--embedded-runtime",
-                "--install-runtime-if-missing", "--verify-loose", "--learn", str(PROFILES)]
-        if self.state.get("profile_path"):
-            argv += ["--profile", self.state["profile_path"]]
+        # Forge packs both formats: codec, runtime injection, indexes and full read-back
+        # verification. Our own ampr-emu-ng build then replaces the one Forge ships.
         t0 = time.time()
-        out = self.run_tool(argv, "pack")
-        stats = json.loads(out.strip().splitlines()[-1])
-        if stats.get("lz4", 0) <= 0:
-            # Every file was left loose: LZ4 can't shrink this game's data.
-            raise Skip(f"nothing to pack: the packing profile kept all {stats.get('files')} files "
-                       f"loose ({stats.get('autoLoose')} of them sampled as incompressible)")
-        self.mark("pack", pack_stats=stats, pack_seconds=round(time.time() - t0))
-        self.log(f"packed {stats['packed']} files into {stats['packs']} volumes "
-                 f"({stats['lz4']} LZ4 + {stats['raw']} raw chunks), {stats['loose']} loose")
+        self.run_tool(forge_command(root, pack, self.codec, self.level, profile=self.state.get("profile_path")), "pack")
+        install_ng_runtime(pack)
+        problem = lz4_format_problem(pack)
+        if problem or runtime_sha(pack) != NG_SHA256:
+            raise JobError(problem or "Forge installed an unexpected runtime")
+        self.mark("pack", pack_stats={"engine": "PS5 Dump Forge", "full_verify": True},
+                  pack_seconds=round(time.time() - t0))
         return pack
 
     def step_verify(self, root: Path, pack: Path) -> None:
         if self.done("verify"):
             return
         self.set_step("verify")
-        if self.codec == "zstd":
-            problem = lz4_format_problem(pack)
-            if problem or not self.state.get("pack_stats", {}).get("full_verify"):
-                raise JobError(problem or "missing full verification from Forge")
-            self.mark("verify", verify_stats={"full_verify": True, "engine": "Forge"},
-                      pak_volumes=len(list(pack.glob("ampr_zstd-*.pak" if self.codec == "zstd" else "ampr_assets-*.pak"))),
-                      runtime_sha256=NG_SHA256)
-            self.log("verified: Forge read every output file back against the source; runtime SHA-256 matches")
-            return
-        out = self.run_tool([PACKER, "verify", str(pack), str(root)], "verify")
-        stats = json.loads(out.strip().splitlines()[-1])
-        # The result must really be AMPR LZ4: manifest, data volumes, runtime.
         problem = lz4_format_problem(pack)
-        if problem:
-            raise JobError(problem)
-        paks = sorted(pack.glob("ampr_assets-*.pak"))
-        if self.runtime == "ng":
-            # Verified with APR-EMU in place; now ampr-emu-ng takes its place (only
-            # the runtime file and its record in ampr_emu.index change).
-            install_ng_runtime(pack)
-            problem = lz4_format_problem(pack)
-            if problem or runtime_sha(pack) != NG_SHA256:
-                raise JobError(problem or "ampr-emu-ng was not installed")
-            self.mark("verify", verify_stats=stats, pak_volumes=len(paks), runtime_sha256=NG_SHA256)
-            self.log(f"verify passed: every chunk decoded, {stats['packed']} packed files match the source; "
-                     f"{len(paks)} AMPRDAT3 volumes, {NG_NAME} {NG_SHA256[:12]}")
-            return
-        self.mark("verify", verify_stats=stats, pak_volumes=len(paks), runtime_sha256=RUNTIME_SHA256)
-        self.log(f"verify passed: every chunk decoded, {stats['packed']} packed files match the source; "
-                 f"{len(paks)} AMPRDAT3 volumes, PackedStdio runtime {RUNTIME_SHA256[:12]}")
+        if problem or not self.state.get("pack_stats", {}).get("full_verify"):
+            raise JobError(problem or "missing full verification from Forge")
+        self.mark("verify", verify_stats={"full_verify": True, "engine": "Forge"},
+                  pak_volumes=len(list(pack.glob("ampr_zstd-*.pak" if self.codec == "zstd" else "ampr_assets-*.pak"))),
+                  runtime_sha256=NG_SHA256)
+        self.log("verified: Forge read every output file back against the source; runtime SHA-256 matches")
 
     def step_restore(self, root: Path, pack: Path) -> None:
         if self.done("restore") or not self.restore_test:
@@ -1468,8 +1425,7 @@ class Job:
         restore = self.work / "restore"
         remove_work_path(restore)
         self.need_space(total, "restore test")
-        self.run_tool(forge_command(pack, restore, self.codec, self.level, unpack=True) if self.codec == "zstd"
-                      else [PACKER, "unpack", str(pack), str(restore)], "restore")
+        self.run_tool(forge_command(pack, restore, self.codec, self.level, unpack=True), "restore")
         expected_extra = {"ampr_emu.index", RUNTIME_REL}
         same = 0
         problems: list[str] = []
@@ -1682,7 +1638,7 @@ def process_one(e: Entry, args) -> str:
               "(use --force-image to pack the image)", flush=True)
         return "ok"
     job = Job(e, args.level, not args.no_restore_test, args.require_vhash,
-              getattr(args, "codec", "lz4"), getattr(args, "runtime", "legacy"),
+              getattr(args, "codec", "lz4"), getattr(args, "runtime", "ng"),
               not getattr(args, "no_profile", False))
     try:
         job.run()
@@ -1814,7 +1770,7 @@ def cmd_start(args) -> int:
         q = {"created": now(), "remaining": [e.id for e in targets], "finished": [], "failed": [],
              "current": None, "options": {"level": args.level,
                                           "codec": getattr(args, "codec", "lz4"),
-                                          "runtime": getattr(args, "runtime", "legacy"),
+                                          "runtime": getattr(args, "runtime", "ng"),
                                           "no_restore_test": args.no_restore_test,
                                           "require_vhash": args.require_vhash,
                                           "force_image": args.force_image,
@@ -1831,7 +1787,7 @@ def cmd_start(args) -> int:
     log = LOGS / f"queue-{_dt.datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
     argv = ["nohup", sys.executable, os.path.abspath(__file__), "run", "--from-queue",
             "--level", str(opts.get("level", 9)), "--codec", opts.get("codec", "lz4"),
-            "--runtime", opts.get("runtime", "legacy")]
+            "--runtime", opts.get("runtime", "ng")]
     for flag in ("no_restore_test", "require_vhash", "force_image", "no_profile"):
         if opts.get(flag):
             argv.append("--" + flag.replace("_", "-"))
@@ -2146,7 +2102,7 @@ def cmd_lz4(args) -> int:
     compressed: list[Entry] = []  # .ffpfsc: already PFSC-compressed, little or nothing to gain
     games = compat_games()
     counts = {"LZ4": 0, "can be LZ4": 0, "not LZ4": 0, "error": 0}
-    codec, runtime = getattr(args, "codec", "lz4"), getattr(args, "runtime", "legacy")
+    codec, runtime = getattr(args, "codec", "lz4"), getattr(args, "runtime", "ng")
     packable: list[Entry] = []  # AMPR games (LZ4 copy or not): what Zstd and LZ4 NG are made from
     # Saved results for unchanged sources; --full scans every one again and
     # stores the new results.
@@ -7549,9 +7505,9 @@ def run_request(req: dict) -> dict:
             return {"ok": False, "output": "no game given"}
         argv.append(game)
     if action == "start" or (action == "fix" and "codec" in req):  # Compress all without a format: as before
-        codec, runtime = req.get("codec", "lz4"), req.get("runtime", "legacy")
+        codec, runtime = req.get("codec", "lz4"), req.get("runtime", "ng")
         level = req.get("level", 5 if codec == "zstd" else 9)
-        if codec not in ("lz4", "zstd") or runtime not in ("legacy", "ng") or (codec == "zstd" and runtime != "ng"):
+        if codec not in ("lz4", "zstd") or runtime != "ng":
             return {"ok": False, "output": "invalid compression mode"}
         if type(level) is not int or not 1 <= level <= (22 if codec == "zstd" else 12):
             return {"ok": False, "output": "invalid compression level"}
@@ -8495,7 +8451,7 @@ def main() -> int:
 
     def job_opts(sp):
         sp.add_argument("--codec", choices=("lz4", "zstd"), default="lz4")
-        sp.add_argument("--runtime", choices=("legacy", "ng"), default="legacy",
+        sp.add_argument("--runtime", choices=("ng",), default="ng",
                         help="ng installs ampr-emu-ng; required for zstd")
         sp.add_argument("--level", type=int, default=int(os.environ.get("PS5LZ4_LEVEL", "9")),
                         help="LZ4: 1-4 fast, 5-12 HC; zstd: 1-22 (suggested 5)")

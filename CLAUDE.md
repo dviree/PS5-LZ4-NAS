@@ -22,8 +22,9 @@
 - Tell "verified on the NAS" apart from "playable on the PS5".
 - Packs are always made from the original: folder/exFAT → LZ4 or folder/exFAT →
   Zstd, never LZ4 → Zstd.
-- LZ4 is always packed by theghostonline's packer (`ampr_pack_cli`), LZ4 NG too
-  (ampr-emu-ng replaces APR-EMU after the verify); PS5 Dump Forge packs Zstd only.
+- New packs are LZ4 NG or Zstd only, both packed by PS5 Dump Forge for
+  ampr-emu-ng (owner, 2026-11-10; replaces "LZ4 always with theghostonline's
+  packer"). LZ4 with APR-EMU is no longer packed; existing copies stay.
 - Third-party code (theghostonline, quer3q, James St-Pierre) only after review
   and the owner's OK. Don't route around proxy 403s.
 - After a feature, give the update command:

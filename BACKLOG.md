@@ -5,7 +5,14 @@ ends (see `CLAUDE.md`). No real game names (Title IDs only), no personal data.
 
 ## >RESUME HERE
 
-Waiting on the owner: the PPSA26344 folder went missing. The code can't
+IN PROGRESS (owner, 2026-11-10): remove theghostonline's code. Step 1 done:
+Forge packs LZ4 NG, APR-EMU mode gone from page/CLI. Step 2 open: delete `src/`,
+`app/`, `assets/`, `nas/`, `tests/host`, `third_party/ampr_emu`, `compat/`,
+`release.yml`, `sync-upstream.yml`, the `build` Docker stage and every `PACKER`/
+APR-EMU use in ps5lz4.py (verify-lz4, apr disk-files, doctor, app_install);
+decide with the owner what existing APR-EMU copies may still do.
+
+Also waiting on the owner: the PPSA26344 folder went missing. The code can't
 remove an original (only `delete-original` with `DELETE_ORIGINALS=yes`); the
 owner is to run the log commands from chat (logs, `state/requests`, Recent
 actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
@@ -51,6 +58,8 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- LZ4 NG is packed by Forge (`--to lz4 --lz4-runtime ng`), with the mandatory
+  loose-file rules like Zstd; APR-EMU LZ4 can no longer be chosen or queued.
 - Game reports tab: quer3q's reports as a compatibility list (search, filters,
   in-your-library mark); list-style reports (a table of Title IDs) count per row.
 - quer3q's game reports (issues labelled `test report` on quer3q/ampr-emu-ng):
