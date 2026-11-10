@@ -461,7 +461,6 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
       <select id="pg-k" onchange="renderPg()"><option value="">PS5 and PS4</option><option value="ps5">PS5 games</option><option value="ps4">PS4 games (installed)</option><option value="att">⚠ Needs attention</option></select>
       <select id="pg-s" onchange="renderPg()"><option value="name">Name</option><option value="size">Largest first</option><option value="drive">Drive</option></select>
     </div>
-    <div id="pg-job"></div>
     <div id="pg-list" class="pg-grid"></div>
   </div>
 </main>
@@ -949,7 +948,7 @@ function render() {
       <div class="bar"><i style="width:${pct}%"></i></div>
       <div class="stats"><b>${pct.toFixed(0)} %</b><span>${gb(tf.bytes)} / ${gb(tf.total)}</span>
         ${tf.speed ? `<span>${gb(tf.speed)}/s</span><span>about ${dur(tf.eta)} left</span>` : '<span>measuring speed…</span>'}
-        <span>file ${tf.files_done} of ${tf.files}</span>${tf.woken ? `<span>woke the PS5 ${tf.woken}×</span>` : ''}${tf.kept_awake ? '<span class="good">kept awake by LZ4 Compression</span>' : ''}</div>
+        <span>file ${tf.files_done} of ${tf.files}</span>${tf.woken ? `<span>woke the PS5 ${tf.woken}×</span>` : ''}${tf.kept_awake ? '<span class="good">kept awake by pkg-receiver</span>' : ''}</div>
       <div class="why">${esc(tf.current || '')}</div>
       <div class="acts" style="margin-top:10px"><button onclick="act('push_stop', 'Stop sending this game? Finished files stay on the PS5 and it can be resumed later. The queue goes on with the next game.')">Stop (resumable)</button>
         <button class="danger" data-k="${esc(tf.game)}" data-n="${esc(nameOf(tf.game))}" onclick="transferDelete(this.dataset.k, this.dataset.n, true)">🗑 Stop and delete</button></div>`;
@@ -1369,20 +1368,6 @@ async function compress(id, send, image, options = packOptions(), ask = true) {
   if (send) await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'send_after', game: id, image: !!image})});
   act('start', null, {game: id, ...opts});
 }
-// The original project's site (it left GitHub on 2026-10-17): a new issue filled in
-// like its old report form, so the NAS can count it.
-const ORIGIN_WEB = 'https://theghostonline.dev/theghostonline/PS5-LZ4-Compression';
-function reportLink(web, tid, name, status, extra = {}) {
-  const forms = {works: 'Works', issues: 'Works with issues', nostart: "Won't start (black screen or crash on launch)", crash: 'Crashes in game'};
-  let fw = '';
-  try { fw = (localStorage.getItem('fw') || '').trim(); } catch (e) {}
-  const rows = [['Title ID', tid], ['Game', name], ['How does it run?', forms[status] || ''], ['Game version', extra.version || ''],
-    ['LZ4 level', extra.level || ''], ['Packed from', extra.source || ''], ['Firmware', fw],
-    ['LZ4 Compression version', (data && data.lz4c_version) || 'ps5lz4zstd NAS'], ['Notes', '']];
-  const body = rows.map(([k, v]) => `### ${k}\n\n${v || '_No response_'}`).join('\n\n');
-  return `${web || ORIGIN_WEB}/issues/new?title=` + encodeURIComponent(`[Game report] ${name}${status ? ': ' + forms[status] : ''}`) +
-    '&body=' + encodeURIComponent(body);
-}
 // The community's .ffpfsc compatibility sheet: the matching row, with the
 // sheet's own column names.
 function ffpfscHtml(g, det) {
@@ -1421,31 +1406,6 @@ function ngReportsHtml(g, det) {
 }
 function communityHtml(g, det) {
   return ngReportsHtml(g, det);
-  if (g.pack_codec === 'zstd' || g.pack_runtime === 'ng') return '<div class="csec"><h4>Community reports</h4><div class="mut">The community list covers legacy LZ4. Results for zstd and ampr-emu-ng are saved locally and are not submitted as legacy LZ4 reports.</div></div>';
-  if (!det) return '<div class="csec mut">Loading community reports…</div>';
-  const c = det.community, web = det.community_web || ORIGIN_WEB, tid = det.title_id || g.title_id || '';
-  const all = tid ? `<a href="${esc(web)}/issues?state=all&q=${encodeURIComponent(tid)}" target="_blank" rel="noopener">All reports</a>` : '';
-  const extra = {version: (det.version || {}).version || '',
-    // the level from this game's pack report; an LZ4 copy without one was packed here at the NAS's level
-    level: (((det.report || {}).codec || '').match(/(\d+)$/) || [])[1] || (g.output_bytes && data && data.level ? String(data.level) : ''),
-    source: {folder: 'Folder', exfat: 'exFAT image', ffpfsc: 'Uncompressed .ffpfsc', ffpfs: 'Uncompressed .ffpfsc'}[g.kind] || ''};
-  // One button per result: the report opens already filled in with it.
-  const rb = (st, label, cls) => `<a class="btn${cls ? ' ' + cls : ''}" style="padding:6px 12px;font-size:13px" href="${esc(reportLink(web, tid, g.name || tid, st, extra))}"
-    target="_blank" rel="noopener" title="Open a report on the original project's site, filled in: ${esc(label)}">${label}</a>`;
-  const report = tid ? `<div style="flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="mut">Report how it runs:</span>
-    ${rb('works', '✅ Works')}${rb('issues', '⚠️ Works with issues')}${rb('nostart', '❌ Doesn\'t start')}${rb('crash', '💥 Crashes in game')}</div>` : '';
-  if (!c || !c.reports)
-    return `<div class="csec"><h4>LZ4 <span class="mut" style="font-weight:500">· community reports</span></h4><div class="mut">Nobody has reported ${esc(g.name || tid)} yet.</div>
-      <div class="acts">${report}</div></div>`;
-  const n = c.reports, seg = (k, col) => c[k] ? `<i style="width:${100 * c[k] / n}%;background:${col}"></i>` : '';
-  const l = c.lastReport || {};
-  const link = l.issue && det.community_live ? ` · <a href="${esc(web)}/issues/${esc(l.issue)}" target="_blank" rel="noopener">#${esc(l.issue)}</a>` : '';
-  return `<div class="csec"><h4>LZ4 <span class="mut" style="font-weight:500">· ${n} community report${n === 1 ? '' : 's'}</span></h4>
-    <div>${community(c)}</div>
-    <div class="cbar">${seg('works', 'var(--ok)')}${seg('issues', 'var(--warn)')}${seg('noStart', 'var(--bad)')}${seg('crash', 'var(--bad)')}</div>
-    <div class="why">Latest: <b>${esc(ST_EN[l.status] || l.status || '–')}</b> ${esc((l.date || '').slice(0, 10))}${link}
-      ${l.source ? ' · packed from ' + esc(l.source) : ''}${l.level ? ' · level ' + esc(l.level) : ''}${l.firmware ? ' · FW ' + esc(l.firmware) : ''}${l.appVersion ? ' · ' + esc(l.appVersion) : ''}</div>
-    <div class="acts">${all}${report}</div></div>`;
 }
 let openId = null;
 function closeGame() { openId = null; document.getElementById('modal').hidden = true; document.body.classList.remove('locked'); }
@@ -1472,7 +1432,7 @@ async function openGame(id) {
         if (acts && acts.querySelector('.mut')) acts.innerHTML = '';
         copies.forEach(c => {
           if (acts) acts.insertAdjacentHTML('afterbegin', `<button data-p="${esc(c.path)}" onclick="closeGame();tab('ftp');ftpGo(this.dataset.p)">Open on PS5${copies.length > 1 ? ' (' + esc(driveName(c.drive)) + ')' : ''}</button>` +
-            (c.lz4 ? `<button data-p="${esc(c.path)}" onclick="aprCheck(this.dataset.p, document.getElementById('apr-ps5'))">Check APR-EMU on PS5</button>` : ''));
+            (c.lz4 ? `<button data-p="${esc(c.path)}" onclick="aprCheck(this.dataset.p, document.getElementById('apr-ps5'))">Check runtime on PS5</button>` : ''));
           if (dl) dl.insertAdjacentHTML('afterbegin', `<button class="danger" data-p="${esc(c.path)}" data-n="${esc(g.name)}" onclick="deleteFromPs5(this.dataset.p, this.dataset.n)">🗑 Delete from PS5${copies.length > 1 ? ' (' + esc(driveName(c.drive)) + ')' : ''}</button>`);
         });
       } else here.textContent = pp ? 'not on the PS5: this is where Send to PS5 puts it' : 'not on the PS5';
@@ -1499,7 +1459,7 @@ function gameHtml(g, det) {
     (kn.open ? `<div style="margin-top:4px"><span class="bad">⚠ still open:</span> ${esc(kn.open)}</div>` : '')]);
   if (det && det.unity) rows.push(['Engine', `<span class="bad">⚠ ${esc(det.unity)}</span>`]);
   const a = det && det.apr;
-  if (a) rows.push(['APR-EMU', `${a.ok ? '<span class="good">' + esc(a.build) + ' ✓</span>' : '<span class="bad">' + esc(a.build) + '</span> · wrong APR-EMU: compress the game again'}${a.path ? `<div class="why">${esc(a.path)}</div>` : ''}`]);
+  if (a) rows.push(['Runtime', `${a.ok ? '<span class="good">' + esc(a.build) + ' ✓</span>' : '<span class="bad">' + esc(a.build) + '</span> · wrong APR-EMU: compress the game again'}${a.path ? `<div class="why">${esc(a.path)}</div>` : ''}`]);
   const vv = g.output ? (data.verifies || {})[g.output.split('/').pop()] : null;
   if (vv) rows.push(['Verify LZ4', vv.state === 'running' ? 'running…' : `${vv.state === 'passed' ? '<span class="good">✓ passed</span>' : '<span class="bad">✗ ' + esc(vv.state) + '</span>'} <span class="mut">${esc(vv.finished || '')}</span>` +
     (vv.state !== 'passed' && vv.output ? `<pre class="log" style="max-height:160px;overflow:auto">${esc(vv.output.split('\n').slice(-8).join('\n'))}</pre>` : '')]);
@@ -1546,7 +1506,7 @@ function gameHtml(g, det) {
   const tr = (data.transfers || {})[g.output ? g.output.split('/').pop() : g.id];
   if (pp && pp.sent) {
     acts.push(`<button data-p="${esc(pp.path)}" onclick="closeGame();tab('ftp');ftpGo(this.dataset.p)">Open on PS5</button>`);
-    acts.push(`<button data-p="${esc(pp.path)}" onclick="aprCheck(this.dataset.p, document.getElementById('apr-ps5'))">Check APR-EMU on PS5</button>`);
+    acts.push(`<button data-p="${esc(pp.path)}" onclick="aprCheck(this.dataset.p, document.getElementById('apr-ps5'))">Check runtime on PS5</button>`);
   }
   // Deleting: the PS5 copy and the NAS LZ4 copy separately; never the original.
   const dels = [];
@@ -1615,7 +1575,7 @@ async function ftpGo(path) {
     const files = j.items.filter(i => !i.dir), bytes = files.reduce((n, i) => n + (i.size || 0), 0);
     msg.textContent = `${j.items.length - files.length} folders, ${files.length} files` + (files.length ? ` (${gb(bytes)})` : '');
     if (j.items.some(i => i.dir && i.name.toLowerCase() === 'fakelib'))
-      msg.innerHTML += ` · <button class="sm" onclick="aprCheck(ftpPath)">Check APR-EMU here</button>`;
+      msg.innerHTML += ` · <button class="sm" onclick="aprCheck(ftpPath)">Check runtime here</button>`;
     const join = n => (ftpPath === '/' ? '' : ftpPath) + '/' + n;
     const KEEP = ['etahen', 'pldmgr', 'homebrew', 'shadowmount', 'lz4compression', 'goldhen', 'payloads', 'kstuff', 'elfldr', 'websrv', 'ftpsrv', 'itemzflow', 'toolbox', 'app', 'system_data'];
     const del = (p, dir) => /^\/(data|mnt\/(usb|ext)\d+)\/[^/]+/.test(p) && !(/^\/data\/[^/]+$/.test(p) && KEEP.includes(p.split('/').pop().toLowerCase()))
@@ -1658,7 +1618,7 @@ function placeHtml(g) {
   return `<div class="chips"><span class="chip" title="${esc(g.output)}">🗄 On NAS</span>${bigger}` +
     (pp && pp.sent ? `<span class="chip ok" title="${esc(pp.path)}">🎮 On PS5 · ${esc(drive)}${t && t.finished ? ' · ' + esc(t.finished.slice(5, 16)) : ''}</span>` : '') + '</div>';
 }
-// Results of Check APR-EMU on PS5, by path: shown under the buttons and kept
+// Results of Check runtime on PS5, by path: shown under the buttons and kept
 // when the page refreshes the game sheet.
 const aprResults = {};
 function aprShown(g) {
@@ -1677,13 +1637,13 @@ async function aprCheck(path, el) {
     cur.innerHTML = aprShown((data.games || []).find(x => x.id === openId) || {}) || aprResults[path];
     cur.scrollIntoView({block: 'nearest', behavior: 'smooth'});
   };
-  show('Checking APR-EMU on the PS5…');
+  show('Checking the runtime on the PS5…');
   try {
     const r = await fetch('/api/ftp/apr?path=' + encodeURIComponent(path), {cache: 'no-store'});
     const j = await r.json();
     show(!r.ok ? `<span class="bad">Could not check: ${esc(j.error || r.status)}</span>`
-      : j.ok ? `<span class="good">APR-EMU on the PS5: ${esc(j.build)} ✓</span><br><span class="mut">${esc(j.path)}</span>`
-      : `<span class="bad">APR-EMU on the PS5: ${esc(j.build)}</span>${j.path ? '<br><span class="mut">' + esc(j.path) + '</span>' : ''}<br>Send the game again to replace it.`);
+      : j.ok ? `<span class="good">Runtime on the PS5: ${esc(j.build)} ✓</span><br><span class="mut">${esc(j.path)}</span>`
+      : `<span class="bad">Runtime on the PS5: ${esc(j.build)}</span>${j.path ? '<br><span class="mut">' + esc(j.path) + '</span>' : ''}<br>Send the game again to replace it.`);
   } catch (e) { show(`<span class="bad">${esc(String(e))}</span>`); }
 }
 // Game folders (two levels down or more) get their icon0.png; others a folder sign.
@@ -1825,7 +1785,7 @@ async function loadPg() {
   try {
     const r = await fetch('/api/ps5/games', {cache: 'no-store'}), j = await r.json();
     if (!r.ok) { el.innerHTML = `<div class="bad">${esc(j.error || r.status)}</div>`; return; }
-    pgData = j; pgAt = Date.now(); pgJob();
+    pgData = j; pgAt = Date.now();
     const drives = [...new Set(j.games.map(g => g.drive))];
     document.getElementById('pg-d').innerHTML = '<option value="">All drives</option>' + drives.map(d => `<option value="${esc(d)}">${esc(driveName(d))}</option>`).join('');
     renderPg();
@@ -2110,29 +2070,6 @@ async function amprLog(path, el) {
     `<details><summary>Whole log (end)</summary><pre class="log" style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto">${esc(j.lines.join('\n'))}</pre></details>` +
     `<button class="sm" onclick="copyText(this.parentElement.querySelector('details pre').textContent, this)">Copy</button>`;
 }
-async function pgCompress(path, tid, name) {
-  if (!confirm(`LZ4-pack ${name} on the PS5?\n\nThe PS5's LZ4 Compression engine does it (it is started, or installed and started, if needed). ` +
-      `The original stays; the LZ4 copy is written next to it as a "-lz4" folder, so the drive needs room for it. Keep the game closed until it is done.`)) return;
-  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'ps5_lz4', path, tid})});
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) { alert('Not started: ' + (j.error || r.status)); return; }
-  pgJob();
-}
-let pgJobTimer = null;
-async function pgJob() {
-  clearTimeout(pgJobTimer);
-  const el = document.getElementById('pg-job');
-  let j;
-  try { j = await (await fetch('/api/ps5/lz4job', {cache: 'no-store'})).json(); } catch (e) { return; }
-  if (!j || j.off || (!j.busy && !j.error)) { el.innerHTML = ''; return; }
-  const pct = j.totalBytes ? Math.min(100, 100 * (j.copiedBytes || 0) / j.totalBytes) : 0;
-  el.innerHTML = `<div class="dl"><div class="dl-top"><b>⚡ On the PS5: ${esc(j.verb || 'LZ4')} ${esc(j.current || '')}</b><span class="sp"></span>
-      <span class="chip">${esc(j.phase || (j.busy ? 'working' : 'done'))}</span>
-      ${j.busy ? `<button class="sm danger" onclick="if(confirm('Cancel the job on the PS5?'))fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'ps5_lz4_cancel'})}).then(pgJob)">Cancel</button>` : ''}</div>
-    ${j.busy ? `<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div><div class="why">${gbd(j.copiedBytes || 0)} of ${gbd(j.totalBytes || 0)} · ${pct.toFixed(0)} %</div>` : ''}
-    ${j.error ? `<div class="why bad">${esc(j.error)}</div>` : ''}</div>`;
-  if (j.busy) pgJobTimer = setTimeout(pgJob, 3000);
-}
 async function pgFix(path, code) {
   const what = {hidden: 'Rename it without the leading dot?', wrapper: 'Move the game folder inside up one level (and remove the empty outer folder)?'}[code] || 'Fix it?';
   if (!confirm(what + '\n\n' + path)) return;
@@ -2336,131 +2273,6 @@ async function pair() {
     if (r.ok) { document.getElementById('p-pin').value = ''; settingsFilled = false; load(); }
   } finally { btn.disabled = false; btn.textContent = 'Pair'; }
 }
-async function engCheck() {
-  const st = document.getElementById('eng-st'), info = document.getElementById('eng-info');
-  st.className = 'pill p-no'; st.textContent = 'Engine: checking…';
-  try {
-    const j = await (await fetch('/api/engine', {cache: 'no-store'})).json();
-    const m = {connected: ['p-LZ4', 'Engine: connected ✓'], original: ['p-run', 'Engine: running, original build'],
-      off: ['p-no', 'Engine: not running'], 'no-address': ['p-no', 'Engine: set the PS5 address'],
-      unknown: ['p-no', 'Engine: ?']}[j.state] || ['p-no', 'Engine: ?'];
-    st.className = 'pill ' + m[0]; st.textContent = m[1];
-    const why = {
-      connected: 'Connected: transfers keep the PS5 awake through the engine.',
-      original: 'The engine runs but is the original build, so it can\'t keep the PS5 awake. Press Install ELF on PS5, then Start it now: the new engine takes over from this one.',
-      off: 'Nothing answers on port 5920. Start LZ4 Compression from the Payload Manager on the PS5, or press Start it now.',
-      'no-address': 'Save the PS5 address below first.'}[j.state] || '';
-    engInfo = j; engInst(j);
-    document.getElementById('eng-restore').hidden = !(j.installed && j.installed.orig);
-    document.getElementById('eng-auto').checked = !!j.auto;
-    const rs = j.rest || {};
-    document.getElementById('rest-auto').checked = rs.on !== false;
-    document.getElementById('rest-info').innerHTML = rs.error ? `<span class="bad">Rest mode: ${esc(rs.error)}</span>`
-      : rs.woke_at ? 'This page woke the PS5: it goes back to rest mode a few minutes after the last game is sent.'
-      : rs.last ? `Last put in rest mode: ${esc(rs.last)}` : '';
-    info.innerHTML = esc(why) + (j.running_version ? `<br>Running: <b>${esc(j.running_version)}</b> (process ${esc(String(j.pid))})` : '') + (j.host ? `<br>Engine at <code>http://${esc(j.host)}:${j.port}</code>` : '')
-      + `<br>Installed to <code>${esc(j.path)}</code> from <code>${esc(j.repo)}</code>` + (j.cached ? ` · downloaded: ${esc(j.cached)}` : '');
-  } catch (e) { st.textContent = 'Engine: ?'; }
-}
-// One click from the header: install the engine ELF, then try to start it.
-async function engOneClick() {
-  const upd = engInfo && engInfo.update;
-  if (!confirm((upd ? `Update the LZ4 Compression engine on the PS5 from ${engInfo.installed.tag} to ${engInfo.latest}?`
-    : 'Install the LZ4 Compression engine (ELF) on the PS5?') + `\n\nThe newest release is downloaded from GitHub (${engInfo ? engInfo.repo : 'your repository'}), `
-    + 'copied over FTP into the Payload Manager (overwriting the old file) and started through Payload Manager, taking over from the engine that runs now.')) return;
-  const b = document.getElementById('b-elf'), small = document.getElementById('b-elf-st'), was = small.textContent;
-  b.disabled = true; small.textContent = 'downloading and copying…';
-  const post = action => fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({action})}).then(async r => ({ok: r.ok, j: await r.json().catch(() => ({}))}));
-  try {
-    const ins = await post('engine_install');
-    if (!ins.ok) { alert('Not installed: ' + (ins.j.error || '?')); return; }
-    // Payload Manager loads the new engine; it takes over from one that runs.
-    small.textContent = 'starting…';
-    const run = await post('engine_start');
-    const w = run.ok ? await engWaitNew(run.j.before_pid) : null;
-    alert(`Installed ${ins.j.tag} on the PS5.\n\n`
-      + (w && w.state === 'connected' ? `The new engine runs (${w.running_version || ins.j.tag}) and is connected: transfers now keep the PS5 awake.`
-        : run.ok ? `Started through ${run.j.via}, but the new engine doesn't answer yet. Press Check on the Remote tab in a moment.`
-        : (run.j.error || 'It could not be started from here.')));
-  } finally { b.disabled = false; small.textContent = was; engHeader(); if (!document.getElementById('p-ps5').hidden) engCheck(); }
-}
-let engInfo = null;
-// After a start: wait until an engine with another process ID answers.
-async function engWaitNew(oldPid) {
-  let j = null;
-  for (let i = 0; i < 15; i++) {
-    await new Promise(r => setTimeout(r, 2000));
-    j = await (await fetch('/api/engine', {cache: 'no-store'})).json().catch(() => null);
-    if (j && j.state === 'connected' && (!oldPid || j.pid !== oldPid)) return j;
-  }
-  return j;
-}
-async function engHeader() {
-  try {
-    const j = engInfo = await (await fetch('/api/engine', {cache: 'no-store'})).json();
-    const inst = j.installed || {};
-    document.getElementById('b-elf').classList.toggle('pri', !j.update && (j.state === 'original' || j.state === 'off'));
-    document.getElementById('b-elf').classList.toggle('upd', !!j.update);
-    document.getElementById('b-elf-t').innerHTML = j.update ? '<span class="updot"></span>Update available' : 'Install ELF on PS5';
-    document.getElementById('b-elf-st').textContent = j.update ? `${inst.tag} on the PS5 → ${j.latest}: click to update`
-      : {connected: `connected ✓${inst.tag ? ' · ' + inst.tag : ''}`,
-         original: 'original engine runs: install this one', off: 'engine not running: install and start'}[j.state]
-      || 'put the LZ4 engine on the PS5 and start it';
-  } catch (e) {}
-}
-function engInst(j) {
-  const i = j.installed, el = document.getElementById('eng-inst');
-  if (!i) { el.innerHTML = '<div class="mut">The ELF on the PS5 hasn\'t been read yet: press <b>Read the ELF on the PS5</b>.</div>'; return; }
-  const when = new Date(i.at * 1000).toLocaleString();
-  const what = i.state === 'missing' ? '<span class="bad">No engine ELF in the Payload Manager.</span>'
-    : i.state === 'other' ? `<b>Not one of your releases</b> (probably the original engine), ${(i.bytes / 1048576).toFixed(1)} MB. Auto-update leaves it alone; Install ELF on PS5 replaces it.`
-    : j.update || i.state === 'outdated' ? `<span class="updot"></span><b>${esc(i.tag)}</b>, update available: <b>${esc(j.latest || i.latest)}</b>`
-    : `<span class="good"><b>${esc(i.tag)}</b>, the newest ✓</span>`;
-  el.innerHTML = `<div class="why">On the PS5: ${what}${i.orig ? ' · previous file kept as .orig' : ''} <span class="mut">(read ${esc(when)})</span></div>`;
-}
-async function engRead() {
-  const el = document.getElementById('eng-inst');
-  el.innerHTML = '<div class="mut">Reading the ELF on the PS5 over FTP…</div>';
-  const r = await fetch('/api/engine/read', {cache: 'no-store'}), j = await r.json().catch(() => ({}));
-  if (!r.ok) { el.innerHTML = `<div class="why bad">Could not read it: ${esc(j.error || r.status)}</div>`; return; }
-  engCheck(); engHeader();
-}
-async function restAuto(on) {
-  await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'rest_auto', on})});
-}
-async function restNow() {
-  if (data.transfer && data.transfer.state === 'running' && !confirm('A game is being sent right now. Put the PS5 in rest mode anyway? The transfer is woken up and continued later.')) return;
-  if (!confirm('Put the PS5 in rest mode now?')) return;
-  const msg = document.getElementById('wake-msg');
-  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'ps5_rest'})});
-  const j = await r.json().catch(() => ({}));
-  msg.className = 'why ' + (r.ok ? 'good' : 'bad');
-  msg.textContent = r.ok ? 'The PS5 goes to rest mode in a few seconds.' : 'Not in rest mode: ' + (j.error || r.status);
-  setTimeout(ps5State, 8000);
-}
-async function engAuto(on) {
-  await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'engine_auto', on})});
-}
-async function appCheck() {
-  const st = document.getElementById('app-st');
-  try {
-    const j = await (await fetch('/api/app', {cache: 'no-store'})).json();
-    st.className = 'pill ' + (j.installed ? 'p-LZ4' : 'p-no');
-    st.textContent = j.installed ? 'App: installed ✓' : j.installed === false ? 'App: not installed' : 'App: PS5 not reachable';
-  } catch (e) { st.textContent = 'App: ?'; }
-}
-async function appInstall() {
-  if (!confirm('Install the LZ4 Compression app (tile) on the PS5?\n\nIt is downloaded from GitHub and copied over FTP to /data/homebrew/PPSA99420, overwriting an older copy.')) return;
-  const msg = document.getElementById('app-msg');
-  msg.className = 'why'; msg.textContent = 'Downloading and copying to the PS5…';
-  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'app_install'})});
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) { msg.className = 'why bad'; msg.textContent = 'Failed: ' + (j.error || r.status); return; }
-  msg.className = 'why good';
-  msg.textContent = `Installed ${j.tag} (${j.files} files). The LZ4 Compression tile shows up on the home screen once ShadowMount+ has scanned (close any running game).`;
-  appCheck();
-}
 async function rcvCheck() {
   const st = document.getElementById('rcv-st'), msg = document.getElementById('rcv-msg');
   try {
@@ -2513,22 +2325,6 @@ async function rcvInstall(fromHeader) {
   msg.className = 'why ' + (r.ok ? 'good' : 'bad'); msg.textContent = text;
   if (fromHeader) alert(text);
   setTimeout(rcvCheck, 4000);
-}
-async function engAct(action, confirmText) {
-  if (confirmText && !confirm(confirmText)) return;
-  const msg = document.getElementById('eng-msg');
-  msg.className = 'why'; msg.textContent = {engine_install: 'Downloading and copying to the PS5…',
-    engine_start: 'Sending to the ELF loader…', engine_restore: 'Restoring…'}[action];
-  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({action})});
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) { msg.className = 'why bad'; msg.textContent = (action === 'engine_start' ? '' : 'Failed: ') + (j.error || r.status); return; }
-  msg.className = 'why good';
-  msg.textContent = action === 'engine_install' ? `Installed ${j.tag} (${(j.bytes / 1048576).toFixed(1)} MB).`
-      + ' Restart the PS5 or press Start it now to run it.'
-    : action === 'engine_start' ? `Started through ${j.via}; the new engine answers in a few seconds.` : 'The original engine is back; it runs after the next start.';
-  if (action === 'engine_start') { const w = await engWaitNew(j.before_pid); msg.textContent = w && w.state === 'connected' ? `The new engine runs (${w.running_version || '?'}) ✓` : 'Started, but the new engine doesn\'t answer yet: press Check in a moment.'; }
-  setTimeout(() => { engCheck(); engHeader(); }, 500);
 }
 // Wake and watch: the PS5 answers the same discovery port in rest mode
 // ("standby"), so the result says whether the wake-up got there.

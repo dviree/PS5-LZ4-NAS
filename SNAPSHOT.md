@@ -15,8 +15,7 @@ callers/skeleton`); line numbers below drift, names don't.
 
 theghostonline's parts (`src/`, `app/`, `assets/`, `nas/`, `tests/host`,
 `third_party/`, `compat/`, bundled profiles, release and sync workflows) were
-removed on 2026-11-10. Left in `ps5lz4.py` as dead code to prune: the bodies of
-`engine_*`, `app_*`, `ps5_compress`, `lzc_call` (his PS5 engine, port 5920).
+removed on 2026-11-10. Its PS5 engine/app code is pruned from `ps5lz4.py` and the page too.
 
 ## NAS app (`nas-lz4/`)
 

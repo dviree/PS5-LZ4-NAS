@@ -227,7 +227,6 @@ function showGame(id, refresh) {
   const rows = [['Title ID', esc(g.title_id)], ['Size', gb(it.size) + (it.lz4 && g.saved_percent != null ? ` (LZ4, ${Math.round(g.saved_percent)} % smaller than ${gb(g.source_bytes)})` : it.lz4 ? '' : ' (original, not LZ4)')],
     ['Format', it.lz4 ? 'LZ4 folder' + (g.kind && KIND[g.kind] ? ` <span class="meta">(packed from ${KIND[g.kind]})</span>` : '') : (KIND[g.kind] || esc(g.kind || '–'))],
     ['.ffpfsc list', ffpfscText(id)],
-    ['LZ4 reports', community(g.community)],
     ['On the PS5', it.copies.length ? it.copies.map(c => esc(c.path) + (c.version ? ' · v' + esc(c.version) : '')).join('<br>') : (ps5 ? 'not installed' : 'PS5 not answering')]];
   const acts = [];
   if (s.k === 'available' && !it.lz4 && g.can_queue && !g.running && !g.queued)

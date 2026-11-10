@@ -74,30 +74,8 @@ NG_NAME = _ng_build.get("name", "ampr-emu-ng 0.3.0")
 NG_FILE = Path(os.environ.get("PS5LZ4_NG_RUNTIME", "/opt/ps5lz4/libSceAmpr-ng.sprx"))
 FORGE = os.environ.get("PS5LZ4_FORGE", "/usr/local/bin/ps5-dump-forge")
 RUNTIME_REL = "fakelib/libSceAmpr.sprx"
-LZC_PORT = int(os.environ.get("PS5LZ4_LZC_PORT", "5920"))  # LZ4 Compression engine on the PS5
 
 
-def lz4c_version() -> str:
-    return ""  # the original project's app is no longer part of this image
-
-
-# What is known about single games, shown in their sheet: what the packer already
-# does for them, and what is still open.
-KNOWN_GAMES = {
-    "PPSA26344": {"fixed": "PlayGo markers and its boot files under cache_ps5/ and "
-                           "sounds/scream/_generated/ stay loose (black screen when packed). Packed before "
-                           "2026-10-14? Repair writes them out of the packs."},
-    "PPSA34547": {"fixed": "Northlight engine: the *.rmdtoc pack tables stay loose; packed, the game stops with "
-                           "\"no pakfiles found, the pack files seem to be missing\". Packed before 2026-10-18? "
-                           "Repair writes them out of the packs.",
-                  "open": "Crashes after 2-7 minutes, around level loads and checkpoints, with APR-EMU 0.4.2.1 "
-                          "even unpacked (fw 12.40 and 13.60): an open APR-EMU bug (ampr_emu issue #7), not "
-                          "the packing."},
-    "PPSA11386": {"fixed": "Unpacked folders: the runtime folder is renamed to the case eboot.bin asks for and "
-                           "a PlayGo emulator is put in fakelib (Repair; RAR games report it when extracted).",
-                  "open": "IOI Glacier engine: it reads its .rpkg packages straight from disk, so it can't run "
-                          "from LZ4 packs at all; this page no longer offers LZ4 for it. Keep it unpacked."},
-}
 
 PLAY_STATES = {  # ours -> (report form answer, label)
     "works": ("Works", "works"),
@@ -738,7 +716,7 @@ def nice_folder_name(e: "Entry", games: dict | None = None) -> str:
         name = e.path.name
     if not BARE_TID_RE.fullmatch(re.sub(r"(?i)[-_ ]?app0$", "", name)):
         return name
-    g = (games if games is not None else compat_games()).get((e.title_id or "").upper()) or {}
+    g = (games if games is not None else ng_reports()).get((e.title_id or "").upper()) or {}
     if g.get("name"):
         return g["name"]
     parent = e.path.parent
@@ -1682,8 +1660,6 @@ def classify(e: "Entry", res: dict, cache: dict | None = None) -> tuple[str, str
     st = res["status"]
     if st == "done":
         problem = lz4_format_problem(e.output) if e.output.is_dir() else "output folder missing"
-        if not problem and runtime_sha(e.output) != NG_SHA256 and e.kind == "folder" and glacier_folder(e.path):
-            problem = GLACIER_WHY.replace("keep it unpacked", "delete this LZ4 copy and send the original")
         return ("LZ4", res["detail"], False) if not problem else ("error", problem, False)
     if st == "skipped":
         return "not LZ4", res["detail"], False
@@ -1712,12 +1688,14 @@ def classify(e: "Entry", res: dict, cache: dict | None = None) -> tuple[str, str
             ok, why = "compatible", f"checked when packed ({err})"
         if key:
             cache[key] = {"sig": sig, "ok": ok, "why": why}
+    if ok == "incompatible":
+        # Forge injects ampr-emu-ng into any title: importing libSceAmpr is not needed.
+        ok, why = "compatible", "packs with ampr-emu-ng (injected by PS5 Dump Forge)"
     if ok == "compatible":
         if st in ("partial", "failed"):
             why = f"{st}: {res['detail']}"
         elif e.kind == "ffpfsc":
-            why = ("already compressed (.ffpfsc): an LZ4 copy is usually about as large or larger, so "
-                   "Compress all skips it; Compress packs it anyway")
+            why = "already compressed (.ffpfsc): a packed copy is usually about as large or larger"
         return "can be LZ4", why, True
     if ok == "packed":
         return "LZ4", why, False
@@ -1730,7 +1708,7 @@ def cmd_lz4(args) -> int:
     entries = scan_library()
     todo: list[Entry] = []
     compressed: list[Entry] = []  # .ffpfsc: already PFSC-compressed, little or nothing to gain
-    games = compat_games()
+    games = ng_reports()
     counts = {"LZ4": 0, "can be LZ4": 0, "not LZ4": 0, "error": 0}
     codec, runtime = getattr(args, "codec", "lz4"), getattr(args, "runtime", "ng")
     packable: list[Entry] = []  # AMPR games (LZ4 copy or not): what Zstd and LZ4 NG are made from
@@ -1755,7 +1733,7 @@ def cmd_lz4(args) -> int:
             todo.append(e)
         counts[verdict] += 1
         print(f"{verdict:12} {e.title_id or '-':9}  {e.rel}  ({why})")
-        c = community_text(e.title_id or "", games)
+        c = ngr_text(games.get((e.title_id or "").upper()))
         if c:
             print(f"{'':12} {'':9}  {c}")
     for out in output_items():
@@ -1821,20 +1799,6 @@ def cmd_status(_args) -> int:
                     if tail:
                         print(f"      {errf.stem}: {tail[-1][:160]}")
     return 0
-
-
-def compat_games() -> dict:
-    return {}  # the original project's community reports are gone; see ng_reports()
-
-
-def community_text(title_id: str, games: dict | None = None) -> str:
-    """'community: 3 works, 1 crash (4 reports)' or '' when nobody reported."""
-    g = (games if games is not None else compat_games()).get((title_id or "").upper())
-    if not g or not g.get("reports"):
-        return ""
-    parts = [f"{g[k]} {label}" for k, label in (("works", "works"), ("issues", "with issues"),
-             ("noStart", "won't start"), ("crash", "crash")) if g.get(k)]
-    return f"community: {', '.join(parts)} ({g['reports']} report{'s' if g['reports'] != 1 else ''})"
 
 
 def ps5_result(eid: str) -> str | None:
@@ -2053,7 +2017,7 @@ def cmd_report(args) -> int:
         print(json.dumps({"done": rows, "skipped": skipped}, indent=2, ensure_ascii=False))
         return 0
     tot_src = tot_out = 0
-    games = compat_games()
+    games = ng_reports()
     print(f"{'game':40} {'title':9} {'original':>10} {'LZ4':>10} {'saved':>10} {'%':>6}  verified")
     for r in rows:
         tot_src += r["source_bytes"]
@@ -2061,7 +2025,7 @@ def cmd_report(args) -> int:
         print(f"{r['id'][:40]:40} {r.get('title_id') or '-':9} {human(r['source_bytes']):>10} "
               f"{human(r['output_bytes']):>10} {human(r['saved_bytes']):>10} {r['saved_percent']:>5}%  "
               f"{'NAS ok' if r.get('verified_on_nas') else 'NO'} / {ps5_text(r)}")
-        c = community_text(r.get("title_id") or "", games)
+        c = ngr_text(games.get((r.get("title_id") or "").upper()))
         if c:
             print(f"{'':40} {c}")
     if rows:
@@ -2954,13 +2918,9 @@ def ps5_ftp_put(path: str, stream, length: int) -> dict:
 # whether it is this fork's build (which answers keep-awake), and install that
 # build into the Payload Manager over FTP (overwriting the file there).
 ENGINE_REPO = os.environ.get("PS5LZ4_ENGINE_REPO", "dviree/PS5-LZ4-NAS")
-ENGINE_PATH = "/data/pldmgr/payloads/lz4-compression/lz4-compression.elf"  # Payload Manager before 0.6
 ENGINE_DIR = STATE / "engine"
 # ELF loaders: elfldr / etaHEN on 9021, the exploit stage's loader on 9020.
 PLDMGR_PORT = int(os.environ.get("PS5LZ4_PLDMGR_PORT", "8084"))  # Payload Manager's loadpayload
-# The LZ4 Compression app updates the engine from this feed (its update.js);
-# pointed at ENGINE_REPO so the app doesn't put the original engine back.
-APP_FEED_PATH = "/data/LZ4Compression/update-feed"
 ELFLDR_PORTS = [int(p) for p in os.environ.get("PS5LZ4_ELFLDR_PORTS", "9021,9020").split(",") if p.strip()]
 
 
@@ -3013,389 +2973,6 @@ def pm_load(host: str, path: str) -> str:
             raise
     with urllib.request.urlopen(url, timeout=10) as r:
         return r.read(65536).decode(errors="replace").strip()
-
-
-def engine_status() -> dict:
-    import urllib.error
-    import urllib.request
-    cfg = get_settings()
-    host = (cfg.get("ps5_ftp") or "").partition(":")[0]
-    out = {"host": host, "port": LZC_PORT, "repo": ENGINE_REPO, "path": _PM_PATHS.get(ENGINE_PATH, ENGINE_PATH),
-           "state": "unknown", "keep_awake": False, "elfldr_ports": ELFLDR_PORTS,
-           "cached": (read_json(ENGINE_DIR / "release.json", {}) or {}).get("tag"),
-           "installed": read_json(ENGINE_DIR / "installed.json", None), "auto": engine_auto_on(),
-           "rest": rest_info()}
-    try:
-        out["latest"] = engine_known().get("latest")
-    except Exception:
-        out["latest"] = (read_json(ENGINE_DIR / "known.json", {}) or {}).get("latest")
-    inst = out["installed"] or {}
-    out["update"] = bool(inst.get("tag") and out["latest"] and inst["tag"] != out["latest"])
-    if not host:
-        out["state"] = "no-address"
-        return out
-
-    def get(path):
-        try:
-            with urllib.request.urlopen(f"http://{host}:{LZC_PORT}{path}", timeout=3) as r:
-                return r.status
-        except urllib.error.HTTPError as err:
-            return err.code
-        except Exception:
-            return None
-    try:
-        with urllib.request.urlopen(f"http://{host}:{LZC_PORT}/api/status", timeout=3) as r:
-            info = json.load(r)
-        out.update(running_version=info.get("version"), pid=info.get("pid"), uptime=info.get("uptime"))
-    except Exception:
-        pass
-    ka = get("/api/lzc/keep-awake?seconds=0")
-    if ka == 200:
-        out.update(state="connected", keep_awake=True)
-    elif ka is not None or get("/api/lzc/ui-settings") is not None:
-        out["state"] = "original"  # runs, but an engine without keep-awake
-    else:
-        out["state"] = "off"
-    return out
-
-
-def engine_fetch() -> tuple[Path, str]:
-    """Latest release ELF of ENGINE_REPO, cached in state/engine, SHA-256 checked."""
-    import hashlib
-    import urllib.request
-    hdr = {"User-Agent": "ps5-lz4", "Accept": "application/vnd.github+json"}
-    req = urllib.request.Request(f"https://api.github.com/repos/{ENGINE_REPO}/releases/latest", headers=hdr)
-    with urllib.request.urlopen(req, timeout=20) as r:
-        rel = json.load(r)
-    tag = rel.get("tag_name") or "?"
-    assets = {a["name"]: a["browser_download_url"] for a in rel.get("assets", [])}
-    if "lz4-compression.elf" not in assets:
-        raise ValueError(f"release {tag} of {ENGINE_REPO} has no lz4-compression.elf")
-    ENGINE_DIR.mkdir(parents=True, exist_ok=True)
-    elf = ENGINE_DIR / "lz4-compression.elf"
-    known = read_json(ENGINE_DIR / "release.json", {}) or {}
-    if known.get("tag") == tag and elf.is_file() and hashlib.sha256(elf.read_bytes()).hexdigest() == known.get("sha256"):
-        return elf, tag
-
-    def fetch(url):
-        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "ps5-lz4"}), timeout=60) as r:
-            return r.read()
-    data = fetch(assets["lz4-compression.elf"])
-    if data[:4] != b"\x7fELF":
-        raise ValueError("the downloaded file is not an ELF")
-    digest = hashlib.sha256(data).hexdigest()
-    if "SHA256SUMS" in assets:
-        sums = fetch(assets["SHA256SUMS"]).decode(errors="replace")
-        want = next((ln.split()[0] for ln in sums.splitlines() if ln.strip().endswith("lz4-compression.elf")), None)
-        if want and want.lower() != digest:
-            raise ValueError("the downloaded ELF does not match the release's SHA256SUMS")
-    tmp = elf.with_suffix(".part")
-    tmp.write_bytes(data)
-    tmp.replace(elf)
-    write_json(ENGINE_DIR / "release.json", {"tag": tag, "sha256": digest, "bytes": len(data)})
-    return elf, tag
-
-
-def engine_install() -> dict:
-    """Put this fork's engine where the Payload Manager loads it, overwriting the old file."""
-    raise ValueError("removed: the original project's PS5 engine and app are no longer part of this tool")
-    import ftplib
-    elf, tag = engine_fetch()
-    size = elf.stat().st_size
-    f = ps5_ftp_connect()
-    try:
-        path = pm_path(ENGINE_PATH, f)
-        ps5_ftp_mkdirs(f, path.rsplit("/", 1)[0])
-        with elf.open("rb") as src:
-            f.storbinary(f"STOR {path}", src, blocksize=1 << 20)
-        try:
-            import io
-            ps5_ftp_mkdirs(f, APP_FEED_PATH.rsplit("/", 1)[0])
-            feed = f"https://api.github.com/repos/{ENGINE_REPO}/releases/latest\n".encode()
-            f.storbinary(f"STOR {APP_FEED_PATH}", io.BytesIO(feed))
-        except ftplib.all_errors as err:
-            print(f"[{now()}] could not point the app's updater at {ENGINE_REPO}: {err}", flush=True)
-        try:
-            got = f.size(path)
-        except ftplib.all_errors:
-            got = None
-        if got is not None and got != size:
-            raise ValueError(f"the PS5 has {got} bytes, expected {size}")
-    finally:
-        try:
-            f.quit()
-        except Exception:
-            pass
-    try:
-        engine_read()
-    except Exception:
-        pass
-    print(f"[{now()}] engine {tag} installed on the PS5 at {path}", flush=True)
-    return {"tag": tag, "path": path, "bytes": size}
-
-
-def engine_restore() -> dict:
-    """Put the .orig engine back."""
-    raise ValueError("removed: the original project's PS5 engine and app are no longer part of this tool")
-    f = ps5_ftp_connect()
-    try:
-        path = pm_path(ENGINE_PATH, f)
-        names = ps5_ftp_names(f, path.rsplit("/", 1)[0]) or []
-        if "lz4-compression.elf.orig" not in names:
-            raise ValueError("there is no saved original engine (.orig) on the PS5")
-        if "lz4-compression.elf" in names:
-            f.sendcmd(f"DELE {path}")
-        f.rename(path + ".orig", path)
-    finally:
-        try:
-            f.quit()
-        except Exception:
-            pass
-    try:
-        engine_read()
-    except Exception:
-        pass
-    print(f"[{now()}] original engine restored on the PS5", flush=True)
-    return {"restored": path}
-
-
-def engine_start() -> dict:
-    """Run the installed engine now: through Payload Manager (port 8084), where a
-    new engine takes over from one that already runs, else by sending the ELF
-    to an ELF loader (ports 9021, 9020) when no engine runs."""
-    raise ValueError("removed: the original project's PS5 engine and app are no longer part of this tool")
-    import socket
-    import urllib.request
-    host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
-    if not host:
-        raise ValueError("set the PS5 address first")
-    before = engine_status()
-    tried = []
-    path = pm_path(ENGINE_PATH)
-    try:
-        body = pm_load(host, path)
-        if "Invalid payload name" in body:
-            tried.append(f"Payload Manager ({PLDMGR_PORT}): it doesn't know {path}")
-        else:
-            print(f"[{now()}] engine loaded through Payload Manager on {host}:{PLDMGR_PORT}", flush=True)
-            return {"sent": True, "via": f"Payload Manager ({PLDMGR_PORT})", "before_pid": before.get("pid")}
-    except Exception as err:
-        tried.append(f"Payload Manager ({PLDMGR_PORT}): {getattr(err, 'reason', None) or err}")
-    if before["state"] in ("connected", "original"):
-        raise ValueError("the old engine still runs and Payload Manager could not load the new one ("
-                         + "; ".join(tried) + "). Start LZ4 Compression from the Payload Manager on the PS5, "
-                         "or restart the PS5.")
-    elf, tag = engine_fetch()
-    for port in ELFLDR_PORTS:
-        try:
-            with socket.create_connection((host, port), timeout=10) as sk:
-                sk.sendall(elf.read_bytes())
-        except OSError as err:
-            tried.append(f"ELF loader {port}: {getattr(err, 'strerror', None) or err}")
-            continue
-        print(f"[{now()}] engine {tag} sent to the ELF loader on {host}:{port}", flush=True)
-        return {"tag": tag, "sent": True, "via": f"ELF loader ({port})"}
-    raise ValueError("nothing on the PS5 could start it (" + "; ".join(tried) + "). The engine is installed: "
-                     "start LZ4 Compression from the Payload Manager on the PS5, or restart the PS5.")
-
-ENGINE_AUTO = ENGINE_DIR / "auto.json"  # {"on": bool}: update the engine on the PS5 by itself
-ENGINE_CHECK_EVERY = int(os.environ.get("PS5LZ4_ENGINE_CHECK", "0"))  # LZ4 engine updates: off (pkg-receiver is the PS5 ELF)
-
-
-def engine_known(force: bool = False) -> dict:
-    """SHA-256 of every lz4-compression.elf released in ENGINE_REPO (the user's
-    GitHub), so the file on the PS5 can be named: {"latest", "shas": {sha: tag}}."""
-    import urllib.request
-    known = read_json(ENGINE_DIR / "known.json", {}) or {}
-    if not force and time.time() - known.get("at", 0) < 3600:
-        return known
-    hdr = {"User-Agent": "ps5-lz4", "Accept": "application/vnd.github+json"}
-    req = urllib.request.Request(f"https://api.github.com/repos/{ENGINE_REPO}/releases?per_page=30", headers=hdr)
-    with urllib.request.urlopen(req, timeout=20) as r:
-        rels = [x for x in json.load(r) if not x.get("draft") and not x.get("prerelease")]
-    shas, latest = dict(known.get("shas") or {}), None
-    for rel in rels:
-        assets = {a["name"]: a["browser_download_url"] for a in rel.get("assets", [])}
-        if "lz4-compression.elf" not in assets:
-            continue
-        latest = latest or rel.get("tag_name")
-        if rel.get("tag_name") in shas.values() or "SHA256SUMS" not in assets:
-            continue
-        with urllib.request.urlopen(urllib.request.Request(assets["SHA256SUMS"], headers={"User-Agent": "ps5-lz4"}), timeout=20) as r:
-            for ln in r.read().decode(errors="replace").splitlines():
-                if ln.strip().endswith("lz4-compression.elf"):
-                    shas[ln.split()[0].lower()] = rel["tag_name"]
-    known = {"at": time.time(), "repo": ENGINE_REPO, "latest": latest, "shas": shas}
-    ENGINE_DIR.mkdir(parents=True, exist_ok=True)
-    write_json(ENGINE_DIR / "known.json", known)
-    return known
-
-
-def engine_read() -> dict:
-    """Read the engine ELF on the PS5 over FTP and say which release it is:
-    state latest / outdated / other (not from ENGINE_REPO) / missing."""
-    import hashlib
-    f = ps5_ftp_connect()
-    try:
-        path = pm_path(ENGINE_PATH, f)
-        names = ps5_ftp_names(f, path.rsplit("/", 1)[0]) or []
-        info = {"at": time.time(), "orig": "lz4-compression.elf.orig" in names, "path": path}
-        if "lz4-compression.elf" not in names:
-            info["state"] = "missing"
-        else:
-            h, n = hashlib.sha256(), [0]
-
-            def take(b):
-                h.update(b)
-                n[0] += len(b)
-            f.retrbinary(f"RETR {path}", take, blocksize=1 << 20)
-            info.update(sha256=h.hexdigest(), bytes=n[0])
-    finally:
-        try:
-            f.quit()
-        except Exception:
-            pass
-    try:
-        known = engine_known()
-    except Exception as err:
-        known = read_json(ENGINE_DIR / "known.json", {}) or {}
-        info["known_error"] = str(err)
-    info["latest"] = known.get("latest")
-    if info.get("sha256"):
-        info["tag"] = (known.get("shas") or {}).get(info["sha256"])
-        info["state"] = ("other" if not info["tag"] else
-                         "latest" if info["tag"] == info["latest"] else "outdated")
-    ENGINE_DIR.mkdir(parents=True, exist_ok=True)
-    write_json(ENGINE_DIR / "installed.json", info)
-    return info
-
-
-def engine_auto_on() -> bool:
-    return bool((read_json(ENGINE_AUTO, {}) or {}).get("on", True))
-
-
-def engine_updater() -> None:
-    """Web page container: every few hours, read the engine on the PS5 and, when
-    it is an older release from ENGINE_REPO, put the newest one there over FTP.
-    An engine that isn't from ENGINE_REPO (the original) is left alone: that
-    one is replaced only with Install ELF on PS5."""
-    time.sleep(120)
-    while True:
-        try:
-            if engine_auto_on() and get_settings()["ps5_ftp"]:
-                info = engine_read()
-                if info.get("state") == "outdated":
-                    print(f"[{now()}] engine on the PS5 is {info['tag']}, updating to {info['latest']}", flush=True)
-                    engine_install()
-                    engine_read()
-        except Exception as err:
-            print(f"[{now()}] engine update check: {err}", flush=True)
-        time.sleep(ENGINE_CHECK_EVERY)
-
-
-# The LZ4 Compression app (the PPSA99420 tile, a native UI on the PS5) comes
-# from the original project's releases; ShadowMount+ adds the tile for the
-# folder in /data/homebrew. It talks to the engine on 127.0.0.1:5920.
-APP_REPO = os.environ.get("PS5LZ4_APP_REPO", "theghostonline/PS5-LZ4-Compression")
-APP_API = os.environ.get("PS5LZ4_APP_API", "")  # a Gitea/Forgejo or GitHub releases API
-APP_TITLE = "PPSA99420"
-APP_ASSET = f"LZ4-Compression-{APP_TITLE}.zip"
-APP_PATH = f"/data/homebrew/{APP_TITLE}"
-
-
-def app_fetch() -> tuple[Path, str]:
-    """The app zip of the original's latest release, cached in state/engine, SHA-256
-    checked (the digest GitHub lists, or the release's SHA256SUMS on Gitea)."""
-    import hashlib
-    import urllib.request
-    hdr = {"User-Agent": "ps5-lz4", "Accept": "application/json"}
-    req = urllib.request.Request(f"{APP_API}/releases/latest", headers=hdr)
-    with urllib.request.urlopen(req, timeout=20) as r:
-        rel = json.load(r)
-    tag = rel.get("tag_name") or "?"
-    asset = next((a for a in rel.get("assets", []) if a.get("name") == APP_ASSET), None)
-    if not asset:
-        raise ValueError(f"release {tag} of {APP_REPO} has no {APP_ASSET}")
-    want = str(asset.get("digest") or "").removeprefix("sha256:").lower()
-    sums = next((a for a in rel.get("assets", []) if a.get("name") == "SHA256SUMS"), None)
-    if not want and sums:
-        with urllib.request.urlopen(urllib.request.Request(sums["browser_download_url"],
-                                                           headers={"User-Agent": "ps5-lz4"}), timeout=20) as r:
-            for line in r.read().decode("utf-8", "replace").splitlines():
-                parts = line.split()
-                if len(parts) == 2 and parts[1].lstrip("*") == APP_ASSET:
-                    want = parts[0].lower()
-    if not re.fullmatch(r"[0-9a-f]{64}", want or ""):
-        raise ValueError(f"release {tag} lists no SHA-256 for {APP_ASSET}; not installed unchecked")
-    ENGINE_DIR.mkdir(parents=True, exist_ok=True)
-    zp = ENGINE_DIR / APP_ASSET
-    known = read_json(ENGINE_DIR / "app.json", {}) or {}
-    if known.get("tag") == tag and zp.is_file():
-        return zp, tag
-    with urllib.request.urlopen(urllib.request.Request(asset["browser_download_url"],
-                                                       headers={"User-Agent": "ps5-lz4"}), timeout=120) as r:
-        data = r.read()
-    got = hashlib.sha256(data).hexdigest()
-    if want != got:
-        raise ValueError(f"the downloaded {APP_ASSET} does not match the release's SHA-256")
-    tmp = zp.with_suffix(".part")
-    tmp.write_bytes(data)
-    tmp.replace(zp)
-    write_json(ENGINE_DIR / "app.json", {"tag": tag, "sha256": got, "bytes": len(data)})
-    return zp, tag
-
-
-def app_install() -> dict:
-    """Copy the app's PPSA99420 folder to /data/homebrew on the PS5, overwriting it."""
-    raise ValueError("removed: the original project's PS5 engine and app are no longer part of this tool")
-    import zipfile
-    zp, tag = app_fetch()
-    with zipfile.ZipFile(zp) as z:
-        files = []
-        for i in z.infolist():
-            name = i.filename.replace("\\", "/")
-            if i.is_dir() or name.startswith("/") or ".." in name.split("/"):
-                continue
-            parts = name.split("/")
-            if APP_TITLE in parts:  # PPSA99420/... (possibly inside another folder)
-                rel = "/".join(parts[parts.index(APP_TITLE) + 1:])
-            else:
-                rel = name
-            if rel:
-                files.append((i, rel))
-        if not any(rel == "sce_sys/param.json" for _, rel in files):
-            raise ValueError(f"{APP_ASSET} has no {APP_TITLE}/sce_sys/param.json")
-        f = ps5_ftp_connect()
-        try:
-            made = set()
-            for i, rel in files:
-                d = f"{APP_PATH}/{rel}".rsplit("/", 1)[0]
-                if d not in made:
-                    ps5_ftp_mkdirs(f, d)
-                    made.add(d)
-                with z.open(i) as src:
-                    f.storbinary(f"STOR {APP_PATH}/{rel}", src, blocksize=1 << 20)
-        finally:
-            try:
-                f.quit()
-            except Exception:
-                pass
-    print(f"[{now()}] app {tag} ({len(files)} files) installed on the PS5 at {APP_PATH}", flush=True)
-    return {"tag": tag, "path": APP_PATH, "files": len(files)}
-
-
-def app_installed() -> bool | None:
-    try:
-        f = ps5_ftp_connect()
-    except Exception:
-        return None
-    try:
-        return "param.json" in (ps5_ftp_names(f, f"{APP_PATH}/sce_sys") or [])
-    finally:
-        try:
-            f.quit()
-        except Exception:
-            pass
 
 
 def ps5_ftp_zip(path: str, out) -> None:
@@ -3529,14 +3106,6 @@ def drive_space(path: str) -> dict:
     host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
     if not host:
         return {}
-    try:
-        with urllib.request.urlopen(f"http://{host}:{LZC_PORT}/api/lzc/df?path={urllib.parse.quote(path)}",
-                                    timeout=3) as r:
-            j = json.load(r)
-        if j.get("ok"):
-            return {"live_total": j["total"], "live_free": j["free"], "live_from": "LZ4 Compression engine"}
-    except Exception:
-        pass
     try:
         j = _recv_get(f"/api/df?path={urllib.parse.quote(path)}")
         if j.get("ok") and j.get("total", -1) > 0:
@@ -3887,55 +3456,6 @@ def ps5_verify_start(path: str) -> dict:
     __import__("threading").Thread(target=run, daemon=True).start()
     return st
 
-
-def lzc_call(method: str, path: str, timeout: float = 20) -> dict:
-    """The LZ4 Compression engine on the PS5 (port LZC_PORT)."""
-    import urllib.error
-    import urllib.request
-    host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
-    if not host:
-        raise ValueError("set the PS5 address first")
-    req = urllib.request.Request(f"http://{host}:{LZC_PORT}{path}", data=b"" if method == "POST" else None, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read().decode("utf-8", "replace") or "{}")
-    except urllib.error.HTTPError as err:
-        try:
-            j = json.loads(err.read().decode("utf-8", "replace"))
-        except ValueError:
-            j = {}
-        raise ValueError(f"LZ4 engine: {j.get('error') or err}")
-    except (urllib.error.URLError, OSError) as err:
-        raise ValueError(f"the LZ4 Compression engine does not answer on the PS5 (port {LZC_PORT}): {err}")
-
-
-def ps5_compress(path: str, tid: str) -> dict:
-    """Pack a game that is on the PS5 with LZ4 on the PS5 itself, by the LZ4
-    Compression engine (started, or installed and started, when it doesn't
-    run). The original stays; the LZ4 copy is written next to it as <name>-lz4."""
-    raise ValueError("removed: the original project's PS5 engine and app are no longer part of this tool")
-    import urllib.parse
-    path = ps5_ftp_path(path)
-    tid = tid.upper()
-    if not re.fullmatch(r"PPSA\d{5}", tid):
-        raise ValueError("only PS5 games (PPSA…) can be LZ4 packed")
-    started = None
-    if engine_status()["state"] not in ("connected", "original"):
-        try:
-            started = engine_start()
-        except ValueError:
-            engine_install()
-            started = engine_start()
-        for _ in range(20):
-            time.sleep(1.5)
-            if engine_status()["state"] in ("connected", "original"):
-                break
-        else:
-            raise ValueError("the LZ4 Compression engine was started but does not answer yet; try again in a minute")
-    q = urllib.parse.urlencode({"titleId": tid, "sourcePath": path, "level": os.environ.get("PS5LZ4_LEVEL", "9"), "deletePolicy": "keep"})
-    res = lzc_call("POST", f"/api/lzc/lz4-pack?{q}")
-    ps5_notify(f"NAS: LZ4 packing {path.rsplit('/', 1)[1]} on the PS5")
-    return {"queued": True, "engine": started and started.get("via"), **({"answer": res} if isinstance(res, dict) else {})}
 
 
 def ps5_fix(path: str, code: str) -> dict:
@@ -6628,7 +6148,7 @@ def dashboard_data() -> dict:
     running, lock_text = job_running()
     queue = read_json(QUEUE_PATH, {}) or {}
     cache = CheckDB()
-    games = compat_games()
+    games = ng_reports()
     rows, totals = [], {"lz4": 0, "source": 0, "output": 0}
     source_copies = []
     entries = scan_library()
@@ -6669,7 +6189,6 @@ def dashboard_data() -> dict:
                "source_bytes": rep.get("source_bytes"), "output_bytes": rep.get("output_bytes"),
                "pack_codec": rep.get("pack_codec", "lz4"), "pack_runtime": rep.get("pack_runtime", "legacy"),
                "saved_percent": rep.get("saved_percent"), "ps5": ps5_result(e.id), "finished": rep.get("finished"),
-               "community": {k: g.get(k, 0) for k in ("works", "issues", "noStart", "crash", "reports")},
                "output": host_output_path(e.output) if e.output.is_dir() else None}
         if source_codec:
             runtime = None
@@ -6713,7 +6232,6 @@ def dashboard_data() -> dict:
                      "pack_codec": packed_codec(out), "pack_runtime": "ng" if runtime_sha(out) == NG_SHA256 else "legacy",
                      "source_bytes": rep.get("source_bytes"), "output_bytes": rep.get("output_bytes") or info["bytes"],
                      "saved_percent": rep.get("saved_percent"), "ps5": rep.get("ps5_result"),
-                     "community": {k: g.get(k, 0) for k in ("works", "issues", "noStart", "crash", "reports")},
                      "output": info["path"]})
     # Every packed copy (LZ4 and Zstd) on its own, for the page's LZ4 and Zstd
     # tabs: a game can have both, and its report only describes the last pack.
@@ -6774,7 +6292,6 @@ def dashboard_data() -> dict:
             "interrupted": (not running) and bool(queue.get("remaining")),
             "free_bytes": free_bytes(OUTPUT), "games": rows, "copies": copies, "totals": totals, "failed": failed,
             "zstd_output_host": host_output_path(zstd_output()),
-            "lz4c_version": lz4c_version(),
             "delete_originals": DELETE_ORIGINALS,
             "archives": _safe(scan_archives, []),
             "unreadable": sorted(UNREADABLE), "uid": os.getuid(), "library_host": HOST_LIBRARY,
@@ -6903,7 +6420,6 @@ def game_detail(game_id: str) -> dict:
             "title_id": tid, "ng_reports": ng_reports().get(tid), "ng_reports_web": NG_REPORT_WEB,
             "ng_reports_at": (read_json(NG_REPORTS, {}) or {}).get("updated") if NG_REPORTS_ON else None,
             "apr": apr,
-            "known": KNOWN_GAMES.get(tid.upper()) if tid else None,
             "unity": UNITY_WHY if (out and out.is_dir() and unity_folder(out)) or
                      (src and src.kind == "folder" and unity_folder(src.path)) else None,
             "version": version,
@@ -7125,25 +6641,9 @@ def rest_set(**kw) -> dict:
     return r
 
 
-def engine_rest() -> dict:
-    """Ask the engine on the PS5 to go to rest mode now."""
-    import urllib.error
-    import urllib.request
-    host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
-    if not host:
-        raise ValueError("set the PS5 address first")
-    try:
-        with urllib.request.urlopen(f"http://{host}:{LZC_PORT}/api/lzc/rest?confirm=1", timeout=6) as r:
-            r.read()
-    except urllib.error.HTTPError as err:
-        msg = {409: "the engine is busy with a job on the PS5",
-               404: "the engine on the PS5 is too old for rest mode: install the newest ELF",
-               501: "this engine build can't put the PS5 in rest mode"}.get(err.code, f"HTTP {err.code}")
-        raise ValueError(msg)
-    except Exception as err:
-        raise ValueError(f"the LZ4 Compression engine on the PS5 does not answer ({err})")
-    print(f"[{now()}] PS5 put in rest mode", flush=True)
-    return {"rest": True}
+def ps5_rest() -> dict:
+    """Rest mode needs a payload on the PS5 that offers it; pkg-receiver doesn't."""
+    raise ValueError("rest mode is not available: nothing on the PS5 offers it any more")
 
 
 def rest_watcher() -> None:
@@ -7161,7 +6661,7 @@ def rest_watcher() -> None:
                 idle_since = idle_since or time.time()
                 if time.time() - idle_since >= REST_IDLE:
                     try:
-                        engine_rest()
+                        ps5_rest()
                         rest_set(woke_at=None, last=now(), error=None)
                     except ValueError as err:
                         if "busy" not in str(err):
@@ -7273,11 +6773,6 @@ def cmd_ui(args) -> int:
                     return self.send(200, json.dumps(ampr_log((parse_qs(urlparse(self.path).query).get("path") or [""])[0])).encode())
                 except Exception as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
-            if self.path == "/api/ps5/lz4job":
-                try:
-                    return self.send(200, json.dumps(lzc_call("GET", "/api/lzc/job", timeout=4)).encode())
-                except ValueError as err:
-                    return self.send(200, json.dumps({"busy": False, "off": True, "error": str(err)}).encode())
             if self.path == "/api/saves":
                 return self.send(200, json.dumps({"job": _saves_job, "backups": saves_list()}).encode())
             if self.path.startswith("/api/saves/zip?"):
@@ -7343,16 +6838,6 @@ def cmd_ui(args) -> int:
                 self.send_header("Cache-Control", "max-age=86400")
                 self.end_headers()
                 return self.wfile.write(data)
-            if self.path == "/api/engine":
-                return self.send(200, json.dumps(engine_status()).encode())
-            if self.path == "/api/app":
-                return self.send(200, json.dumps({"installed": app_installed(), "path": APP_PATH,
-                                                  "repo": APP_REPO}).encode())
-            if self.path == "/api/engine/read":
-                try:
-                    return self.send(200, json.dumps(engine_read()).encode())
-                except Exception as err:
-                    return self.send(400, json.dumps({"error": str(err)}).encode())
             if self.path == "/api/ps5/games":
                 try:
                     return self.send(200, json.dumps(ps5_games(), ensure_ascii=False).encode())
@@ -7494,23 +6979,9 @@ def cmd_ui(args) -> int:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
                 cache["at"] = 0
                 return self.send(200, json.dumps(res).encode())
-            if req.get("action") == "engine_auto":
-                ENGINE_DIR.mkdir(parents=True, exist_ok=True)
-                write_json(ENGINE_AUTO, {"on": bool(req.get("on"))})
-                return self.send(200, json.dumps({"auto": engine_auto_on()}).encode())
             if req.get("action") == "ps5_verify":
                 try:
                     return self.send(200, json.dumps(ps5_verify_start(str(req.get("path") or ""))).encode())
-                except ValueError as err:
-                    return self.send(400, json.dumps({"error": str(err)}).encode())
-            if req.get("action") == "ps5_lz4":
-                try:
-                    return self.send(200, json.dumps(ps5_compress(str(req.get("path") or ""), str(req.get("tid") or ""))).encode())
-                except ValueError as err:
-                    return self.send(400, json.dumps({"error": str(err)}).encode())
-            if req.get("action") == "ps5_lz4_cancel":
-                try:
-                    return self.send(200, json.dumps(lzc_call("POST", "/api/lzc/job/cancel")).encode())
                 except ValueError as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
             if req.get("action") == "ps5_fix":
@@ -7552,13 +7023,6 @@ def cmd_ui(args) -> int:
                                           self.headers.get("Host") or "", bool(req.get("dry")))
                     return self.send(200, json.dumps(res).encode())
                 except (ValueError, SystemExit) as err:
-                    return self.send(400, json.dumps({"error": str(err)}).encode())
-            if req.get("action") in ("engine_install", "engine_restore", "engine_start", "app_install"):
-                try:
-                    fn = {"engine_install": engine_install, "engine_restore": engine_restore,
-                          "engine_start": engine_start, "app_install": app_install}[req["action"]]
-                    return self.send(200, json.dumps(fn()).encode())
-                except Exception as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
             if req.get("action") == "drive_size":
                 try:
@@ -7652,7 +7116,7 @@ def cmd_ui(args) -> int:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
             if req.get("action") == "ps5_rest":
                 try:
-                    return self.send(200, json.dumps(engine_rest()).encode())
+                    return self.send(200, json.dumps(ps5_rest()).encode())
                 except ValueError as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
             if req.get("action") == "rest_auto":
@@ -7827,8 +7291,6 @@ def cmd_ui(args) -> int:
         __import__("threading").Thread(target=catalog_announcer, daemon=True).start()
     if FFPFSC_SHEET:
         __import__("threading").Thread(target=ffpfsc_refresher, daemon=True).start()
-    if ENGINE_CHECK_EVERY > 0:
-        pass  # the original project's PS5 engine is no longer installed or updated from here
     srv = http.server.ThreadingHTTPServer(("0.0.0.0", args.port), H)
     print(f"[{now()}] ui on port {args.port}", flush=True)
     srv.serve_forever()

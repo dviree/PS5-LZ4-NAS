@@ -6,9 +6,10 @@ ends (see `CLAUDE.md`). No real game names (Title IDs only), no personal data.
 ## >RESUME HERE
 
 Done 2026-11-10 (owner): everything from theghostonline removed; only quer3q's
-Forge and ampr-emu-ng remain. Open after it: prune the dead `engine_*`/`app_*`/
-`ps5_compress`/`lzc_call` bodies and their page JS; rewrite the stale APR-EMU
-sections of nas-lz4/README.md; free space of PS5 drives now only from pkg-receiver.
+Forge and ampr-emu-ng remain. Open after it: rewrite the stale APR-EMU sections of nas-lz4/README.md; the
+verdict words "can be LZ4 / LZ4 / not LZ4" and `ampr_status_folder` are old
+names (kept: the page filters use them); rest mode after a send has no PS5
+payload behind it (pkg-receiver offers none): add it there or drop the setting.
 
 Also waiting on the owner: the PPSA26344 folder went missing. The code can't
 remove an original (only `delete-original` with `DELETE_ORIGINALS=yes`); the
@@ -57,6 +58,10 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- Pruned the dead code of the original PS5 engine/app (backend and page), its
+  rest-mode and free-space calls, Compress on PS5, KNOWN_GAMES and the old
+  community helpers; every unpacked game is now packable (Forge injects
+  ampr-emu-ng), not only titles that import libSceAmpr.
 - TOML profiles removed (chooser, editor, upload, the TOML switch, `/api/profile`,
   `profile_*` actions, state/profiles); Forge's own rules decide every pack.
 - `profiles/nas-ng.toml` and the added loose rules (PlayGo markers, the
