@@ -131,11 +131,10 @@ class ForgeIntegrationTests(unittest.TestCase):
         # Repair must restore NG even when its original file is missing.
         runtime = out/app.RUNTIME_REL
         ng = self.root/'ng.sprx'; ng.write_bytes(runtime.read_bytes()); runtime.unlink()
-        legacy = Path(__file__).resolve().parents[2]/'third_party/ampr_emu/libSceAmpr.sprx'
-        with patch.object(app, 'NG_FILE', ng), patch.object(app, 'RUNTIME_FILE', legacy), \
+        with patch.object(app, 'NG_FILE', ng), \
              patch.object(app, 'ensure_dirs'), patch.object(app.subprocess, 'run') as tool, contextlib.redirect_stdout(io.StringIO()):
             app.cmd_apr(SimpleNamespace(fix=True, full=True))
-            tool.assert_not_called()  # legacy disk-files repair would unpack NG's assets
+            tool.assert_not_called()  # repair copies the runtime; no packer is run
         self.assertEqual(app.runtime_sha(out), app.NG_SHA256)
 
     def test_resume_rejects_different_mode(self):

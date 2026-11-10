@@ -25,8 +25,10 @@
 - New packs are LZ4 NG or Zstd only, both packed by PS5 Dump Forge for
   ampr-emu-ng (owner, 2026-11-10; replaces "LZ4 always with theghostonline's
   packer"). LZ4 with APR-EMU is no longer packed; existing copies stay.
-- Third-party code (theghostonline, quer3q, James St-Pierre) only after review
-  and the owner's OK. Don't route around proxy 403s.
+- Nothing from theghostonline in the repo or image (owner, 2026-11-10): no
+  engine, PS5 app, `ampr_pack`, APR-EMU file, bundled profiles or sync. Only
+  quer3q's Forge and ampr-emu-ng. Don't bring any of it back.
+- Third-party code (quer3q, James St-Pierre) only after review and the owner's OK. Don't route around proxy 403s.
 - After a feature, give the update command:
   `cd /volume2/docker/ps5-lz4 && ./lz4-ps5.sh update --force`
   (after the `Build NAS image` run on `nas-build` is green).

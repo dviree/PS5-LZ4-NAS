@@ -7,16 +7,17 @@ callers/skeleton`); line numbers below drift, names don't.
 
 | Folder | What | Language |
 |---|---|---|
-| `nas-lz4/` | **The NAS app** (Docker): packing agent + web page. Main work happens here. | Python, HTML/JS |
-| `src/` | theghostonline's LZ4 Compression engine (PS5 payload) and the packer `ampr_pack*.c` | C |
-| `tests/host/` | builds `ampr_pack_cli` (the LZ4 packer the NAS uses) from `src/` | Make |
-| `nas/` | NAS build of the engine (Linux) | C |
-| `app/`, `assets/` | the original's PS5 app UI | JSX/JS |
+| `nas-lz4/` | **The NAS app** (Docker): packing agent + web page. | Python, HTML/JS |
 | `pkg-receiver/` | Glass theme + extras for pkg-receiver (PS5 package installer payload) | C, JS, Py |
-| `profiles/` | bundled TOML pack profiles (`nas-ng.toml` = NG/Zstd safety rules) | TOML |
-| `tools/` | `quer3q_update.py` (follow quer3q/James), compat/asset generators | Python |
-| `tests/nas/` | NAS tests (`python3 -m unittest discover -s tests/nas`, `node tests/nas/*.cjs`) | Py, JS |
-| `.github/workflows/` | `build-image.yml` (NAS image on `nas-build`), `release.yml` (engine ELF), `sync-upstream.yml` (theghostonline, review-gated), `quer3q-update.yml`, `pkg-receiver.yml` | YAML |
+| `profiles/` | `nas-ng.toml`: NAS safety rules merged into every pack profile | TOML |
+| `tools/` | `quer3q_update.py` (follow quer3q/James) | Python |
+| `tests/nas/` | `python3 -m unittest discover -s tests/nas`, `node tests/nas/*.cjs` | Py, JS |
+| `.github/workflows/` | `build-image.yml` (NAS image on `nas-build`), `quer3q-update.yml`, `pkg-receiver.yml` | YAML |
+
+theghostonline's parts (`src/`, `app/`, `assets/`, `nas/`, `tests/host`,
+`third_party/`, `compat/`, bundled profiles, release and sync workflows) were
+removed on 2026-11-10. Left in `ps5lz4.py` as dead code to prune: the bodies of
+`engine_*`, `app_*`, `ps5_compress`, `lzc_call` (his PS5 engine, port 5920).
 
 ## NAS app (`nas-lz4/`)
 
@@ -29,7 +30,7 @@ callers/skeleton`); line numbers below drift, names don't.
   Remote, FTP. Header:
   Check all, Full re-check (no Compress all / Repair buttons; CLI only).
 - `Dockerfile`: stage `ng-runtime` builds ampr-emu-ng (quer3q main as is, no
-  patch), `build` builds `ampr_pack_cli`, `forge`
+  patch), `forge`
   installs PS5 Dump Forge (`install-forge.py`, pinned + SHA-256), final image
   adds `lz4`, `zstd`, `unrar`, MkPFS.
 - `install.sh` (first install, writes compose), `lz4-ps5.sh` (`update`,
@@ -58,7 +59,7 @@ callers/skeleton`); line numbers below drift, names don't.
 - Library: `scan_library` → `Entry` (`kind` folder/exfat/ffpfs/ffpfsc),
   `classify`, `result_for`, `CheckDB` cache (`state/ps5lz4.db`).
 - Profiles: `choose_profile` (page choice → game-hash/TitleID custom → TOML
-  next to the game → matching custom → bundled → scan); `bundled_profile` (game/engine fixes, used
+  next to the game → matching custom → none: Forge's own rules); `bundled_profile` (game/engine fixes, used
   even with the TOML switch off), `game_tomls`,
   `profile_options`, `set_profile_choice`, `upload_profile`, `save_game_profile`.
 - Estimates: `estimate_game` (`/api/estimate`), `pack_speeds`.
@@ -78,8 +79,6 @@ callers/skeleton`); line numbers below drift, names don't.
 
 ## Upstreams and pins
 
-- theghostonline/PS5-LZ4-Compression (Forgejo): engine + packer in `src/`;
-  `sync-upstream.yml` → `upstream-raw`/`upstream-sync`, review-gated.
 - quer3q/ampr-emu-ng main (pin `NG_COMMIT` in Dockerfile, `cbdafd8` v0.3.4,
   kernel AIO built in; the old James AIO patch is gone).
 - quer3q/ps5-dump-forge releases (pin in `install-forge.py`).

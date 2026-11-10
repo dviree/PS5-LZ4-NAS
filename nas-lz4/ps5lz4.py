@@ -48,7 +48,6 @@ OUTPUT = Path(os.environ.get("PS5LZ4_OUTPUT", "/output"))
 ZSTD_OUTPUT = Path(os.environ["PS5LZ4_ZSTD_OUTPUT"]) if os.environ.get("PS5LZ4_ZSTD_OUTPUT") else None
 STATE = Path(os.environ.get("PS5LZ4_STATE", "/state"))
 WORK = OUTPUT / ".ps5lz4-work"
-PACKER = os.environ.get("PS5LZ4_PACKER", "/usr/local/bin/ampr_pack_cli")
 MKPFS = os.environ.get("PS5LZ4_MKPFS", "mkpfs")
 PROFILES = Path(os.environ.get("PS5LZ4_PROFILES", "/opt/ps5lz4/profiles"))
 CUSTOM_PROFILES = STATE / "profiles"
@@ -66,7 +65,7 @@ HOST_STATE = os.environ.get("PS5LZ4_HOST_STATE", "/volume2/docker/ps5-lz4/state"
                             if str(STATE) == "/state" else str(STATE))
 FREE_MARGIN = int(float(os.environ.get("PS5LZ4_FREE_MARGIN_GB", "20")) * 1024**3)
 
-# Pinned APR-EMU PackedStdio runtime embedded in ampr_pack_cli.
+# The APR-EMU runtime older LZ4 copies carry: recognised, no longer shipped or packed.
 RUNTIME_SHA256 = "69e6c4d5e4f5fb83c9e01815db5861c4c75734acbf4595cafa50d4c218116d1a"
 RUNTIME_NAME = "APR-EMU PackedStdio 0.4.2.1"
 NG_UPSTREAM_SHA256 = "5f39ca8ebe169aa15d8a8ba8ec2f9cd4195f509d55daaf4b4edbfa80b145035c"
@@ -77,32 +76,13 @@ NG_NAME = _ng_build.get("name", "ampr-emu-ng 0.3.0")
 NG_FILE = Path(os.environ.get("PS5LZ4_NG_RUNTIME", "/opt/ps5lz4/libSceAmpr-ng.sprx"))
 FORGE = os.environ.get("PS5LZ4_FORGE", "/usr/local/bin/ps5-dump-forge")
 RUNTIME_REL = "fakelib/libSceAmpr.sprx"
-RUNTIME_FILE = Path(os.environ.get("PS5LZ4_RUNTIME", "/opt/ps5lz4/libSceAmpr.sprx"))
-# Community game reports from the original project (compat/compat.json,
-# refreshed by the fork sync and baked into each image).
-COMPAT_FILE = Path(os.environ.get("PS5LZ4_COMPAT", "/opt/ps5lz4/compat.json"))
-COMPAT_REPO = "theghostonline/PS5-LZ4-Compression"
-# The original project left GitHub on 2026-10-17 for its own Gitea/Forgejo site:
-# reports (issues), releases and the report form are there now.
-ORIGIN_HOST = os.environ.get("PS5LZ4_ORIGIN_HOST", "https://theghostonline.dev").rstrip("/")
-ORIGIN_WEB = f"{ORIGIN_HOST}/{COMPAT_REPO}"
-ORIGIN_API = f"{ORIGIN_HOST}/api/v1/repos/{COMPAT_REPO}"
-COMPAT_MIRROR = os.environ.get("PS5LZ4_COMPAT_MIRROR", "dviree/PS5-LZ4-NAS")
-COMPAT_BUNDLED = Path(os.environ.get("PS5LZ4_COMPAT_BUNDLED", "/opt/ps5lz4/compat.json"))
 LZC_PORT = int(os.environ.get("PS5LZ4_LZC_PORT", "5920"))  # LZ4 Compression engine on the PS5
 
 
 def lz4c_version() -> str:
-    """Version of the original project (LZ4 Compression) the packer here is built from."""
-    for p in (Path(__file__).with_name("lz4c-version.js"),
-              Path(__file__).resolve().parent.parent / "app" / "lz4-compression" / "version.js"):
-        try:
-            m = re.search(r"APP_VERSION\s*=\s*'([^']+)'", p.read_text())
-            if m:
-                return m.group(1)
-        except OSError:
-            pass
-    return ""
+    return ""  # the original project's app is no longer part of this image
+
+
 # What is known about single games, shown in their sheet: what the packer already
 # does for them, and what is still open.
 KNOWN_GAMES = {
@@ -548,7 +528,7 @@ def exfat_inspect(image: Path) -> dict:
 
 
 def load_bundled_profiles() -> list[dict]:
-    return read_json(PROFILES / "index.json", []) or []
+    return []  # no bundled game/engine profiles: Forge's own rules decide
 
 
 def detect_engine(root: Path) -> str:
@@ -686,21 +666,9 @@ def choose_profile(title_id: str, name: str, root: Path, game_id: str = "",
 
 
 def bundled_profile(title_id: str, name: str, root: Path) -> tuple[str | None, str]:
-    """theghostonline's bundled profile for this game (Title ID or name) or its
-    engine layout (e.g. Insomniac), else None for the packer's own scan. Used
-    even with the page's TOML switch off: these are fixes, not a user choice."""
-    norm = "".join(c.lower() for c in name if c.isalnum())
-    bundled = load_bundled_profiles()
-    for p in bundled:
-        ids = [t.upper() for t in p.get("titleIds", [])]
-        names = [n for n in p.get("names", []) if len(n) >= 4]
-        if (title_id and title_id.upper() in ids) or any(n in norm for n in names):
-            return str(PROFILES / p["file"]), f"bundled {p['id']} (title match)"
-    engine = detect_engine(root)
-    for p in bundled:
-        if engine and p.get("engine") == engine:
-            return str(PROFILES / p["file"]), f"bundled {p['id']} ({engine} engine layout)"
-    return None, "automatic scan-based profile"
+    """No bundled profiles any more: PS5 Dump Forge's own packing rules decide
+    (with the NAS safety rules of nas-ng.toml on top)."""
+    return None, "Forge's own packing rules"
 
 
 def profile_entry(game_id: str) -> Entry:
@@ -1519,7 +1487,7 @@ class Job:
                 "restore_test": st.get("restore_test"),
                 "restore_notes": st.get("restore_notes", []),
                 "format": f"AMPRPAK4 index, {st.get('pak_volumes')} AMPRDAT3 volumes",
-                "runtime": f"PackedStdio {RUNTIME_SHA256}",
+                "runtime": f"{NG_NAME} {NG_SHA256}",
                 "permissions": f"folders and {programs} program files 755, other files 644",
             },
             "verified_on_nas": True,
@@ -2193,176 +2161,8 @@ def cmd_status(_args) -> int:
     return 0
 
 
-COMPAT_LIVE = STATE / "compat.json"  # fetched from the issues by the web page container
-COMPAT_REFRESH = int(os.environ.get("PS5LZ4_COMPAT_REFRESH", "300"))
-
-
-COMMUNITY_REPORTS = os.environ.get("PS5LZ4_COMMUNITY", "") == "yes"
-
-
-def compat_data() -> dict:
-    """The newest community reports: live from GitHub when fetched, else the bundled copy."""
-    live = read_json(COMPAT_LIVE, {}) or {}
-    bundled = read_json(COMPAT_FILE, {}) or {}
-    return live if live.get("updated", "") >= bundled.get("updated", "") and live.get("games") is not None else bundled
-
-
 def compat_games() -> dict:
-    # Community reports are off (owner's choice): nothing is fetched, shown or shared.
-    return (compat_data().get("games") or {}) if COMMUNITY_REPORTS else {}
-
-
-# Same counting as the original project's tools/compat_aggregate.py.
-COMPAT_STATUS = {"works": "works", "works with issues": "issues",
-                 "won't start (black screen or crash on launch)": "noStart", "crashes in game": "crash"}
-COMPAT_FIELDS = {"title id": "titleId", "game": "game", "how does it run?": "status",
-                 "game version": "gameVersion", "lz4 level": "level", "packed from": "source",
-                 "firmware": "firmware", "lz4 compression version": "appVersion", "notes": "notes"}
-
-
-def compat_status(text: str, title: str = "") -> str | None:
-    """The status of a report: the form's answer, free text ("won't boot", "crashes"),
-    or the ": Works" at the end of the title (as the original's 1.6.3 reads it)."""
-    t = re.sub("[\u2018\u2019]", "'", str(text or "")).lower().strip()
-    if t in COMPAT_STATUS:
-        return COMPAT_STATUS[t]
-    if t == "won't start":
-        return "noStart"
-    if "works with issues" in t:
-        return "issues"
-    if re.search(r"won'?t (start|boot|load|launch)|can'?t (start|boot|load|launch)|cannot (start|boot|load|launch)"
-                 r"|(does|did)n'?t (start|boot|load|launch|work)|not (start|boot|load|launch|work)|black screen|freez|stuck", t):
-        return "noStart"
-    if "crash" in t:
-        return "crash"
-    if re.search(r"stutter|issue|glitch|lag", t):
-        return "issues"
-    if re.search(r"\b(works|runs|playable|fine)\b", t):
-        return "works"
-    m = re.search(r":\s*([^:]+)$", str(title or ""))
-    return compat_status(m.group(1)) if m and text is not None else None
-
-
-def compat_aggregate(issues: list[dict]) -> dict:
-    """Issues (GitHub or Gitea REST) labelled compat or titled "[Game report] ..." -> compat.json.
-    One vote per user per game (the original author for issues moved from GitHub)."""
-    def clean(v, n):
-        return re.sub(r"\s+", " ", str(v or "")).strip()[:n]
-    latest = {}
-    for issue in issues:
-        if issue.get("pull_request"):
-            continue
-        labels = {(lb.get("name") or "").lower() for lb in issue.get("labels") or []}
-        if labels & {"invalid", "duplicate", "spam"}:
-            continue
-        if "compat" not in labels and not str(issue.get("title") or "").startswith("[Game report]"):
-            continue
-        fields = {}
-        # Accept both the issue form's Markdown and manually pasted plain labels.
-        # Horizontal whitespace only: blank values must not consume the next label.
-        headings = "|".join(re.escape(k) for k in COMPAT_FIELDS)
-        parts = re.split(r"(?im)^(?:###[ \t]+)?(" + headings + r")[ \t]*:?[ \t]*\r?$",
-                         issue.get("body") or "")
-        for i in range(1, len(parts) - 1, 2):
-            key = COMPAT_FIELDS.get(parts[i].strip().lower())
-            val = parts[i + 1].strip()
-            if key and val not in ("", "_No response_", "None"):
-                fields[key] = val
-        tid = clean(fields.get("titleId"), 16).upper()
-        status = compat_status(clean(fields.get("status"), 2000), issue.get("title") or "")
-        if not re.fullmatch(r"[A-Z]{4}\d{5}", tid) or not status:
-            continue
-        # Reports moved over from GitHub start with their original issue, author (when known) and date.
-        moved = re.match(r"_Moved from GitHub #(\d+), opened (?:by @([\w-]+) )?on (\d{4}-\d{2}-\d{2})",
-                         issue.get("body") or "")
-        author = ((moved and (moved.group(2) or f"github#{moved.group(1)}")) or issue.get("original_author")
-                  or (issue.get("user") or {}).get("login") or f"#{issue.get('number')}").lower()
-        rep = {"status": status, "game": clean(fields.get("game"), 80),
-               "gameVersion": clean(fields.get("gameVersion"), 20), "level": clean(fields.get("level"), 4),
-               "source": clean(fields.get("source"), 40), "firmware": clean(fields.get("firmware"), 12),
-               "appVersion": clean(fields.get("appVersion"), 12),
-               "date": (moved and moved.group(3)) or issue.get("created_at") or "",
-               "issue": issue.get("number")}
-        if (tid, author) not in latest or rep["date"] >= latest[(tid, author)][1]["date"]:
-            latest[(tid, author)] = (tid, rep)
-    games = {}
-    for tid, rep in latest.values():
-        g = games.setdefault(tid, {"name": "", "works": 0, "issues": 0, "noStart": 0, "crash": 0,
-                                   "reports": 0, "lastReport": None})
-        g[rep["status"]] += 1
-        g["reports"] += 1
-        if rep["game"] and not g["name"]:
-            g["name"] = rep["game"]
-        if not g["lastReport"] or rep["date"] > g["lastReport"]["date"]:
-            g["lastReport"] = rep
-    return {"version": 1, "updated": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "source": "live", "games": dict(sorted(games.items()))}
-
-
-def compat_refresh() -> dict:
-    """Fetch every report from the original's site and save the counts. If that fails,
-    take a compat.json: the original's, this fork's copy, or the one in the image."""
-    import urllib.request
-    try:
-        return compat_refresh_issues()
-    except Exception as err:
-        data = None
-        # The original's compat.json, else this fork's copy (kept by the sync until the
-        # original went away on 2026-10-17), else the copy in the image.
-        for repo in (COMPAT_REPO, COMPAT_MIRROR):
-            url = f"https://raw.githubusercontent.com/{repo}/main/compat/compat.json"
-            req = urllib.request.Request(url, headers={"User-Agent": f"ps5-lz4/{VERSION}"})
-            try:
-                with urllib.request.urlopen(req, timeout=20) as r:
-                    data = json.load(r)
-                if isinstance(data.get("games"), dict):
-                    data["source"] = "repo" if repo == COMPAT_REPO else "mirror"
-                    break
-            except Exception:
-                data = None
-        if data is None and COMPAT_BUNDLED.is_file():
-            data = read_json(COMPAT_BUNDLED, None)
-            if data and isinstance(data.get("games"), dict):
-                data["source"] = "bundled"
-        cached = compat_data()
-        if isinstance(cached.get("games"), dict) and (not data or cached.get("updated", "") >= data.get("updated", "")):
-            data = dict(cached)
-        if not data or not isinstance(data.get("games"), dict):
-            raise err
-        data["refresh_error"] = str(err)
-        write_json(COMPAT_LIVE, data)
-        return data
-
-
-def compat_refresh_issues() -> dict:
-    """Every report issue from the original's site (Gitea API, no token)."""
-    import urllib.request
-    issues, page = [], 1
-    while page <= 40:
-        url = f"{ORIGIN_API}/issues?state=all&type=issues&limit=50&page={page}"
-        req = urllib.request.Request(url, headers={"Accept": "application/json",
-                                                   "User-Agent": f"ps5-lz4/{VERSION}"})
-        with urllib.request.urlopen(req, timeout=20) as r:
-            batch = json.load(r)
-        if not isinstance(batch, list):
-            raise ValueError("unexpected answer from the issues API")
-        issues += batch
-        if len(batch) < 50:
-            break
-        page += 1
-    data = compat_aggregate(issues)
-    write_json(COMPAT_LIVE, data)
-    return data
-
-
-def compat_refresher() -> None:
-    """Background loop in the web page container."""
-    while True:
-        try:
-            compat_refresh()
-        except Exception as err:
-            print(f"[{now()}] community reports not refreshed: {err}", flush=True)
-        time.sleep(COMPAT_REFRESH)
+    return {}  # the original project's community reports are gone; see ng_reports()
 
 
 def community_text(title_id: str, games: dict | None = None) -> str:
@@ -2523,26 +2323,22 @@ def ps5_text(rep: dict) -> str:
     return f"PS5 {PLAY_STATES[st][1]}" if st in PLAY_STATES else "PS5 untested"
 
 
-def report_url(tid: str, name: str, form: str, version: str = "", level: str = "", source: str = "",
-               firmware: str = "", app_version: str = "") -> str:
-    """A new-issue link on the original's site, filled in like its old GitHub report
-    form (the same "### Field" sections, so compat_aggregate reads it)."""
-    from urllib.parse import quote
-    rows = [("Title ID", tid), ("Game", name), ("How does it run?", form), ("Game version", version),
-            ("LZ4 level", level), ("Packed from", source), ("Firmware", firmware),
-            ("LZ4 Compression version", app_version), ("Notes", "")]
-    body = "\n\n".join(f"### {k}\n\n{v or '_No response_'}" for k, v in rows)
-    return (f"{ORIGIN_WEB}/issues/new?title={quote(f'[Game report] {name}: {form}')}"
-            f"&body={quote(body)}")
+def ngr_text(g: dict | None) -> str:
+    """'quer3q: zstd 2 work, lz4 1 crash' for a game's ampr-emu-ng reports, or ''."""
+    parts = []
+    for kind in ("zstd", "lz4", "plain", "other"):
+        c = (g or {}).get(kind)
+        if c:
+            parts.append(f"{kind} " + ", ".join(f"{c[k]} {k}" for k in ("works", "issues", "noStart", "crash", "hang", "other") if c.get(k)))
+    return "quer3q: " + "; ".join(parts) if parts else ""
 
 
 def cmd_community(args) -> int:
     """Community reports for the library, or record and share your own result."""
     ensure_dirs()
-    games = compat_games()
+    games = ng_reports()
     if not args.game:
-        updated = compat_data().get("updated", "?")
-        print(f"community reports from {COMPAT_REPO} (updated {updated})")
+        print(f"game reports from {NG_REPORT_REPO}")
         seen = set()
         for e in scan_library():
             tid = (e.title_id or "").upper()
@@ -2551,7 +2347,7 @@ def cmd_community(args) -> int:
             seen.add(tid)
             rep = read_json(REPORTS / f"{e.id}.json") or {}
             mine = ps5_text(rep) if rep else "not LZ4"
-            print(f"{tid:9}  {e.rel[:44]:44}  you: {mine:22}  {community_text(tid, games) or 'no reports yet'}")
+            print(f"{tid:9}  {e.rel[:44]:44}  you: {mine:22}  {ngr_text(games.get(tid)) or 'no reports yet'}")
         print("\nrecord your result: ps5lz4 community <game> works|issues|nostart|crash")
         return 0
     if args.result not in PLAY_STATES:
@@ -2582,16 +2378,7 @@ def cmd_community(args) -> int:
                             "zstd" if rep.get("pack_codec") == "zstd" else "lz4", ver,
                             os.environ.get("PS5LZ4_FIRMWARE", "")))
         return 0
-    if not COMMUNITY_REPORTS:
-        print("result saved on this NAS only")
-        return 0
-    url = report_url(rep.get("title_id") or e.title_id, name, form,
-                     game_version(e.output, *([e.path] if e.kind == "folder" else []),
-                                  name=e.rel).get("version", ""),
-                     ((rep.get("codec") or "").split() or [""])[-1], source,
-                     os.environ.get("PS5LZ4_FIRMWARE", ""), lz4c_version() or f"ps5lz4zstd NAS {VERSION}")
-    print("share it with the community (open on your phone or computer, add firmware, submit):")
-    print(url)
+    print("result saved on this NAS only (an APR-EMU copy: quer3q's reports cover ampr-emu-ng)")
     return 0
 
 
@@ -2654,14 +2441,11 @@ def cmd_verify(args) -> int:
                 rc = 3 if compare_game_files(Path(args.source), decoded) else 0
         print("verify passed" if rc == 0 else f"verify FAILED (exit {rc})")
         return rc
-    argv = [PACKER, "verify", str(target)] + ([args.source] if args.source else [])
-    rc = subprocess.call(nice_prefix() + argv)
-    rt = find_runtime(target)
-    if rt is None or hashlib.sha256(rt.read_bytes()).hexdigest() != RUNTIME_SHA256:
-        print("APR-EMU is not the PackedStdio runtime; run: ps5lz4 apr --fix")
-        rc = rc or 3
-    print("verify passed" if rc == 0 else f"verify FAILED (exit {rc})")
-    return rc
+    # An older APR-EMU LZ4 copy: its packer is gone, so only the structure is checked.
+    problem = lz4_format_problem(target)
+    print(problem or "structure ok (APR-EMU LZ4 copy: a full decode is no longer available; "
+                     "repack it as LZ4 NG or Zstd for a verified copy)")
+    return 3 if problem else 0
 
 
 VERIFIES = STATE / "verify"
@@ -2888,10 +2672,6 @@ def cmd_apr(args) -> int:
     if not games:
         print(f"no packed games in {OUTPUT}")
         return 0
-    if args.fix:
-        if not RUNTIME_FILE.is_file() or \
-                hashlib.sha256(RUNTIME_FILE.read_bytes()).hexdigest() != RUNTIME_SHA256:
-            raise SystemExit(f"pinned runtime missing or wrong at {RUNTIME_FILE}; reinstall ps5-lz4")
     db = CheckDB()
     bad = cached = 0
     for g in games:
@@ -2913,38 +2693,23 @@ def cmd_apr(args) -> int:
                 state = "NG runtime upgrade needed"
         if state != "ok":
             ok = False
-            if args.fix:
+            if not requires_ng(g):
+                # An APR-EMU copy: its runtime and packer are no longer in this image.
+                state += " (APR-EMU copy: repack as LZ4 NG or Zstd)"
+            elif args.fix:
                 dst = rt or (g / RUNTIME_REL)
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 os.chmod(dst.parent, 0o755)
                 tmp = dst.with_name(dst.name + ".tmp")
-                runtime_file = NG_FILE if requires_ng(g) else RUNTIME_FILE
-                expected_sha = NG_SHA256 if requires_ng(g) else RUNTIME_SHA256
+                runtime_file, expected_sha = NG_FILE, NG_SHA256
                 if not runtime_file.is_file() or hashlib.sha256(runtime_file.read_bytes()).hexdigest() != expected_sha:
                     raise SystemExit("matching pinned runtime is missing; update the container")
                 shutil.copyfile(runtime_file, tmp)
                 os.chmod(tmp, 0o755)
                 os.replace(tmp, dst)
-                if requires_ng(g):
-                    update_runtime_index(g, dst)
+                update_runtime_index(g, dst)
                 state += " -> FIXED"
                 ok = True
-        # Files the PS5 looks for on disk (PlayGo markers, empty files, some
-        # boot files) must exist next to the packs; packs made before
-        # upstream 1.4.3 may hold them only inside. --fix writes them out.
-        if not requires_ng(g):
-            out = subprocess.run([PACKER, "disk-files", str(g)] + (["--repair"] if args.fix else []),
-                                 capture_output=True, text=True)
-            m = re.search(r"missing=(\d+) restored=(\d+)", out.stdout)
-            if m and int(m.group(1)):
-                state += f"; {m.group(1)} disk file(s) only in packs"
-                if args.fix:
-                    state += f" -> {m.group(2)} restored"
-                else:
-                    ok = False
-            elif not m:
-                state += f"; disk-file check failed: {(out.stderr or out.stdout).strip()[-120:]}"
-                ok = False
         try:
             boot = boot_files(g, repair=args.fix)
         except OSError as err:
@@ -3067,18 +2832,18 @@ def cmd_doctor(_args) -> int:
     if OUTPUT.is_dir():
         print(f"     free on output volume: {human(free_bytes(OUTPUT))}")
     try:
-        out = subprocess.run([PACKER], capture_output=True, text=True).stderr
-        line("verify <packed>" in out, f"packer {PACKER}")
+        out = subprocess.run([FORGE], capture_output=True, text=True)
+        line("ps5-dump-forge" in out.stdout + out.stderr, f"packer {FORGE} (PS5 Dump Forge {forge_pin_version()})")
     except OSError as err:
-        line(False, f"packer {PACKER}: {err}")
+        line(False, f"packer {FORGE}: {err}")
+    line(NG_FILE.is_file() and hashlib.sha256(NG_FILE.read_bytes()).hexdigest() == NG_SHA256, f"runtime {NG_NAME}")
     try:
         out = subprocess.run([MKPFS, "-V"], capture_output=True, text=True)
         txt = (out.stdout + out.stderr).strip().splitlines()
         line(any("1.1.0" in t for t in txt), f"MkPFS: {txt[0] if txt else '?'}")
     except OSError as err:
         line(False, f"MkPFS: {err}")
-    line((PROFILES / "index.json").is_file(), f"bundled profiles {PROFILES}")
-    print(f"     PackedStdio runtime pinned: {RUNTIME_SHA256}")
+    line((PROFILES / "nas-ng.toml").is_file(), f"NAS safety rules {PROFILES / 'nas-ng.toml'}")
     return 0 if ok else 1
 
 
@@ -3672,6 +3437,7 @@ def engine_fetch() -> tuple[Path, str]:
 
 def engine_install() -> dict:
     """Put this fork's engine where the Payload Manager loads it, overwriting the old file."""
+    raise ValueError("removed: the original project's PS5 engine and app are no longer part of this tool")
     import ftplib
     elf, tag = engine_fetch()
     size = elf.stat().st_size
@@ -3709,6 +3475,7 @@ def engine_install() -> dict:
 
 def engine_restore() -> dict:
     """Put the .orig engine back."""
+    raise ValueError("removed: the original project's PS5 engine and app are no longer part of this tool")
     f = ps5_ftp_connect()
     try:
         path = pm_path(ENGINE_PATH, f)
@@ -3735,6 +3502,7 @@ def engine_start() -> dict:
     """Run the installed engine now: through Payload Manager (port 8084), where a
     new engine takes over from one that already runs, else by sending the ELF
     to an ELF loader (ports 9021, 9020) when no engine runs."""
+    raise ValueError("removed: the original project's PS5 engine and app are no longer part of this tool")
     import socket
     import urllib.request
     host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
@@ -3868,7 +3636,7 @@ def engine_updater() -> None:
 # from the original project's releases; ShadowMount+ adds the tile for the
 # folder in /data/homebrew. It talks to the engine on 127.0.0.1:5920.
 APP_REPO = os.environ.get("PS5LZ4_APP_REPO", "theghostonline/PS5-LZ4-Compression")
-APP_API = os.environ.get("PS5LZ4_APP_API", ORIGIN_API)  # a Gitea/Forgejo or GitHub releases API
+APP_API = os.environ.get("PS5LZ4_APP_API", "")  # a Gitea/Forgejo or GitHub releases API
 APP_TITLE = "PPSA99420"
 APP_ASSET = f"LZ4-Compression-{APP_TITLE}.zip"
 APP_PATH = f"/data/homebrew/{APP_TITLE}"
@@ -3918,6 +3686,7 @@ def app_fetch() -> tuple[Path, str]:
 
 def app_install() -> dict:
     """Copy the app's PPSA99420 folder to /data/homebrew on the PS5, overwriting it."""
+    raise ValueError("removed: the original project's PS5 engine and app are no longer part of this tool")
     import zipfile
     zp, tag = app_fetch()
     with zipfile.ZipFile(zp) as z:
@@ -4483,6 +4252,7 @@ def ps5_compress(path: str, tid: str) -> dict:
     """Pack a game that is on the PS5 with LZ4 on the PS5 itself, by the LZ4
     Compression engine (started, or installed and started, when it doesn't
     run). The original stays; the LZ4 copy is written next to it as <name>-lz4."""
+    raise ValueError("removed: the original project's PS5 engine and app are no longer part of this tool")
     import urllib.parse
     path = ps5_ftp_path(path)
     tid = tid.upper()
@@ -6841,8 +6611,7 @@ def push_one(game: str, force: bool = False) -> int:
     # engine (port 5920), whichever runs, to hold off rest mode while this
     # transfer runs; renewed every minute.
     awake_stop = __import__("threading").Event()
-    awake_urls = (f"http://{host}:{RECV_PORT}/api/keep-awake?seconds=",
-                  f"http://{host}:{LZC_PORT}/api/lzc/keep-awake?seconds=")
+    awake_urls = (f"http://{host}:{RECV_PORT}/api/keep-awake?seconds=",)
 
     def keep_awake():
         import urllib.request
@@ -7353,8 +7122,8 @@ def dashboard_data() -> dict:
             "send_after": list(read_json(SEND_AFTER, {}) or {}),
             "images": images_data(),
             "pkgs": (pkgs := scan_pkgs()), "pkg_folders": pkg_folders(pkgs),
-            "level": int(os.environ.get("PS5LZ4_LEVEL", "9")), "runtime": RUNTIME_NAME.removeprefix("APR-EMU "),
-            "compat_updated": compat_data().get("updated"),
+            "level": int(os.environ.get("PS5LZ4_LEVEL", "9")), "runtime": NG_NAME,
+            "compat_updated": None,
             "requests": {"pending": pending, "pending_list": pending_list, "recent": done_req[::-1],
                          "agent_age": agent_age}, "version": VERSION,
             "settings": {**get_settings(), "ps5_wake_key": "set" if get_settings()["ps5_wake_key"] else "",
@@ -7472,8 +7241,7 @@ def game_detail(game_id: str) -> dict:
     return {"id": game_id, "report": rep or None, "folder": folder, "work": work, "skipped": skipped,
             "title_id": tid, "ng_reports": ng_reports().get(tid), "ng_reports_web": NG_REPORT_WEB,
             "ng_reports_at": (read_json(NG_REPORTS, {}) or {}).get("updated") if NG_REPORTS_ON else None,
-            "community": compat_games().get(tid), "community_repo": COMPAT_REPO, "community_web": ORIGIN_WEB,
-            "community_live": (read_json(COMPAT_LIVE, {}) or {}).get("source") == "live", "apr": apr,
+            "apr": apr,
             "known": KNOWN_GAMES.get(tid.upper()) if tid else None,
             "unity": UNITY_WHY if (out and out.is_dir() and unity_folder(out)) or
                      (src and src.kind == "folder" and unity_folder(src.path)) else None,
@@ -8011,17 +7779,6 @@ def cmd_ui(args) -> int:
             if self.path == "/api/ps5":
                 host = get_settings()["ps5_ftp"].partition(":")[0]
                 return self.send(200, json.dumps({"status": ps5_status(host) if host else "unset"}).encode())
-            if self.path.startswith("/api/community"):
-                if COMMUNITY_REPORTS and "refresh=1" in self.path and time.time() - refreshed[0] > 30:
-                    refreshed[0] = time.time()
-                    try:
-                        compat_refresh()
-                    except Exception as err:
-                        print(f"[{now()}] community reports not refreshed: {err}", flush=True)
-                data = compat_data()
-                body = {"repo": COMPAT_REPO, "web": ORIGIN_WEB, "updated": data.get("updated"), "source": data.get("source") or "image",
-                        "games": (data.get("games") or {}) if COMMUNITY_REPORTS else {}, "refresh_error": data.get("refresh_error")}
-                return self.send(200, json.dumps(body, ensure_ascii=False).encode())
             if self.path.startswith("/api/ng-reports"):
                 err = None
                 if NG_REPORTS_ON and "refresh=1" in self.path and time.time() - refreshed[0] > 60:
@@ -8410,8 +8167,6 @@ def cmd_ui(args) -> int:
             self.send(200, json.dumps({"queued": name}).encode())
 
     refreshed = [0.0]
-    if COMMUNITY_REPORTS and COMPAT_REFRESH > 0:
-        __import__("threading").Thread(target=compat_refresher, daemon=True).start()
     if NG_REPORTS_ON:
         __import__("threading").Thread(target=ng_reports_refresher, daemon=True).start()
     __import__("threading").Thread(target=send_after_watcher, daemon=True).start()
@@ -8431,7 +8186,7 @@ def cmd_ui(args) -> int:
     if FFPFSC_SHEET:
         __import__("threading").Thread(target=ffpfsc_refresher, daemon=True).start()
     if ENGINE_CHECK_EVERY > 0:
-        __import__("threading").Thread(target=engine_updater, daemon=True).start()
+        pass  # the original project's PS5 engine is no longer installed or updated from here
     srv = http.server.ThreadingHTTPServer(("0.0.0.0", args.port), H)
     print(f"[{now()}] ui on port {args.port}", flush=True)
     srv.serve_forever()

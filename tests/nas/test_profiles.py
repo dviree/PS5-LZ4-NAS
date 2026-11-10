@@ -115,21 +115,17 @@ class EditableProfileTests(unittest.TestCase):
             self.assertEqual(Path(job.state['profile_path']).read_text(), before)
             app.save_game_profile(self.entry.id, self.text)
 
-    def test_toml_switch_off_keeps_bundled_engine_fixes(self):
-        # An Insomniac layout gets the bundled engine profile with or without a game
-        # TOML, for LZ4 and Zstd alike: packing every file crashes those games.
-        (self.source/'toc').touch(); (self.source/'dag').touch()
-        (self.source/'d').mkdir()
+    def test_toml_switch_off_still_gets_the_nas_safety_rules(self):
+        # No bundled game/engine profiles: without a game TOML, Forge's own rules
+        # decide, with the NAS safety rules on top, for LZ4 NG and Zstd alike.
         for codec in ('lz4', 'zstd'):
             job = app.Job(self.entry, 5, True, False, codec, 'ng', False)
             job.work.mkdir(parents=True, exist_ok=True)
             with patch.object(app, 'ampr_status_folder', return_value=('compatible', 'fixture')):
                 job.step_check(self.source)
-            self.assertIn('insomniac', job.state['profile'])
+            self.assertIn("Forge's own packing rules", job.state['profile'])
             parsed = tomllib.loads(Path(job.state['profile_path']).read_text())
-            self.assertEqual(parsed['pack']['default_action'], 'loose')
             loose = [p for r in parsed['rule'] if r['action'] == 'loose' for p in r['include']]
-            self.assertIn('d/*/bootload*', loose)
             self.assertIn('cache_ps5/playgo.pgm', loose)
             app.remove_work_path(job.work)
 
@@ -146,14 +142,11 @@ class EditableProfileTests(unittest.TestCase):
         app.ng_profile(self.source, None, out)
         self.assertIn('cache_ps5/playgo.pgm', tomllib.loads(out.read_text())['rule'][0]['include'])
 
-    def test_safety_profile_contains_every_hardcoded_lz4_fix(self):
-        c = (Path(__file__).resolve().parents[2]/'src/ampr_pack.c').read_text()
-        block = c.split('static const char *const k_keep_on_disk[] = {', 1)[1].split('};', 1)[0]
-        fixes = re.findall(r'^\s*"([^"]+)"', block, re.M)
+    def test_safety_profile_keeps_the_files_the_ps5_reads_from_disk(self):
         safety = tomllib.loads((app.PROFILES/'nas-ng.toml').read_text())
         loose = [p for r in safety['rule'] if r['action'] == 'loose' for p in r['include']]
-        self.assertTrue(fixes)
-        self.assertEqual(set(fixes) - set(loose), set())
+        for must in ('eboot.bin', 'sce_sys/*', 'fakelib/*', 'cache_ps5/playgo.pgm', 'cache_ps5/pgc_*_dummy_file', '*.rmdtoc'):
+            self.assertIn(must, loose)
 
     def test_ui_http_routes_load_and_save_game_profile(self):
         with patch.object(app, 'ensure_dirs'), patch.object(app, 'REQUESTS', self.root/'requests'), \

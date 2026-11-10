@@ -5,12 +5,10 @@ ends (see `CLAUDE.md`). No real game names (Title IDs only), no personal data.
 
 ## >RESUME HERE
 
-IN PROGRESS (owner, 2026-11-10): remove theghostonline's code. Step 1 done:
-Forge packs LZ4 NG, APR-EMU mode gone from page/CLI. Step 2 open: delete `src/`,
-`app/`, `assets/`, `nas/`, `tests/host`, `third_party/ampr_emu`, `compat/`,
-`release.yml`, `sync-upstream.yml`, the `build` Docker stage and every `PACKER`/
-APR-EMU use in ps5lz4.py (verify-lz4, apr disk-files, doctor, app_install);
-decide with the owner what existing APR-EMU copies may still do.
+Done 2026-11-10 (owner): everything from theghostonline removed; only quer3q's
+Forge and ampr-emu-ng remain. Open after it: prune the dead `engine_*`/`app_*`/
+`ps5_compress`/`lzc_call` bodies and their page JS; rewrite the stale APR-EMU
+sections of nas-lz4/README.md; free space of PS5 drives now only from pkg-receiver.
 
 Also waiting on the owner: the PPSA26344 folder went missing. The code can't
 remove an original (only `delete-original` with `DELETE_ORIGINALS=yes`); the
@@ -47,8 +45,6 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 - GitHub runs scheduled workflows rarely for this repo (~every 6 h).
 - `trail note` can't save learnings: `.trail/` needs `trail init` (blocked as
   self-modification in an earlier session).
-- `src/lzc_api.c` (upstream) names a real game in a comment (`.ffpfsc` example);
-  owner to decide whether to patch upstream's text.
 
 ## Ideas
 
@@ -58,6 +54,9 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- Removed theghostonline's engine, PS5 app, packer, APR-EMU file, bundled
+  profiles, compat data and sync/release workflows; APR-EMU copies are only
+  listed and structure-checked; no Compress on PS5.
 - LZ4 NG is packed by Forge (`--to lz4 --lz4-runtime ng`), with the mandatory
   loose-file rules like Zstd; APR-EMU LZ4 can no longer be chosen or queued.
 - Game reports tab: quer3q's reports as a compatibility list (search, filters,

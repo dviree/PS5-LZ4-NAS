@@ -266,7 +266,7 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
         <ul>
           <li><b>Every LZ4 game</b> in the LZ4 folder:
             the pack format (<code>AMPRPAK4</code> index, <code>AMPRDAT3</code> volumes, CRC and <code>ampr_emu.index</code> sidecars);
-            that <code>fakelib/libSceAmpr.sprx</code> is exactly APR-EMU PackedStdio 0.4.2.1 (SHA-256), the only build that reads LZ4 packs;
+            that <code>fakelib/libSceAmpr.sprx</code> is a known runtime (SHA-256): ampr-emu-ng for LZ4 NG and Zstd copies (older APR-EMU copies are only recognised, not repaired);
             that the files the PS5 opens straight from disk (PlayGo markers, empty placeholders, some boot files) are next to the packs and not only inside them;
             that the runtime folder named in <code>eboot.bin</code> has the right upper/lower case;
             and that games using PlayGo have a PlayGo emulator in <code>fakelib</code>.</li>
@@ -285,8 +285,8 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
         <ol>
           <li><b>Source</b>: a game folder is used as it is; an <code>.exfat</code>, <code>.ffpfs</code> or <code>.ffpfsc</code> image is
             unpacked to a work folder on the NAS and every file is checked against the image (and its <code>.vhash</code> if there is one).</li>
-          <li><b>Check</b>: a program must import <code>libSceAmpr</code>, otherwise APR-EMU would never load and the game is skipped.</li>
-          <li><b>Pack</b>: LZ4 HC level 9 with the game's profile, using all cores but one at low priority.</li>
+          <li><b>Check</b>: the source must be an unpacked game with an <code>eboot.bin</code>; the packing rules are put together.</li>
+          <li><b>Pack</b>: PS5 Dump Forge packs LZ4 or Zstd at the chosen level and reads every file back; this NAS's ampr-emu-ng build goes in.</li>
           <li><b>Verify</b>: every chunk is decoded and compared with the original.</li>
           <li><b>Restore test</b>: the whole game is unpacked again and every file compared byte for byte.</li>
           <li><b>Publish</b>: the boot files are fixed and the result moves to the LZ4 folder.</li>
@@ -1011,7 +1011,7 @@ function render() {
   const an = document.getElementById('act-n'), n = (d.job ? 1 : 0) + (tf ? 1 : 0) + nq;
   an.hidden = !n; an.textContent = n;
   fab(d, tf, tq, pqs, nameOf);
-  document.getElementById('sub').textContent = `LZ4 HC level ${d.level} · APR-EMU ${d.runtime}`;
+  document.getElementById('sub').textContent = `LZ4 NG and Zstd · PS5 Dump Forge · ${d.runtime}`;
   document.getElementById('b-resume').hidden = !d.interrupted;
   const t = d.totals, saved = t.source - t.output;
   document.getElementById('kpis').innerHTML = [
@@ -1974,7 +1974,6 @@ function renderPg() {
           <button class="sm" data-p="${esc(g.image ? g.path.replace(/\/[^/]*$/, '') : g.path)}" onclick="tab('ftp');ftpGo(this.dataset.p)">Open</button>
           ${g.size == null && !g.ps4 ? `<button class="sm" data-p="${esc(g.path)}" data-i="${i}" onclick="measureGame(this.dataset.p, this.dataset.i)">Size</button>` : ''}
           ${!g.ps4 && !g.image && !(g.issues || []).some(x => x.code === 'archive' || x.code === 'hidden') ? `<button class="sm" data-p="${esc(g.path)}" data-i="${i}" onclick="pgVerify(this.dataset.p, this.dataset.i)">Verify</button>` : ''}
-          ${!g.ps4 && !g.lz4 && /^PPSA/i.test(g.title_id || '') && !(g.issues || []).length ? `<button class="sm pri" data-p="${esc(g.path)}" data-t="${esc(g.title_id)}" data-n="${esc(g.name)}" onclick="pgCompress(this.dataset.p, this.dataset.t, this.dataset.n)">⚡ Compress on PS5</button>` : ''}
           ${g.lz4 ? `<button class="sm" data-p="${esc(g.path)}" data-i="${i}" onclick="aprCheck(this.dataset.p, document.getElementById('pg-m-' + this.dataset.i))">APR-EMU</button>` : ''}
           ${g.lz4 && !g.image ? `<button class="sm" data-p="${esc(g.path)}" data-i="${i}" onclick="amprLog(this.dataset.p, document.getElementById('pg-m-' + this.dataset.i))" title="APR-EMU's own log (ampr_emu.log in the game folder): why a packed game stopped">APR-EMU log</button>` : ''}
           <span class="sp"></span>

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Installs ps5-lz4 (LZ4 HC packing of PS5 games for APR-EMU) on the NAS.
+# Installs ps5-lz4 (LZ4 NG and Zstd packing of PS5 games for ampr-emu-ng) on the NAS.
 #
 #   sudo -i
 #   bash /volume2/docker/ps5-lz4/src/nas-lz4/install.sh --check   # look only
@@ -47,7 +47,7 @@ die()  { printf '  [FAIL] %s\n' "$*"; exit 1; }
 # ---------------------------------------------------------------- preflight
 say "Preflight (nothing is changed in this step)"
 [ "$(id -u)" = 0 ] || die "run as root (sudo -i)"
-[ -f "$REPO/nas-lz4/Dockerfile" ] && [ -f "$REPO/tests/host/Makefile" ] || die "run this from the repository checkout ($REPO)"
+[ -f "$REPO/nas-lz4/Dockerfile" ] || die "run this from the repository checkout ($REPO)"
 
 arch="$(uname -m)"
 case "$arch" in

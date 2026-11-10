@@ -43,7 +43,7 @@ assert.ok(!document.getElementById('pkg-list').innerHTML.includes('<script>'));
 console.log('PASS: UI syntax, game grouping, category order, independent unknowns, collapse persistence, filters, install IDs, platform separation and escaping');
 // Compression controls send the chosen codec/runtime/level, including for a
 // source rejected by the legacy AMPR compatibility check.
-vm.runInContext(html.slice(html.indexOf("let packMode = 'legacy'"), html.indexOf('// The original project')), context);
+vm.runInContext(html.slice(html.indexOf("let packMode = 'ng'"), html.indexOf('// The original project')), context);
 context.data = {games: [{id:'test', name:'Test', can_queue:false}], settings:{}};
 context.confirm = () => true;
 const notices = [], requests = [];

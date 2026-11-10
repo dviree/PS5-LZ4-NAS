@@ -1,18 +1,24 @@
-# ps5lz4zstd: LZ4 HC packing of PS5 games on a NAS
+# ps5lz4zstd: LZ4 NG and Zstd packing of PS5 games on a NAS
 
 (The containers, folders and Docker image are still called `ps5-lz4`.)
 
-All extraction, LZ4 compression, verification and file handling happen in
-Docker containers on the NAS. Nothing runs on the PS5 except the game.
+All extraction, compression, verification and file handling happen in Docker
+containers on the NAS. Nothing runs on the PS5 except the game.
 
-- **Real LZ4 HC**, level 9 by default, with the original project's packer
-  (`ampr_pack_cli`, the same C code as the PS5 app). No zlib/PFSC.
-- **APR-EMU PackedStdio runtime** 0.4.2.1 (SHA-256 `69e6c4d5…`) goes into
-  `fakelib/libSceAmpr.sprx`. It is the only APR-EMU build that reads LZ4 packs.
+- **LZ4 NG and Zstd**, both packed by quer3q's PS5 Dump Forge for ampr-emu-ng;
+  Forge reads every pack back against its source.
+- **ampr-emu-ng** (built from a pinned commit in the image) goes into
+  `fakelib/libSceAmpr.sprx`. Turn off fakelib updates in ShadowMountPlus.
 - **Originals are never touched:** the library is mounted read-only (`:ro`),
   and the tool only deletes inside its own work folder.
 - **The packing container has no network** (`network_mode: none`) and changes
   no other containers or NAS settings.
+
+> **Changed on 2026-11-10:** theghostonline's engine, PS5 app, LZ4 packer
+> (`ampr_pack_cli`), APR-EMU runtime, bundled profiles and community reports are
+> removed. Sections below that still mention APR-EMU, `ampr_pack`, Repair,
+> Compress on the PS5 or the LZ4 Compression engine describe what no longer
+> exists: existing APR-EMU copies are listed and structure-checked only.
 
 ![Web page](../.github/screenshot.png)
 
@@ -492,15 +498,6 @@ The web page container fetches the community's .ffpfsc compatibility sheet
 column names, found by title ID in any column, else by name, with **Open the
 sheet** next to it. `PS5LZ4_FFPFSC_SHEET` is the CSV export URL (empty turns
 it off).
-
-## Compress on the PS5
-
-On the **PS5 games** tab, an unpacked PS5 game (PPSA…, not LZ4, no warnings) has
-**⚡ Compress on PS5**. The NAS starts the LZ4 Compression engine on the console
-(Payload Manager or the ELF loader, next to pkg-receiver) and asks it to `lz4-pack`
-the game there at level 9. The original is kept (`deletePolicy=keep`); the packed
-copy lands next to it. A banner shows progress and has **Cancel**. Nothing is copied
-over the network. Check the result with Verify, then test it on the PS5.
 
 ## exFAT images of LZ4 games
 

@@ -1,4 +1,5 @@
-# ps5-lz4: LZ4 HC packing of PS5 games for APR-EMU, run entirely on the NAS.
+# ps5-lz4: LZ4 NG and Zstd packing of PS5 games for ampr-emu-ng (PS5 Dump Forge),
+# run entirely on the NAS.
 # Build from the repository root:
 #   docker build -t ps5-lz4:local -f nas-lz4/Dockerfile .
 
@@ -29,21 +30,6 @@ RUN cargo test --workspace --locked \
     && cp out/release/libSceAmpr.sprx /runtime/libSceAmpr-ng.sprx \
     && python3 -c 'import hashlib,json;from pathlib import Path;p=Path("/runtime/libSceAmpr-ng.sprx");Path("/runtime/ng-runtime.json").write_text(json.dumps({"name":"ampr-emu-ng cbdafd8 (v0.3.4)","commit":"cbdafd8d87f6e904524142dca210f1d1334bf505","sha256":hashlib.sha256(p.read_bytes()).hexdigest()}))'
 
-FROM python:3.12-slim-bookworm AS build
-RUN apt-get update \
- && apt-get install -y --no-install-recommends gcc libc6-dev make \
- && rm -rf /var/lib/apt/lists/*
-WORKDIR /src
-COPY src ./src
-COPY third_party ./third_party
-COPY tools/gen_binary_c.py ./tools/
-COPY tests/host ./tests/host
-# The upstream host Makefile uses -Werror; GCC (unlike clang) warns about an
-# intentionally truncated 16-byte keyword buffer in ampr_pack_profile.c.
-RUN CFLAGS="-O2 -Wno-error=format-truncation" make -f tests/host/Makefile PYTHON=python3 \
- && strip build/host/ampr_pack_cli \
- && build/host/ampr_pack_cli 2>&1 | grep -q 'verify <packed>'
-
 FROM python:3.12-slim-bookworm AS forge
 COPY nas-lz4/install-forge.py /tmp/install-forge.py
 RUN python3 /tmp/install-forge.py
@@ -61,7 +47,6 @@ RUN sed -i 's/^Components: main$/Components: main non-free/' /etc/apt/sources.li
 RUN pip install --no-cache-dir "mkpfs==${MKPFS_VERSION}" \
  && mkpfs -V | grep -q "${MKPFS_VERSION}" \
  && python3 -c "from mkpfs.exfat import ExfatReader; import cryptography"
-COPY --from=build /src/build/host/ampr_pack_cli /usr/local/bin/ampr_pack_cli
 COPY --from=forge /usr/local/bin/ps5-dump-forge /usr/local/bin/ps5-dump-forge
 COPY --from=forge /opt/ps5lz4/ /opt/ps5lz4/
 COPY --from=ng-runtime /runtime/libSceAmpr-ng.sprx /opt/ps5lz4/libSceAmpr-ng.sprx
@@ -69,13 +54,10 @@ COPY --from=ng-runtime /runtime/ng-runtime.json /opt/ps5lz4/ng-runtime.json
 COPY --from=ng-runtime /runtime/source.tar.gz /opt/ps5lz4/licenses/ampr-emu-ng-cbdafd8/source.tar.gz
 COPY --from=ng-runtime /runtime/source/LICENSE /opt/ps5lz4/licenses/ampr-emu-ng-cbdafd8/LICENSE
 COPY profiles /opt/ps5lz4/profiles
-COPY compat/compat.json /opt/ps5lz4/compat.json
 COPY nas-lz4/ps5lz4.py /opt/ps5lz4/ps5lz4.py
 COPY nas-lz4/ui.html /opt/ps5lz4/ui.html
 COPY nas-lz4/store.html /opt/ps5lz4/store.html
 COPY nas-lz4/ps5regist.py /opt/ps5lz4/ps5regist.py
-COPY app/lz4-compression/version.js /opt/ps5lz4/lz4c-version.js
-COPY third_party/ampr_emu/libSceAmpr.sprx /opt/ps5lz4/libSceAmpr.sprx
 COPY nas-lz4/entrypoint.sh /usr/local/bin/ps5lz4-entrypoint
 COPY nas-lz4/busy.sh /usr/local/bin/ps5lz4-busy
 RUN printf '#!/bin/sh\nexec python3 /opt/ps5lz4/ps5lz4.py "$@"\n' > /usr/local/bin/ps5lz4 \
@@ -84,11 +66,10 @@ RUN printf '#!/bin/sh\nexec python3 /opt/ps5lz4/ps5lz4.py "$@"\n' > /usr/local/b
 ENV PS5LZ4_LIBRARY=/library \
     PS5LZ4_OUTPUT=/output \
     PS5LZ4_STATE=/state \
-    PS5LZ4_PACKER=/usr/local/bin/ampr_pack_cli \
     PS5LZ4_PROFILES=/opt/ps5lz4/profiles \
     PYTHONUNBUFFERED=1
 LABEL org.opencontainers.image.title="ps5-lz4" \
-      org.opencontainers.image.description="LZ4 HC packing of PS5 games for APR-EMU on a NAS"
+      org.opencontainers.image.description="LZ4 NG and Zstd packing of PS5 games for ampr-emu-ng on a NAS"
 LABEL org.opencontainers.image.source="https://github.com/dviree/PS5-LZ4-NAS"
 # Resume an unfinished queue, then idle until `docker exec ps5-lz4 ps5lz4 ...`.
 CMD ["/usr/local/bin/ps5lz4-entrypoint"]

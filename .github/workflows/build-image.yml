@@ -1,15 +1,12 @@
 # Builds the NAS container image from nas-build and publishes it to
 # ghcr.io/<owner>/ps5-lz4 (:latest and :sha-<commit>), so Watchtower on the
-# NAS can update it. Runs after every push to nas-build and after each
-# upstream sync; a commit that is already published is not rebuilt.
+# NAS can update it. Runs after every push to nas-build; a commit that is
+# already published is not rebuilt.
 name: Build NAS image
 
 on:
   push:
     branches: [nas-build]
-  workflow_run:
-    workflows: ["Sync with upstream"]
-    types: [completed]
   workflow_dispatch:
 
 permissions:
