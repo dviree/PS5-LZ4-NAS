@@ -30,6 +30,9 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 - quer3q reports: the fetch (GitHub REST, no token) and the pre-filled issue form
   are built from the form's file and fixtures; the session's proxy blocks the
   API, so check on the NAS that counts appear and the link fills the form.
+- Without the old loose rules Forge packs `cache_ps5/pgc_*_dummy_file`,
+  `playgo.pgm` and the PPSA26344 boot files (seen in a local Zstd pack). quer3q
+  says ampr-emu-ng serves such reads; check PPSA26344 and PPSA34547 on the PS5.
 - Old git tags still point to history before the personal-data rewrite (owner
   has the retag commands).
 - PR #2 (Trail-Code + Claude Code in Codespaces) is open, not merged.
@@ -54,6 +57,10 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- `profiles/nas-ng.toml` and the added loose rules (PlayGo markers, the
+  PPSA26344 boot files, `*.rmdtoc`, empty files) removed: they came from
+  theghostonline's packer. Forge now packs those files unless a game TOML
+  keeps them loose.
 - Removed theghostonline's engine, PS5 app, packer, APR-EMU file, bundled
   profiles, compat data and sync/release workflows; APR-EMU copies are only
   listed and structure-checked; no Compress on PS5.

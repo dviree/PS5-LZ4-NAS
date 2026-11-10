@@ -72,7 +72,6 @@ class EditableProfileTests(unittest.TestCase):
         self.stack = __import__('contextlib').ExitStack()
         self.addCleanup(self.stack.close)
         for key, value in {'CUSTOM_PROFILES': self.root/'profiles',
-                           'PROFILES': Path(__file__).resolve().parents[2]/'profiles',
                            'WORK': self.root/'work'}.items():
             self.stack.enter_context(patch.object(app, key, value))
         self.stack.enter_context(patch.object(app, 'scan_library', return_value=[self.entry]))
@@ -93,7 +92,7 @@ class EditableProfileTests(unittest.TestCase):
 
     def test_zstd_uses_custom_profile_with_mandatory_fixes(self):
         app.save_game_profile(self.entry.id, self.text)
-        for codec in ('zstd', 'lz4'):  # Forge packs both; both get the mandatory fixes
+        for codec in ('zstd', 'lz4'):  # Forge packs both, with the chosen TOML as it is
             job = app.Job(self.entry, 5, True, False, codec, 'ng')
             job.work.mkdir(parents=True, exist_ok=True)
             with patch.object(app, 'ampr_status_folder', return_value=('compatible', 'fixture')):
@@ -101,12 +100,7 @@ class EditableProfileTests(unittest.TestCase):
             parsed = tomllib.loads(Path(job.state['profile_path']).read_text())
             self.assertEqual(parsed['pack']['default_action'], 'loose')
             self.assertEqual(parsed['rule'][0]['action'], 'compress')
-            self.assertTrue(all(r['action'] == 'loose' for r in parsed['rule'][1:]))
-            paths = [p for r in parsed['rule'][1:] for p in r['include']]
-            self.assertIn('empty-language.bin', paths)
-            self.assertIn('eboot.bin', paths)
-            self.assertIn('cache_ps5/playgo.pgm', paths)
-            self.assertIn('*.rmdtoc', paths)
+            self.assertEqual(len(parsed['rule']), 1)  # nothing is added to the owner's TOML
             # User edits cannot alter the profile snapshot of an interrupted job.
             before = Path(job.state['profile_path']).read_text()
             app.save_game_profile(self.entry.id, '[pack]\ndefault_action="compress"')
@@ -115,21 +109,18 @@ class EditableProfileTests(unittest.TestCase):
             self.assertEqual(Path(job.state['profile_path']).read_text(), before)
             app.save_game_profile(self.entry.id, self.text)
 
-    def test_toml_switch_off_still_gets_the_nas_safety_rules(self):
-        # No bundled game/engine profiles: without a game TOML, Forge's own rules
-        # decide, with the NAS safety rules on top, for LZ4 NG and Zstd alike.
+    def test_without_a_game_toml_forge_gets_no_profile(self):
         for codec in ('lz4', 'zstd'):
             job = app.Job(self.entry, 5, True, False, codec, 'ng', False)
             job.work.mkdir(parents=True, exist_ok=True)
             with patch.object(app, 'ampr_status_folder', return_value=('compatible', 'fixture')):
                 job.step_check(self.source)
             self.assertIn("Forge's own packing rules", job.state['profile'])
-            parsed = tomllib.loads(Path(job.state['profile_path']).read_text())
-            loose = [p for r in parsed['rule'] if r['action'] == 'loose' for p in r['include']]
-            self.assertIn('cache_ps5/playgo.pgm', loose)
+            self.assertIsNone(job.state['profile_path'])
+            self.assertNotIn('--pack-profile', app.forge_command(self.source, self.root/'o', codec, 5, profile=job.state['profile_path']))
             app.remove_work_path(job.work)
 
-    def test_no_profile_still_has_fixes_and_existing_sidecars_expand(self):
+    def test_include_from_lists_are_written_into_the_job_profile(self):
         app.CUSTOM_PROFILES.mkdir()
         selected = app.CUSTOM_PROFILES/'legacy.toml'
         (app.CUSTOM_PROFILES/'files.txt').write_text('# comment\ndata/test.bin\n')
@@ -137,16 +128,8 @@ class EditableProfileTests(unittest.TestCase):
         out = self.root/'snapshot.toml'
         app.ng_profile(self.source, str(selected), out)
         rules = tomllib.loads(out.read_text())['rule']
-        self.assertEqual(rules[0]['include'], ['data/test.bin'])
-        self.assertNotIn('include_from', rules[0])
-        app.ng_profile(self.source, None, out)
-        self.assertIn('cache_ps5/playgo.pgm', tomllib.loads(out.read_text())['rule'][0]['include'])
-
-    def test_safety_profile_keeps_the_files_the_ps5_reads_from_disk(self):
-        safety = tomllib.loads((app.PROFILES/'nas-ng.toml').read_text())
-        loose = [p for r in safety['rule'] if r['action'] == 'loose' for p in r['include']]
-        for must in ('eboot.bin', 'sce_sys/*', 'fakelib/*', 'cache_ps5/playgo.pgm', 'cache_ps5/pgc_*_dummy_file', '*.rmdtoc'):
-            self.assertIn(must, loose)
+        self.assertEqual(rules, [{'action': 'compress', 'include': ['data/test.bin']}])
+        self.assertIsNone(app.ng_profile(self.source, None, out))
 
     def test_ui_http_routes_load_and_save_game_profile(self):
         with patch.object(app, 'ensure_dirs'), patch.object(app, 'REQUESTS', self.root/'requests'), \

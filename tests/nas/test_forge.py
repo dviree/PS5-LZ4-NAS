@@ -59,7 +59,6 @@ class ForgeIntegrationTests(unittest.TestCase):
         self.addCleanup(self.context.close)
         for key, value in paths.items(): self.context.enter_context(patch.object(app, key, value))
         self.context.enter_context(patch.object(app, 'FORGE', os.environ['FORGE_TEST_BINARY']))
-        self.context.enter_context(patch.object(app, 'PROFILES', Path(__file__).resolve().parents[2]/'profiles'))
         self.context.enter_context(patch.object(app, 'HOST_OUTPUT', str(app.OUTPUT)))
         self.context.enter_context(patch.object(app, 'HOST_LIBRARY', str(app.LIBRARY)))
         self.context.enter_context(patch.object(app, 'DB_PATH', app.STATE/'test.db'))
@@ -103,23 +102,14 @@ class ForgeIntegrationTests(unittest.TestCase):
         result = app.subprocess.run(app.forge_command(out, self.root/'bad', 'zstd', 5, True), capture_output=True)
         self.assertNotEqual(result.returncode, 0)
 
-    def test_zstd_destination_and_boot_files(self):
+    def test_zstd_destination(self):
         target = self.root/'zstd-output'; target.mkdir()
-        boot = ['cache_ps5/pgc_1_dummy_file', 'cache_ps5/playgo.pgm',
-                'cache_ps5/load_menu_catalog.log', 'cache_ps5/all_shaders.texmeshman',
-                'cache_ps5/game.sprig.packman', 'cache_ps5/game.sprig.texmeshman',
-                'cache_ps5/pulse.sprig.texmeshman', 'sounds/scream/_generated/buss_config.bus',
-                'sounds/scream/_generated/distance_model.dml', 'sounds/scream/_generated/group_mix.gmx']
-        for name in boot:
-            p=self.src/name; p.parent.mkdir(parents=True,exist_ok=True); p.write_bytes(b'boot data '*100)
         with patch.object(app,'ZSTD_OUTPUT',target), patch.object(app,'HOST_ZSTD_OUTPUT','/volume1/games/ps5zstd'):
             out, report = self.pack('zstd')
             self.assertEqual(out.parent,target)
             self.assertEqual(report['output'],'/volume1/games/ps5zstd/PPSA01234-zstd')
             self.assertEqual(app.output_for('PPSA01234'),out)
             self.assertEqual(app.lz4_image_path(out).parent,target)
-            for name in boot:
-                self.assertEqual((out/name).read_bytes(),(self.src/name).read_bytes())
             lz4=app.Entry(app.LIBRARY/'other','folder')
             self.assertEqual(lz4.output.parent,app.OUTPUT)
 

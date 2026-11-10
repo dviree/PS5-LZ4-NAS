@@ -9,7 +9,6 @@ callers/skeleton`); line numbers below drift, names don't.
 |---|---|---|
 | `nas-lz4/` | **The NAS app** (Docker): packing agent + web page. | Python, HTML/JS |
 | `pkg-receiver/` | Glass theme + extras for pkg-receiver (PS5 package installer payload) | C, JS, Py |
-| `profiles/` | `nas-ng.toml`: NAS safety rules merged into every pack profile | TOML |
 | `tools/` | `quer3q_update.py` (follow quer3q/James) | Python |
 | `tests/nas/` | `python3 -m unittest discover -s tests/nas`, `node tests/nas/*.cjs` | Py, JS |
 | `.github/workflows/` | `build-image.yml` (NAS image on `nas-build`), `quer3q-update.yml`, `pkg-receiver.yml` | YAML |
@@ -44,8 +43,8 @@ removed on 2026-11-10. Left in `ps5lz4.py` as dead code to prune: the bodies of
 `step_publish` (boot files, permissions, report in `state/reports/<id>.json`).
 
 - **LZ4 NG** and **Zstd**: PS5 Dump Forge (`forge_command`), then our ampr-emu-ng
-  build (`install_ng_runtime`); profile = game TOML + `nas-ng.toml` merged by
-  `ng_profile`. APR-EMU LZ4 is no longer packed (`Job` refuses runtime legacy).
+  build (`install_ng_runtime`); profile = the chosen game TOML as it is
+  (`ng_profile` only writes out its lists), else none: Forge's own rules. APR-EMU LZ4 is no longer packed (`Job` refuses runtime legacy).
   Zstd output in the Zstd output folder (`zstd_output`).
 - Always from the original; never from an LZ4 copy.
 - Queue: `state/queue.json`; `cmd_start` → background `run --from-queue`.

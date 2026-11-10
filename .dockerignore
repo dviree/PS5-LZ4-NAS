@@ -3,4 +3,3 @@ build
 gen
 tests
 *.md
-!profiles/README.md

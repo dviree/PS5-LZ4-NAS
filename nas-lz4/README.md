@@ -16,7 +16,8 @@ containers on the NAS. Nothing runs on the PS5 except the game.
 
 > **Changed on 2026-11-10:** theghostonline's engine, PS5 app, LZ4 packer
 > (`ampr_pack_cli`), APR-EMU runtime, bundled profiles and community reports are
-> removed. Sections below that still mention APR-EMU, `ampr_pack`, Repair,
+> removed, and so are `profiles/nas-ng.toml` and its loose-file rules: a pack
+> uses the game TOML you choose as it is, or Forge's own rules. Sections below that still mention APR-EMU, `ampr_pack`, Repair,
 > Compress on the PS5 or the LZ4 Compression engine describe what no longer
 > exists: existing APR-EMU copies are listed and structure-checked only.
 

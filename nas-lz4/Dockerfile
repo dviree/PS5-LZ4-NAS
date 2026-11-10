@@ -53,7 +53,6 @@ COPY --from=ng-runtime /runtime/libSceAmpr-ng.sprx /opt/ps5lz4/libSceAmpr-ng.spr
 COPY --from=ng-runtime /runtime/ng-runtime.json /opt/ps5lz4/ng-runtime.json
 COPY --from=ng-runtime /runtime/source.tar.gz /opt/ps5lz4/licenses/ampr-emu-ng-cbdafd8/source.tar.gz
 COPY --from=ng-runtime /runtime/source/LICENSE /opt/ps5lz4/licenses/ampr-emu-ng-cbdafd8/LICENSE
-COPY profiles /opt/ps5lz4/profiles
 COPY nas-lz4/ps5lz4.py /opt/ps5lz4/ps5lz4.py
 COPY nas-lz4/ui.html /opt/ps5lz4/ui.html
 COPY nas-lz4/store.html /opt/ps5lz4/store.html
@@ -66,7 +65,6 @@ RUN printf '#!/bin/sh\nexec python3 /opt/ps5lz4/ps5lz4.py "$@"\n' > /usr/local/b
 ENV PS5LZ4_LIBRARY=/library \
     PS5LZ4_OUTPUT=/output \
     PS5LZ4_STATE=/state \
-    PS5LZ4_PROFILES=/opt/ps5lz4/profiles \
     PYTHONUNBUFFERED=1
 LABEL org.opencontainers.image.title="ps5-lz4" \
       org.opencontainers.image.description="LZ4 NG and Zstd packing of PS5 games for ampr-emu-ng on a NAS"

@@ -49,7 +49,6 @@ ZSTD_OUTPUT = Path(os.environ["PS5LZ4_ZSTD_OUTPUT"]) if os.environ.get("PS5LZ4_Z
 STATE = Path(os.environ.get("PS5LZ4_STATE", "/state"))
 WORK = OUTPUT / ".ps5lz4-work"
 MKPFS = os.environ.get("PS5LZ4_MKPFS", "mkpfs")
-PROFILES = Path(os.environ.get("PS5LZ4_PROFILES", "/opt/ps5lz4/profiles"))
 CUSTOM_PROFILES = STATE / "profiles"
 LOGS = STATE / "logs"
 REPORTS = STATE / "reports"
@@ -667,7 +666,7 @@ def choose_profile(title_id: str, name: str, root: Path, game_id: str = "",
 
 def bundled_profile(title_id: str, name: str, root: Path) -> tuple[str | None, str]:
     """No bundled profiles any more: PS5 Dump Forge's own packing rules decide
-    (with the NAS safety rules of nas-ng.toml on top)."""
+    when no game TOML is chosen."""
     return None, "Forge's own packing rules"
 
 
@@ -921,11 +920,14 @@ def toml_value(value) -> str:
     raise ValueError("unsupported TOML value")
 
 
-def ng_profile(root: Path, selected: str | None, destination: Path) -> str:
-    """Apply the game profile, then enforce the same disk-file fixes as LZ4."""
+def ng_profile(root: Path, selected: str | None, destination: Path) -> str | None:
+    """The job's own copy of the chosen game TOML, its include_from lists written
+    out. No TOML chosen: None, and PS5 Dump Forge's own packing rules decide.
+    Nothing is added to the profile here."""
     import tomllib
-    safety = tomllib.loads((PROFILES / "nas-ng.toml").read_text())
-    config = tomllib.loads(Path(selected).read_text(encoding="utf-8-sig")) if selected else {"pack": {"default_action": "compress"}}
+    if not selected:
+        return None
+    config = tomllib.loads(Path(selected).read_text(encoding="utf-8-sig"))
     rules = config.setdefault("rule", [])
     # Resolve existing profiles' list files before moving the profile into the job.
     for rule in rules:
@@ -941,11 +943,6 @@ def ng_profile(root: Path, selected: str | None, destination: Path) -> str:
                     values += [line.strip() for line in (Path(selected).parent / name).read_text(encoding="utf-8-sig").splitlines()
                                if line.strip() and not line.lstrip().startswith("#")]
                 rule[key] = values
-    rules.extend(safety["rule"])
-    # The legacy packer always keeps empty placeholders loose, regardless of TOML.
-    empty = [p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file() and p.stat().st_size == 0]
-    if empty:
-        rules.append({"action": "loose", "include": empty})
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text("\n".join(json.dumps(k) + " = " + toml_value(v) for k, v in config.items()) + "\n")
     return str(destination)
@@ -1316,7 +1313,7 @@ class Job:
             if not (root / "eboot.bin").is_file():
                 raise Skip("no eboot.bin in source")
             snapshot = self.work / "pack-profile.toml"
-            if self.done("check") and snapshot.is_file():
+            if self.done("check"):
                 return  # Resume with the profile used by this job, even after a UI edit.
             if self.use_profile:
                 selected, desc = choose_profile(self.state["title_id"], name, root, self.e.id, self.e.path)
@@ -1324,7 +1321,7 @@ class Job:
                 selected, desc = bundled_profile(self.state["title_id"], name, root)
                 desc = "no game TOML; " + desc
             self.mark("check", ampr=NG_NAME, profile_path=ng_profile(root, selected, snapshot),
-                      profile=desc + "; mandatory LZ4 disk-file and boot fixes")
+                      profile=desc)
             return
         if status != "compatible":
             raise Skip(reason)
@@ -2843,7 +2840,6 @@ def cmd_doctor(_args) -> int:
         line(any("1.1.0" in t for t in txt), f"MkPFS: {txt[0] if txt else '?'}")
     except OSError as err:
         line(False, f"MkPFS: {err}")
-    line((PROFILES / "nas-ng.toml").is_file(), f"NAS safety rules {PROFILES / 'nas-ng.toml'}")
     return 0 if ok else 1
 
 
