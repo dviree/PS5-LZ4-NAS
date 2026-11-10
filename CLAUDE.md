@@ -38,6 +38,11 @@
   Forge's own packing rules decide every pack.
 - Show mockups/screenshots before building larger UI changes when asked.
 
+## Current upstream integration
+
+- ampr-emu-ng is pinned to upstream main `f9aa923` after v0.3.4, including
+  the merged save-data and pread-idle fixes. Forge is v0.5.5.
+
 ## Mandatory Trail-Code workflow
 
 Always use [Trail-Code](https://github.com/trailhq/Trail-Code) as the primary codebase

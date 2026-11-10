@@ -30,8 +30,8 @@ The game details sheet offers three compression modes:
 | Mode | Runtime installed in the output | Level |
 | --- | --- | --- |
 | LZ4 (existing) | APR-EMU PackedStdio 0.4.2.1 | 1–4 fast, 5–12 HC |
-| LZ4 with ampr-emu-ng | ampr-emu-ng 0.3.0 | 1–4 fast, 5–12 HC |
-| Zstd | ampr-emu-ng 0.3.0 | 1–22; suggested 5 |
+| LZ4 with ampr-emu-ng | ampr-emu-ng main (`f9aa923`) | 1–4 fast, 5–12 HC |
+| Zstd | ampr-emu-ng main (`f9aa923`) | 1–22; suggested 5 |
 
 Select a mode and level, then **Compress selected format**. The existing
 Compress & send action uses the same selection. Bulk Compress all retains its
@@ -40,8 +40,8 @@ Originals are kept; a finished copy is never overwritten. One finished output
 per library entry is tracked: to change modes, remove that generated copy using
 the app first, while retaining the original.
 
-The NG modes use the pinned **PS5 Dump Forge 0.5.3 CLI**, install the pinned
-**ampr-emu-ng 0.3.0** release runtime, and pack all assets except system files.
+The NG modes use the pinned **PS5 Dump Forge 0.5.5 CLI**, install the pinned
+**ampr-emu-ng main (`f9aa923`)** release runtime, and pack all assets except system files.
 Zstd outputs use `-zstd`; LZ4 outputs use `-lz4`. They can be sent to the PS5 or
 wrapped in an exFAT image using the existing actions. Queue resume preserves the
 codec, runtime and level and refuses incompatible unfinished work.
@@ -874,8 +874,8 @@ Mark the result on the web page and share it with the community.
 ## Runtime fixes and Docker update
 
 NG outputs now use ampr-emu-ng `main` at
-`cbdafd8d87f6e904524142dca210f1d1334bf505` from https://github.com/quer3q/ampr-emu-ng
-(v0.3.4: kernel AIO on packed files, the save-load hang fix, a runtime thread budget and doubled pack caches, plus James St-Pierre's `fix/low-virtual-fds`, `fix/packed-fd-slot-capacity`,
+`f9aa92326bba01cfc10e2776e7c0101f1196d933` from https://github.com/quer3q/ampr-emu-ng
+(main after v0.3.4: save overwrite, packed save-icon and pread idle-wakeup fixes, kernel AIO on packed files, the save-load hang fix, a runtime thread budget and doubled pack caches, plus James St-Pierre's `fix/low-virtual-fds`, `fix/packed-fd-slot-capacity`,
 `fix/no-inline-cache-completion` and `fix/debug-event-ring-race`, merged upstream
 as PRs #16, #20, #23 and #24, and quer3q's "claim only open synthetic packed fds").
 This includes reserved low descriptors, read-only indexed-directory opens, and

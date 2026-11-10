@@ -58,6 +58,11 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- Updated ampr-emu-ng to upstream main `f9aa923` (save overwrite, packed save
+  icons and pread idle wakeups). Forge remains v0.5.5. NAS tests and JS checks
+  passed locally; runtime host tests and PRX verification run in the image build.
+  Hardware validation remains pending.
+
 - Pruned the dead code of the original PS5 engine/app (backend and page), its
   rest-mode and free-space calls, Compress on PS5, KNOWN_GAMES and the old
   community helpers; every unpacked game is now packable (Forge injects

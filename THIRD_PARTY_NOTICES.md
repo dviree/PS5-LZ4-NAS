@@ -21,27 +21,26 @@ v3 or later (`LICENSE`).
 
 ## PS5 Dump Forge and ampr-emu-ng (NAS packing)
 
-The NAS image includes the unmodified PS5 Dump Forge 0.5.3 CLI (GPL-3.0-or-later):
-https://github.com/quer3q/ps5-dump-forge/tree/v0.5.3
+The NAS image includes the unmodified PS5 Dump Forge 0.5.5 CLI (GPL-3.0-or-later):
+https://github.com/quer3q/ps5-dump-forge/tree/v0.5.5
 
-Zstd and the optional LZ4 NG mode install the unmodified ampr-emu-ng 0.3.0 release
-runtime (GPL-3.0-or-later), SHA-256
-`5f39ca8ebe169aa15d8a8ba8ec2f9cd4195f509d55daaf4b4edbfa80b145035c`:
-https://github.com/quer3q/ampr-emu-ng/tree/v0.3.0
+Zstd and LZ4 NG use the ampr-emu-ng build described below. Forge also ships
+an unmodified ampr-emu-ng 0.3.4 runtime, SHA-256
+`7d1bb260f954b755ed687733e52ccfa38c31440a9b88a6fbba5b3b75e08bfa26`,
+which the NAS build replaces after packing with its pinned upstream build.
 
 `nas-lz4/install-forge.py` pins the release archive hashes and runtime provenance.
 The image includes Forge's license and dependency notices, NG's attribution, and
 NG's corresponding source archive under `/opt/ps5lz4/licenses/ps5-dump-forge`.
-Existing APR-EMU attribution above continues to apply to the legacy mode.
 
 ### James St-Pierre runtime fixes
 
 NG packing and repair use ampr-emu-ng commit
-`cbdafd8d87f6e904524142dca210f1d1334bf505` (v0.3.4, with James St-Pierre's
+`f9aa92326bba01cfc10e2776e7c0101f1196d933` (main after v0.3.4, including save overwrite, packed save-icon and pread idle-wakeup fixes, with James St-Pierre's
 low-descriptor, packed-fd slot, synthetic fd range and event ring fixes merged, and kernel AIO on packed files) from https://github.com/quer3q/ampr-emu-ng
 (GPL-3.0-or-later). The build checks out exactly that commit; a source archive made
 from it and the upstream LICENSE are included in the image under
-`/opt/ps5lz4/licenses/ampr-emu-ng-cbdafd8/`.
+`/opt/ps5lz4/licenses/ampr-emu-ng-f9aa923/`.
 The binary is built from this source, not downloaded as an unpinned branch asset.
 
 Kernel AIO on packed files is part of that upstream commit; no patch is applied.
