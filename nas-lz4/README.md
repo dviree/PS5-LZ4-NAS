@@ -874,7 +874,7 @@ Mark the result on the web page and share it with the community.
 ## Runtime fixes and Docker update
 
 NG outputs now use ampr-emu-ng `main` at
-`cbdafd8d87f6e904524142dca210f1d1334bf505` from https://github.com/quer3q/ampr-emu-ng
+`f9aa92326bba01cfc10e2776e7c0101f1196d933` from https://github.com/quer3q/ampr-emu-ng
 (v0.3.4: kernel AIO on packed files, the save-load hang fix, a runtime thread budget and doubled pack caches, plus James St-Pierre's `fix/low-virtual-fds`, `fix/packed-fd-slot-capacity`,
 `fix/no-inline-cache-completion` and `fix/debug-event-ring-race`, merged upstream
 as PRs #16, #20, #23 and #24, and quer3q's "claim only open synthetic packed fds").
