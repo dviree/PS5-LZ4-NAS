@@ -40,8 +40,8 @@
 
 ## Current upstream integration
 
-- ampr-emu-ng is pinned to upstream main `f9aa923` after v0.3.4, including
-  the merged save-data and pread-idle fixes. Forge is v0.5.5.
+- ampr-emu-ng is pinned to upstream main `a0dd88a` (v0.3.5), including
+  save-data fixes, a smaller PRX memory pool and load-based thread retirement. Forge is v0.5.5.
 
 ## Mandatory Trail-Code workflow
 

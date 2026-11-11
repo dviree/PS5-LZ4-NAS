@@ -58,6 +58,10 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- Updated ampr-emu-ng to upstream v0.3.5 (`a0dd88a`), including the smaller
+  PRX memory pool and load-based thread retirement. Forge remains v0.5.5.
+  NAS/PS5 hardware validation remains open.
+
 - Updated ampr-emu-ng to upstream main `f9aa923` (save overwrite, packed save
   icons and pread idle wakeups). Forge remains v0.5.5. NAS tests and JS checks
   passed locally; runtime host tests and PRX verification run in the image build.

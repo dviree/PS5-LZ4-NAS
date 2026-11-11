@@ -874,10 +874,9 @@ Mark the result on the web page and share it with the community.
 ## Runtime fixes and Docker update
 
 NG outputs now use ampr-emu-ng `main` at
-`f9aa92326bba01cfc10e2776e7c0101f1196d933` from https://github.com/quer3q/ampr-emu-ng
-(main after v0.3.4: save overwrite, packed save-icon and pread idle-wakeup fixes, kernel AIO on packed files, the save-load hang fix, a runtime thread budget and doubled pack caches, plus James St-Pierre's `fix/low-virtual-fds`, `fix/packed-fd-slot-capacity`,
-`fix/no-inline-cache-completion` and `fix/debug-event-ring-race`, merged upstream
-as PRs #16, #20, #23 and #24, and quer3q's "claim only open synthetic packed fds").
+`a0dd88a2b6975b61ebc9d32d3cabefaf0dca2614` from https://github.com/quer3q/ampr-emu-ng
+(v0.3.5: save overwrite and packed save-icon fixes, a smaller PRX memory pool,
+load-based thread retirement, and the upstream kernel AIO fix).
 This includes reserved low descriptors, read-only indexed-directory opens, and
 packed fds kept out of the 50-fd budget with stale fd mappings guarded.
 The Docker build runs the runtime's host tests and PS5 PRX verifier, records the
