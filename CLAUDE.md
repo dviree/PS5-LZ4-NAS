@@ -34,6 +34,8 @@
   (after the `Build NAS image` run on `nas-build` is green).
 - Older NAS installs must first replace their local `lz4-ps5.sh` with this repo's
   wrapper; its update migrates the Zstd mount and exports `COMPOSE_FILE`.
+- A report for one codec must not make a fresh pack of the other codec count
+  as done; select the requested codec before checking queue results.
 - No theghostonline community reports in the page (no tab, counts or share
   links). Game reports come from and go to quer3q/ampr-emu-ng (Zstd, LZ4 NG).
 - No TOML profiles (owner, 2026-11-10): no chooser, editor, upload or switch;

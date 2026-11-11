@@ -48,6 +48,8 @@ removed on 2026-11-10. Its PS5 engine/app code is pruned from `ps5lz4.py` and th
   saves its path in `.env` and exports `COMPOSE_FILE` before recreating services.
 - Always from the original; never from an LZ4 copy.
 - Queue: `state/queue.json`; `cmd_start` → background `run --from-queue`.
+- Queue checks set the requested codec on each entry; `result_for` treats an
+  existing report as done only when it belongs to that codec.
 
 ### Key helpers
 

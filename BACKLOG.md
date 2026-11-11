@@ -5,6 +5,10 @@ ends (see `CLAUDE.md`). No real game names (Title IDs only), no personal data.
 
 ## >RESUME HERE
 
+Done 2026-11-11: a previously packed LZ4 copy no longer makes the Zstd queue
+skip that source as already done. Per-codec queue selection and worker checks
+now use the requested format; existing packs are not overwritten.
+
 Done 2026-11-11: the NAS update wrapper now adds the missing Zstd output bind
 on older installs, exports the Compose override on later updates, and recreates
 the containers even when the image is already current. The NAS still needs the
