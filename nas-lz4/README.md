@@ -914,11 +914,15 @@ for the worker and read-only for the UI. `PS5LZ4_ZSTD_OUTPUT` selects that conta
 path; `PS5LZ4_HOST_ZSTD_OUTPUT` is the path shown in reports. Without the setting,
 older configurations continue to use the original output folder.
 
-Existing installations can use `nas-lz4/configure-zstd-output.sh`. It checks that
-no packing job is running, backs up `.env`, creates the directory with the NAS
-user's ownership and adds a Compose override used by subsequent normal updates.
-It pulls the current image and recreates the two services. Existing games are
-not moved. Both old and new locations remain visible, transferable and repairable.
+Existing installations need the current `lz4-ps5.sh` wrapper once, since an older
+copy cannot update itself. Install that file from this repo in
+`/volume2/docker/ps5-lz4/lz4-ps5.sh`, then run `./lz4-ps5.sh update` after any
+packing job finishes. The update backs up `.env`, creates the Zstd directory,
+adds a Compose override and recreates the two services even if the image is
+already current. Subsequent updates retain the override. The separate
+`configure-zstd-output.sh` helper also works for a one-time manual migration.
+Existing games are not moved. Both old and new locations remain visible,
+transferable and repairable.
 Zstd exFAT images stay beside their Zstd folders. Zstd packs are staged on the
 Zstd output mount so publishing is an atomic rename even with separate binds.
 

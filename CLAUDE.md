@@ -32,6 +32,8 @@
 - After a feature, give the update command:
   `cd /volume2/docker/ps5-lz4 && ./lz4-ps5.sh update --force`
   (after the `Build NAS image` run on `nas-build` is green).
+- Older NAS installs must first replace their local `lz4-ps5.sh` with this repo's
+  wrapper; its update migrates the Zstd mount and exports `COMPOSE_FILE`.
 - No theghostonline community reports in the page (no tab, counts or share
   links). Game reports come from and go to quer3q/ampr-emu-ng (Zstd, LZ4 NG).
 - No TOML profiles (owner, 2026-11-10): no chooser, editor, upload or switch;
