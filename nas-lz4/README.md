@@ -874,7 +874,7 @@ Mark the result on the web page and share it with the community.
 ## Runtime fixes and Docker update
 
 NG outputs now use ampr-emu-ng `main` at
-`a0dd88a2b6975b61ebc9d32d3cabefaf0dca2614` from https://github.com/quer3q/ampr-emu-ng
+`0c3adad14418b8a8a29a99bb762752cbc4cd6cda` from https://github.com/quer3q/ampr-emu-ng
 (v0.3.5: save overwrite and packed save-icon fixes, a smaller PRX memory pool,
 load-based thread retirement, and the upstream kernel AIO fix).
 This includes reserved low descriptors, read-only indexed-directory opens, and
