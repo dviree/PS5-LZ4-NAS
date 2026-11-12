@@ -19,16 +19,16 @@ RUN rustup component add rust-src
 WORKDIR /runtime
 # Pinned by commit: the checkout must be exactly this commit (its hash covers every
 # file); source.tar.gz is made from it for the corresponding-source requirement.
-ARG NG_COMMIT=a0dd88a2b6975b61ebc9d32d3cabefaf0dca2614
+ARG NG_COMMIT=0c3adad14418b8a8a29a99bb762752cbc4cd6cda
 RUN git init -q source && git -C source fetch -q --depth 1 https://github.com/quer3q/ampr-emu-ng "$NG_COMMIT" \
     && git -C source checkout -q FETCH_HEAD && test "$(git -C source rev-parse HEAD)" = "$NG_COMMIT" \
     && git -C source archive --format=tar.gz --prefix="ampr-emu-ng-$NG_COMMIT/" HEAD > source.tar.gz \
     && rm -rf source/.git
 WORKDIR /runtime/source
 RUN cargo test --workspace --locked \
-    && make verify AMPR_GIT_REV=a0dd88a \
+    && make verify AMPR_GIT_REV=0c3adad \
     && cp out/release/libSceAmpr.sprx /runtime/libSceAmpr-ng.sprx \
-    && python3 -c 'import hashlib,json;from pathlib import Path;p=Path("/runtime/libSceAmpr-ng.sprx");Path("/runtime/ng-runtime.json").write_text(json.dumps({"name":"ampr-emu-ng a0dd88a (v0.3.5)","commit":"a0dd88a2b6975b61ebc9d32d3cabefaf0dca2614","sha256":hashlib.sha256(p.read_bytes()).hexdigest()}))'
+    && python3 -c 'import hashlib,json;from pathlib import Path;p=Path("/runtime/libSceAmpr-ng.sprx");Path("/runtime/ng-runtime.json").write_text(json.dumps({"name":"ampr-emu-ng 0c3adad (v0.3.5)","commit":"0c3adad14418b8a8a29a99bb762752cbc4cd6cda","sha256":hashlib.sha256(p.read_bytes()).hexdigest()}))'
 
 FROM python:3.12-slim-bookworm AS forge
 COPY nas-lz4/install-forge.py /tmp/install-forge.py
@@ -51,8 +51,8 @@ COPY --from=forge /usr/local/bin/ps5-dump-forge /usr/local/bin/ps5-dump-forge
 COPY --from=forge /opt/ps5lz4/ /opt/ps5lz4/
 COPY --from=ng-runtime /runtime/libSceAmpr-ng.sprx /opt/ps5lz4/libSceAmpr-ng.sprx
 COPY --from=ng-runtime /runtime/ng-runtime.json /opt/ps5lz4/ng-runtime.json
-COPY --from=ng-runtime /runtime/source.tar.gz /opt/ps5lz4/licenses/ampr-emu-ng-a0dd88a/source.tar.gz
-COPY --from=ng-runtime /runtime/source/LICENSE /opt/ps5lz4/licenses/ampr-emu-ng-a0dd88a/LICENSE
+COPY --from=ng-runtime /runtime/source.tar.gz /opt/ps5lz4/licenses/ampr-emu-ng-0c3adad/source.tar.gz
+COPY --from=ng-runtime /runtime/source/LICENSE /opt/ps5lz4/licenses/ampr-emu-ng-0c3adad/LICENSE
 COPY nas-lz4/ps5lz4.py /opt/ps5lz4/ps5lz4.py
 COPY nas-lz4/ui.html /opt/ps5lz4/ui.html
 COPY nas-lz4/store.html /opt/ps5lz4/store.html
