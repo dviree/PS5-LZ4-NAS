@@ -76,8 +76,9 @@ removed on 2026-11-10. Its PS5 engine/app code is pruned from `ps5lz4.py` and th
 
 ## Upstreams and pins
 
-- quer3q/ampr-emu-ng main (pin `NG_COMMIT` in Dockerfile, `a0dd88a` v0.3.5,
-  save overwrite, packed save-icon, smaller PRX memory pool and load-based thread retirement fixes; kernel AIO built in; the old James AIO patch is gone).
+- quer3q/ampr-emu-ng main (pin `NG_COMMIT` in Dockerfile, `0a5670a` after v0.3.5,
+  including PR #51 fd read priority for issue #37, on-demand index reads and
+  exact-size pack reads; kernel AIO built in).
 - quer3q/ps5-dump-forge releases (pin in `install-forge.py`).
 - `tools/quer3q_update.py` moves pins (checks SHA256SUMS), reports James's
   branches (`tools/james-branches.json`).

@@ -5,6 +5,10 @@ ends (see `CLAUDE.md`). No real game names (Title IDs only), no personal data.
 
 ## >RESUME HERE
 
+Done 2026-11-12: ampr-emu-ng pinned to upstream `0a5670a` (after v0.3.5),
+including PR #51 for PPSA21704 / issue #37. One console tested the PR's debug
+build; the newer pinned build still needs a PS5 play test. Forge stays v0.5.5.
+
 Done 2026-11-11: a previously packed LZ4 copy no longer makes the Zstd queue
 skip that source as already done. Per-codec queue selection and worker checks
 now use the requested format; existing packs are not overwritten.
