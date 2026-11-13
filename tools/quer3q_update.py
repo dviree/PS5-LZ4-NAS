@@ -83,7 +83,7 @@ def apply_ng(old: str, new: str, tmp: Path) -> str:
     d = d.replace(old, new).replace(f"ampr-emu-ng-{old[:7]}", f"ampr-emu-ng-{new[:7]}")
     d = re.sub(r"AMPR_GIT_REV=[0-9a-f]{7}\b", f"AMPR_GIT_REV={new[:7]}", d)
     d = re.sub(r"ampr-emu-ng main \(quer3q, v[\d.]+", f"ampr-emu-ng main (quer3q, v{version}", d)
-    d = re.sub(r'"name":"ampr-emu-ng [0-9a-f]{7} \(v[^)]*\)', f'"name":"ampr-emu-ng {new[:7]} (v{version})', d)
+    d = re.sub(r'"name":"ampr-emu-ng [0-9a-f]{7} \([^)]*\)', f'"name":"ampr-emu-ng {new[:7]} (v{version})', d)
     DOCKERFILE.write_text(d)
     for doc in DOCS:
         doc.write_text(doc.read_text().replace(old, new).replace(f"ampr-emu-ng-{old[:7]}", f"ampr-emu-ng-{new[:7]}"))

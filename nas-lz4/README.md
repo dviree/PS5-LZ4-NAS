@@ -867,9 +867,10 @@ Mark the result on the web page and share it with the community.
 ## Runtime fixes and Docker update
 
 NG outputs now use ampr-emu-ng `main` at
-`0a5670a5d629c78572c61b66353a04e56f1b53d2` from https://github.com/quer3q/ampr-emu-ng
-(main after v0.3.5: save fixes, fd read thread priority and core affinity from
-PR #51 for PPSA21704, on-demand index reads and exact-size pack reads).
+`920e9172b6bf99bd9210361b545e2953659d1e9b` from https://github.com/quer3q/ampr-emu-ng
+(v0.4.0: FPKG (pkg) games, writable /app0 and split reads for LZ4 and pkg packs,
+on top of v0.3.5's save fixes, the fd read thread priority from PR #51 for
+PPSA21704, on-demand index reads and exact-size pack reads).
 This includes reserved low descriptors, read-only indexed-directory opens, and
 packed fds kept out of the 50-fd budget with stale fd mappings guarded.
 The Docker build runs the runtime's host tests and PS5 PRX verifier, records the

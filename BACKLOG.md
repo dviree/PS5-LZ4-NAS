@@ -78,6 +78,8 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- ampr-emu-ng → `920e917` (v0.4.0: FPKG games, writable /app0, split reads for
+  LZ4 and pkg packs; quer3q says LZ4 with split reads is not run on a console yet).
 - Game reports can be sent from the page as an issue on quer3q/ampr-emu-ng
   (classic token with public_repo saved on the Remote tab, state/github-token
   0600) or opened on GitHub filled in; same result per game not sent twice a day.

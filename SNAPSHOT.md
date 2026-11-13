@@ -80,7 +80,7 @@ removed on 2026-11-10. Its PS5 engine/app code is pruned from `ps5lz4.py` and th
 
 ## Upstreams and pins
 
-- quer3q/ampr-emu-ng main (pin `NG_COMMIT` in Dockerfile, `0a5670a` after v0.3.5,
+- quer3q/ampr-emu-ng main (pin `NG_COMMIT` in Dockerfile, `920e917` v0.4.0,
   including PR #51 fd read priority for issue #37, on-demand index reads and
   exact-size pack reads; kernel AIO built in).
 - quer3q/ps5-dump-forge releases (pin in `install-forge.py`).
