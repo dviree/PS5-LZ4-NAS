@@ -867,7 +867,7 @@ Mark the result on the web page and share it with the community.
 ## Runtime fixes and Docker update
 
 NG outputs now use ampr-emu-ng `main` at
-`0a5670a5d629c78572c61b66353a04e56f1b53d2` from https://github.com/quer3q/ampr-emu-ng
+`920e9172b6bf99bd9210361b545e2953659d1e9b` from https://github.com/quer3q/ampr-emu-ng
 (main after v0.3.5: save fixes, fd read thread priority and core affinity from
 PR #51 for PPSA21704, on-demand index reads and exact-size pack reads).
 This includes reserved low descriptors, read-only indexed-directory opens, and
