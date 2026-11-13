@@ -83,13 +83,18 @@ class ForgeOptionsTests(unittest.TestCase):
             self.assertFalse(app.run_request({**req, 'level': 23})['ok'])
             run.assert_not_called()
 
-    def test_a_request_without_options_is_lz4_ng(self):
+    def test_only_zstd_is_packed(self):
         with patch.object(app.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout='', stderr='')) as run:
             app.run_request(app.queued_request({'action': 'start', 'game': 'test'}))
             cmd = run.call_args.args[0]
-            self.assertEqual(cmd[cmd.index('--runtime') + 1], 'ng')
-        with self.assertRaisesRegex(app.JobError, 'no longer packed'):
-            app.Job(None, 9, True, False, 'lz4', 'legacy')
+            self.assertEqual(cmd[cmd.index('--codec') + 1], 'zstd')
+            self.assertEqual(cmd[cmd.index('--level') + 1], '5')
+        with patch.object(app.subprocess, 'run') as run:
+            self.assertFalse(app.run_request({'action': 'start', 'game': 'test', 'codec': 'lz4', 'runtime': 'ng', 'level': 9})['ok'])
+            run.assert_not_called()
+        for codec, runtime in (('lz4', 'ng'), ('lz4', 'legacy')):
+            with self.assertRaisesRegex(app.JobError, 'only Zstd'):
+                app.Job(None, 9, True, False, codec, runtime)
 
 
 @unittest.skipUnless(os.environ.get('FORGE_TEST_BINARY'), 'set FORGE_TEST_BINARY for real binary round trips')
@@ -118,6 +123,16 @@ class ForgeIntegrationTests(unittest.TestCase):
         (self.src/'data/empty').touch()
         self.before = {p.relative_to(self.src):p.read_bytes() for p in self.src.rglob('*') if p.is_file()}
 
+    def lz4_copy(self):
+        """An LZ4 NG copy as older versions made them (LZ4 is no longer packed)."""
+        out = app.OUTPUT/'PPSA01234-lz4'
+        with contextlib.redirect_stdout(io.StringIO()):
+            subprocess.run(app.forge_command(self.src, out, 'lz4', 9), check=True, capture_output=True)
+        app.install_ng_runtime(out)
+        app.write_json(app.REPORTS/'PPSA01234.json', {'id': 'PPSA01234', 'pack_codec': 'lz4', 'pack_runtime': 'ng',
+                                                    'output': app.host_output_path(out)})
+        return out
+
     def pack(self, codec):
         job = app.Job(app.Entry(self.src, 'folder'), 5, True, False, codec, 'ng')
         with contextlib.redirect_stdout(io.StringIO()): report = job.run()
@@ -132,7 +147,7 @@ class ForgeIntegrationTests(unittest.TestCase):
         subprocess.run(['mkpfs', 'pack', 'exfat', str(self.src), str(image)], check=True, capture_output=True)
         shutil.rmtree(self.src)
         before = image.read_bytes()
-        for codec in ('zstd', 'lz4'):
+        for codec in ('zstd',):
             entry = app.Entry(image, 'exfat')
             job = app.Job(entry, 5, True, False, codec, 'ng')
             with patch.object(app, 'MKPFS', '/nonexistent/mkpfs'), contextlib.redirect_stdout(io.StringIO()):
@@ -158,7 +173,7 @@ class ForgeIntegrationTests(unittest.TestCase):
         before = pkg.read_bytes()
         entries = app.scan_library()
         self.assertEqual([(e.kind, e.title_id) for e in entries], [('pkg', 'PPSA01234')])
-        for codec in ('zstd', 'lz4'):
+        for codec in ('zstd',):
             entry = next(e for e in app.scan_library() if e.kind == 'pkg')
             job = app.Job(entry, 5, True, False, codec, 'ng')
             with patch.object(app, 'MKPFS', '/nonexistent/mkpfs'), contextlib.redirect_stdout(io.StringIO()):
@@ -172,7 +187,7 @@ class ForgeIntegrationTests(unittest.TestCase):
 
     def test_zstd_is_made_from_the_original_even_with_an_lz4_copy(self):
         # Always folder/exFAT -> LZ4 or folder/exFAT -> Zstd, never LZ4 -> Zstd.
-        lz4_out, _ = self.pack('lz4')
+        lz4_out = self.lz4_copy()
         zstd_out, report = self.pack('zstd')
         self.assertNotEqual(lz4_out, zstd_out)
         self.assertTrue(lz4_out.is_dir() and zstd_out.is_dir())
@@ -209,7 +224,7 @@ class ForgeIntegrationTests(unittest.TestCase):
     def test_repair_upgrades_an_older_ng_build_in_every_copy(self):
         # After an image update, copies made with an older ampr-emu-ng build get the
         # new one (even without their report), and the cached check does not hide it.
-        outs = [self.pack('lz4')[0], self.pack('zstd')[0]]
+        outs = [self.lz4_copy(), self.pack('zstd')[0]]
         ng = self.root/'ng.sprx'; ng.write_bytes((outs[0]/app.RUNTIME_REL).read_bytes())
         for out in outs:
             old = out/app.RUNTIME_REL
@@ -225,8 +240,7 @@ class ForgeIntegrationTests(unittest.TestCase):
             self.assertIsNone(app.lz4_format_problem(out))
 
     def test_lz4_ng_repair_never_downgrades(self):
-        out, report = self.pack('lz4')
-        self.assertEqual(report['pack_runtime'], 'ng')
+        out = self.lz4_copy()
         self.assertTrue(app.runtime_ok(out, app.NG_SHA256))
         self.assertFalse(app.runtime_ok(out, app.RUNTIME_SHA256))
         # Repair must restore NG even when its original file is missing.

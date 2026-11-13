@@ -11,40 +11,33 @@ const document = {getElementById: id => {
 }};
 let mode;
 const context = vm.createContext({document, esc: s => String(s ?? '').replaceAll('<', '&lt;'), data: null,
-  packMode: 'ng', packLevel: 9, packProfile: true, selectPackMode: m => { mode = m; context.packMode = m; },
+  packMode: 'zstd', packLevel: 5, packProfile: true, selectPackMode: m => { mode = m; context.packMode = m; },
   render: () => {}});
-vm.runInContext(html.slice(html.indexOf('// The format the Compress buttons'), html.indexOf("let packMode = 'ng'")), context);
-// The Zstd tab is gone; its choice is the format switch in My games.
+vm.runInContext(html.slice(html.indexOf('// The format the Compress buttons'), html.indexOf('// My games\' sub-tabs')), context);
+// Only Zstd is packed: no format choice, no LZ4 anywhere in the controls.
 assert.ok(!html.includes('id="t-zstd"') && !html.includes('id="p-zstd"') && !html.includes("'#zstd'"));
 assert.ok(html.includes('<div id="fmtbar"></div>'));
 vm.runInContext('renderFmtBar()', context);
 let bar = document.getElementById('fmtbar').innerHTML;
-assert.ok(bar.includes('⚡ LZ4 NG') && bar.includes('🗜 Zstd') && !bar.includes('APR-EMU') && !bar.includes("setPackMode('legacy')"));
-assert.ok(!/>\s*\S*\s*Auto\b/.test(bar) && !bar.includes("setPackMode('auto')"));
-assert.ok(bar.includes('class="on" aria-pressed="true" onclick="setPackMode(\'ng\')"'));
-vm.runInContext("setPackMode('zstd')", context);
-assert.equal(mode, 'zstd');
-assert.ok(document.getElementById('fmtbar').innerHTML.includes('max="22"'));
+assert.ok(bar.includes('🗜 Zstd') && !bar.includes('LZ4') && !bar.includes('setPackMode(') && bar.includes('max="22"'));
+vm.runInContext(html.slice(html.indexOf('function canPack('), html.indexOf('function packControls(')), context);
 const games = {
-  source: {id: 'source', can_queue: true}, legacyNo: {id: 'n', can_queue: false},
+  source: {id: 'source', can_queue: true}, noAmpr: {id: 'n', can_queue: false},
   zstdDone: {id: 'z', pack_codec: 'zstd', output: '/zstd/z'}, lz4Done: {id: 'l', pack_codec: 'lz4', output: '/lz4/l'},
   running: {id: 'r', can_queue: true, running: true}, folder: {id: 'f', output_only: true}};
-const can = (g, m) => vm.runInContext(`canPack(${JSON.stringify(g)}, '${m}')`, context);
-assert.ok(can(games.source, 'zstd') && can(games.source, 'ng'));
-assert.ok(can(games.legacyNo, 'zstd') && can(games.legacyNo, 'ng'));
-assert.ok(!can(games.zstdDone, 'zstd') && !can(games.lz4Done, 'ng') && can(games.lz4Done, 'zstd'));
-assert.ok(!can(games.running, 'zstd') && !can(games.folder, 'zstd'));
-// The Compress dialog sends what was picked in it.
+const can = (g, m) => vm.runInContext(`canPack(${JSON.stringify(g)}${m ? `, '${m}'` : ''})`, context);
+assert.ok(can(games.source) && can(games.noAmpr) && can(games.lz4Done));
+assert.ok(!can(games.zstdDone) && !can(games.running) && !can(games.folder) && !can(games.source, 'ng'));
+assert.deepEqual(JSON.parse(JSON.stringify(vm.runInContext('packOptions()', context))), {codec: 'zstd', runtime: 'ng', level: 5, profile: true});
+// The Compress dialog only offers Zstd and sends it.
 const ctx2 = vm.createContext({document: {getElementById: () => null, body: {insertAdjacentHTML() {}}}, data: {games: [], settings: {}},
-  packMode: 'ng', packLevel: 9, packProfile: true, savePackPrefs() {}, renderFmtBar() {}, localStorage: {getItem: () => null, setItem() {}},
+  packMode: 'zstd', packLevel: 5, packProfile: true, savePackPrefs() {}, renderFmtBar() {}, localStorage: {getItem: () => null, setItem() {}},
   compress: (...a) => { ctx2.sent = a; }});
 vm.runInContext(html.slice(html.indexOf('// The Compress dialog:'), html.indexOf('function convertGame(id, codec)')), ctx2);
-vm.runInContext("pk = {id: 'g', g: {can_queue: false}, mode: 'ng', level: 9, profile: true, remember: false}; pkPick('zstd')", ctx2);
-assert.equal(vm.runInContext('pk.level', ctx2), 5);
-vm.runInContext("pkPick('lz4')", ctx2);
-assert.equal(vm.runInContext('pk.mode', ctx2), 'ng');  // LZ4 always means LZ4 NG
-vm.runInContext("pkPick('zstd'); pk.remember = true; pkGo(true)", ctx2);
-assert.deepEqual(JSON.parse(JSON.stringify(ctx2.sent)), ['g', true, false, {codec: 'zstd', runtime: 'ng', level: 5, profile: true}, false]);
+vm.runInContext("pk = {id: 'g', g: {can_queue: false}, mode: 'zstd', level: 7, profile: true, remember: false}; pkPick('lz4')", ctx2);
+assert.equal(vm.runInContext('pk.mode', ctx2), 'zstd');
+vm.runInContext("pk.remember = true; pkGo(true)", ctx2);
+assert.deepEqual(JSON.parse(JSON.stringify(ctx2.sent)), ['g', true, false, {codec: 'zstd', runtime: 'ng', level: 7, profile: true}, false]);
 assert.equal(vm.runInContext('packSkip && packMode', ctx2), 'zstd');
 // My games' sub-tabs list each copy in its own tab, escaped, with its own folder name on the buttons.
 const ctx3 = vm.createContext({document, esc: s => String(s ?? '').replaceAll('<', '&lt;').replaceAll('"', '&quot;'),

@@ -20,11 +20,11 @@
   `DELETE_ORIGINALS=yes`. Keep temporary data after a failed run.
 - Don't change other Docker containers or NAS settings.
 - Tell "verified on the NAS" apart from "playable on the PS5".
-- Packs are always made from the original: folder/exFAT → LZ4 or folder/exFAT →
-  Zstd, never LZ4 → Zstd.
-- New packs are LZ4 NG or Zstd only, both packed by PS5 Dump Forge for
-  ampr-emu-ng (owner, 2026-11-10; replaces "LZ4 always with theghostonline's
-  packer"). LZ4 with APR-EMU is no longer packed; existing copies stay.
+- Packs are always made from the original (folder, .exfat or PS5 game .pkg) →
+  Zstd, never from a packed copy.
+- New packs are Zstd only, packed by PS5 Dump Forge for ampr-emu-ng (owner,
+  2026-11-13; replaces "LZ4 NG or Zstd"). No LZ4 or LZ4 NG option anywhere;
+  existing LZ4 copies stay, are listed and get runtime upgrades.
 - Nothing from theghostonline in the repo or image (owner, 2026-11-10): no
   engine, PS5 app, `ampr_pack`, APR-EMU file, profiles or loose-file rules, sync. Only
   quer3q's Forge and ampr-emu-ng. Don't bring any of it back.
@@ -44,7 +44,7 @@
   links). Game reports come from and go to quer3q/ampr-emu-ng (Zstd, LZ4 NG).
 - No TOML profiles (owner, 2026-11-10): no chooser, editor, upload or switch;
   Forge's own packing rules decide every pack.
-- Packing (LZ4 NG and Zstd) uses every CPU core, at nice 19; all game data
+- Packing uses every CPU core, at nice 19; all game data
   (library, work, copies) stays on volume1, the app and state on volume2.
 - Show mockups/screenshots before building larger UI changes when asked.
 

@@ -78,6 +78,9 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- Zstd only (owner): LZ4 NG removed from the format bar, the Compress dialog,
+  the queue, run_request and the CLI (`--codec zstd`, default level 5 or
+  PS5LZ4_ZSTD_LEVEL). Existing LZ4 copies stay and still get runtime upgrades.
 - PS5 game packages (.pkg, fake PKG, base game only) in the library are games:
   Forge packs them straight to LZ4 NG or Zstd (no unpacking); updates, DLC, apps
   and PS4 packages stay on the PKG tabs. Encrypted store PKGs can't be read.

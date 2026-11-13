@@ -566,8 +566,9 @@ def estimate_game(game_id: str) -> dict:
                     break
             return out[:spot]
     else:
-        raise ValueError("no estimate for a .ffpfsc or .ffpfs: it is compressed or packed already; "
-                         "the result is shown after packing")
+        what = "a .pkg (its files are compressed inside)" if entry.kind == "pkg" else \
+            "a .ffpfsc or .ffpfs: it is compressed or packed already"
+        raise ValueError(f"no estimate for {what}; the result is shown after packing")
     total = sum(n for _, n in files)
     if not total:
         raise ValueError("the game has no data to sample")
@@ -770,14 +771,14 @@ def resolve_targets(args_targets: list[str], entries: list[Entry]) -> list[Entry
 
 class Job:
     def __init__(self, entry: Entry, level: int, restore_test: bool,
-                 require_vhash: bool, codec: str = "lz4", runtime: str = "ng",
+                 require_vhash: bool, codec: str = "zstd", runtime: str = "ng",
                  use_profile: bool = True):
         if codec not in ("lz4", "zstd") or runtime not in ("legacy", "ng"):
             raise JobError("invalid codec or runtime")
-        if runtime != "ng":
-            # Owner's decision (2026-11-10): new packs are LZ4 NG or Zstd, both packed by
-            # PS5 Dump Forge for ampr-emu-ng. Existing APR-EMU copies stay as they are.
-            raise JobError("LZ4 with APR-EMU is no longer packed; choose LZ4 NG or Zstd (ampr-emu-ng)")
+        if runtime != "ng" or codec != "zstd":
+            # Owner's decisions (2026-11-10, 2026-11-13): new packs are Zstd only, packed by
+            # PS5 Dump Forge for ampr-emu-ng. Existing LZ4 and APR-EMU copies stay as they are.
+            raise JobError("only Zstd is packed now (LZ4 and LZ4 NG are no longer made)")
         if not 1 <= level <= (22 if codec == "zstd" else 12):
             raise JobError("compression level out of range")
         self.codec, self.runtime = codec, runtime
@@ -1293,7 +1294,7 @@ def result_for(entry: Entry) -> dict:
 
 def process_one(e: Entry, args) -> str:
     """Handle one library entry: 'ok', 'failed' or 'interrupted'."""
-    e.pack_codec = getattr(args, "codec", "lz4")
+    e.pack_codec = getattr(args, "codec", "zstd")
     res = result_for(e)
     if res["status"] == "done":
         print(f"[{now()}] {e.id}: already done ({res['detail']}), skipping", flush=True)
@@ -1306,7 +1307,7 @@ def process_one(e: Entry, args) -> str:
               "(use --force-image to pack the image)", flush=True)
         return "ok"
     job = Job(e, args.level, not args.no_restore_test, args.require_vhash,
-              getattr(args, "codec", "lz4"), getattr(args, "runtime", "ng"),
+              getattr(args, "codec", "zstd"), getattr(args, "runtime", "ng"),
               not getattr(args, "no_profile", False))
     try:
         job.run()
@@ -1404,7 +1405,7 @@ def cmd_run(args) -> int:
         targets = [e for e in entries if e.id in ids]
     elif args.all:
         for e in entries:
-            e.pack_codec = getattr(args, "codec", "lz4")
+            e.pack_codec = getattr(args, "codec", "zstd")
         targets = [e for e in entries if result_for(e)["status"] in ("pending", "partial", "failed")]
     else:
         if not args.targets:
@@ -1433,7 +1434,7 @@ def cmd_start(args) -> int:
     else:
         if args.all:
             for e in entries:
-                e.pack_codec = getattr(args, "codec", "lz4")
+                e.pack_codec = getattr(args, "codec", "zstd")
             targets = [e for e in entries if result_for(e)["status"] in ("pending", "partial", "failed")]
         else:
             if not args.targets:
@@ -1441,7 +1442,7 @@ def cmd_start(args) -> int:
             targets = resolve_targets(args.targets, entries)
         q = {"created": now(), "remaining": [e.id for e in targets], "finished": [], "failed": [],
              "current": None, "options": {"level": args.level,
-                                          "codec": getattr(args, "codec", "lz4"),
+                                          "codec": getattr(args, "codec", "zstd"),
                                           "runtime": getattr(args, "runtime", "ng"),
                                           "no_restore_test": args.no_restore_test,
                                           "require_vhash": args.require_vhash,
@@ -1458,7 +1459,7 @@ def cmd_start(args) -> int:
     opts = q.get("options", {})
     log = LOGS / f"queue-{_dt.datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
     argv = ["nohup", sys.executable, os.path.abspath(__file__), "run", "--from-queue",
-            "--level", str(opts.get("level", 9)), "--codec", opts.get("codec", "lz4"),
+            "--level", str(opts.get("level", 9)), "--codec", opts.get("codec", "zstd"),
             "--runtime", opts.get("runtime", "ng")]
     for flag in ("no_restore_test", "require_vhash", "force_image", "no_profile"):
         if opts.get(flag):
@@ -1800,7 +1801,7 @@ def cmd_lz4(args) -> int:
     compressed: list[Entry] = []  # .ffpfsc: already PFSC-compressed, little or nothing to gain
     games = ng_reports()
     counts = {"LZ4": 0, "can be LZ4": 0, "not LZ4": 0, "error": 0}
-    codec, runtime = getattr(args, "codec", "lz4"), getattr(args, "runtime", "ng")
+    codec, runtime = getattr(args, "codec", "zstd"), getattr(args, "runtime", "ng")
     packable: list[Entry] = []  # AMPR games (LZ4 copy or not): what Zstd and LZ4 NG are made from
     # Saved results for unchanged sources; --full scans every one again and
     # stores the new results.
@@ -6595,7 +6596,7 @@ def dashboard_data() -> dict:
             "send_after": list(read_json(SEND_AFTER, {}) or {}),
             "images": images_data(),
             "pkgs": (pkgs := scan_pkgs()), "pkg_folders": pkg_folders(pkgs),
-            "level": int(os.environ.get("PS5LZ4_LEVEL", "9")), "runtime": NG_NAME,
+            "level": int(os.environ.get("PS5LZ4_ZSTD_LEVEL", "5")), "runtime": NG_NAME,
             "compat_updated": None,
             "requests": {"pending": pending, "pending_list": pending_list, "recent": done_req[::-1],
                          "agent_age": agent_age}, "version": VERSION,
@@ -6747,10 +6748,10 @@ def run_request(req: dict) -> dict:
             return {"ok": False, "output": "no game given"}
         argv.append(game)
     if action == "start" or (action == "fix" and "codec" in req):  # Compress all without a format: as before
-        codec, runtime = req.get("codec", "lz4"), req.get("runtime", "ng")
-        level = req.get("level", 5 if codec == "zstd" else 9)
-        if codec not in ("lz4", "zstd") or runtime != "ng":
-            return {"ok": False, "output": "invalid compression mode"}
+        codec, runtime = req.get("codec", "zstd"), req.get("runtime", "ng")
+        level = req.get("level", 5)
+        if codec != "zstd" or runtime != "ng":
+            return {"ok": False, "output": "only Zstd is packed now"}
         if type(level) is not int or not 1 <= level <= (22 if codec == "zstd" else 12):
             return {"ok": False, "output": "invalid compression level"}
         argv += ["--codec", codec, "--runtime", runtime, "--level", str(level)]
@@ -7633,16 +7634,16 @@ UI_HTML = (Path(__file__).with_name("ui.html").read_text()
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(prog="ps5lz4", description="LZ4 HC packing of PS5 games for APR-EMU, on the NAS.")
+    p = argparse.ArgumentParser(prog="ps5lz4", description="Zstd packing of PS5 games for ampr-emu-ng (PS5 Dump Forge), on the NAS.")
     p.add_argument("--version", action="version", version=VERSION)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def job_opts(sp):
-        sp.add_argument("--codec", choices=("lz4", "zstd"), default="lz4")
+        sp.add_argument("--codec", choices=("zstd",), default="zstd", help="only Zstd is packed")
         sp.add_argument("--runtime", choices=("ng",), default="ng",
                         help="ng installs ampr-emu-ng; required for zstd")
-        sp.add_argument("--level", type=int, default=int(os.environ.get("PS5LZ4_LEVEL", "9")),
-                        help="LZ4: 1-4 fast, 5-12 HC; zstd: 1-22 (suggested 5)")
+        sp.add_argument("--level", type=int, default=int(os.environ.get("PS5LZ4_ZSTD_LEVEL", "5")),
+                        help="zstd level 1-22 (default 5)")
         sp.add_argument("--no-restore-test", action="store_true",
                         help="skip the full unpack-and-compare step (not recommended)")
         sp.add_argument("--require-vhash", action="store_true",

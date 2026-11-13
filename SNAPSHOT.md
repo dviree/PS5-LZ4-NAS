@@ -41,7 +41,7 @@ removed on 2026-11-10. Its PS5 engine/app code is pruned from `ps5lz4.py` and th
 `step_verify` → `step_restore` (full unpack + byte compare, games ≤ 25 GB) →
 `step_publish` (boot files, permissions, report in `state/reports/<id>.json`).
 
-- **LZ4 NG** and **Zstd**: PS5 Dump Forge (`forge_command`), then our ampr-emu-ng
+- **Zstd only** (LZ4 NG no longer packed): PS5 Dump Forge (`forge_command`), then our ampr-emu-ng
   build (`install_ng_runtime`); no profile: Forge's own rules. APR-EMU LZ4 is no longer packed (`Job` refuses runtime legacy).
   Zstd output in the Zstd output folder (`zstd_output`).
 - On older NAS installs, `lz4-ps5.sh update` creates a Zstd Compose override,
