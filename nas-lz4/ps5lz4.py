@@ -616,7 +616,7 @@ def estimate_game(game_id: str) -> dict:
 class Entry:
     def __init__(self, path: Path, kind: str):
         self.path = path
-        self.kind = kind  # folder | exfat | ffpfs | ffpfsc
+        self.kind = kind  # folder | exfat | ffpfs | ffpfsc | pkg
         self.rel = str(path.relative_to(LIBRARY))
         stem = path.name if kind == "folder" else path.name[: -len(path.suffix)]
         self.id = safe_name(stem)
@@ -674,6 +674,15 @@ def scan_library() -> list[Entry]:
                         entries.append(e)
                     elif depth < 3:
                         walk(p, depth + 1)
+                elif p.is_file() and p.suffix.lower() == ".pkg":
+                    # A PS5 game package (fake PKG): Forge packs it straight to LZ4 NG
+                    # or Zstd. Updates, DLC, apps and PS4 packages stay on the PKG tabs.
+                    info = pkg_info(p)
+                    if pkg_is_ps5_game(info):
+                        e = Entry(p, "pkg")
+                        e.title_id = info["title_id"].upper()
+                        e.name = info.get("name") or ""
+                        entries.append(e)
                 elif p.is_file() and p.suffix.lower() in IMAGE_EXTS:
                     e = Entry(p, IMAGE_EXTS[p.suffix.lower()])
                     if not e.title_id:
@@ -872,6 +881,17 @@ class Job:
                       source_files=meta["files"], source_bytes=meta["logical_bytes"])
             self.log(f"source: {image.name}, {meta['files']} files, {human(meta['logical_bytes'])}, read in place by Forge")
             return image
+        if e.kind == "pkg":
+            info = pkg_info(image)
+            self.state["precheck"] = {"title_id": info.get("title_id", ""), "name": info.get("name", ""),
+                                      "status": "compatible", "reason": "PS5 game package"}
+            if not pkg_is_ps5_game(info):
+                raise Skip(info.get("error") or f"not a PS5 game package ({info.get('category') or 'unknown type'})")
+            self.mark("source", source_root=str(image), image_bytes=info["size"],
+                      extraction="none (PS5 Dump Forge reads the .pkg directly)",
+                      source_files=0, source_bytes=info["size"])
+            self.log(f"source: {image.name}, {human(info['size'])} package, read in place by Forge")
+            return image
         extract = self.work / "extract"
         partial = self.work / "extract.partial"
         outer = self.work / "outer.partial"
@@ -977,7 +997,7 @@ class Job:
         return f"all {count} blocks match {sidecar.name}"
 
     def step_check(self, root: Path) -> None:
-        if root.is_file():  # an .exfat Forge reads directly; step_source checked it
+        if root.is_file():  # an .exfat or .pkg Forge reads directly; step_source checked it
             pre = self.state.get("precheck") or {}
             self.state.update(title_id=pre.get("title_id") or self.e.title_id, title_name=pre.get("name") or "")
             if not self.done("check"):
@@ -1049,7 +1069,7 @@ class Job:
                 self.state["restore_test"] = "skipped (--no-restore-test)"
             return
         if root.is_file():
-            why = "not needed: Forge compared every packed file with the .exfat (blake3) while packing"
+            why = f"not needed: Forge compared every packed file with the {root.suffix} (blake3) while packing"
             self.mark("restore", restore_test=why)
             self.log(f"restore test {why}")
             return
@@ -1750,6 +1770,8 @@ def classify(e: "Entry", res: dict, cache: dict | None = None) -> tuple[str, str
             elif e.kind == "exfat":
                 meta = exfat_inspect(e.path)
                 ok, why = meta["status"], meta["reason"]
+            elif e.kind == "pkg":
+                ok, why = "compatible", "PS5 game package: Forge packs it directly"
             else:
                 ok, why = "compatible", "checked after extraction"
         except Exception as err:
@@ -4906,6 +4928,12 @@ def parse_sfo(data: bytes) -> dict:
     return out
 
 
+def pkg_is_ps5_game(info: dict) -> bool:
+    """A PS5 base game package, readable (not an update, DLC, app or PS4 title)."""
+    return (info.get("platform") == "PS5" and info.get("category") == "Game" and not info.get("error")
+            and str(info.get("title_id", "")).upper().startswith("PPSA"))
+
+
 def pkg_info(path: Path) -> dict:
     """Title, title ID, content ID, type and version of a .pkg (cached by size and time)."""
     st = path.stat()
@@ -5465,6 +5493,21 @@ def image_meta(path: Path) -> dict:
     stem = re.sub(r"\s*\[[^\]]*\]|\s*\([^)]*\)|\s*_[A-Z]{4}\d{5}_\s*", " ", stem).strip()
     info = {"title": stem or path.stem,
             "title_id": m.group(0).upper() if m else "", "icon": None}
+    if path.suffix.lower() == ".pkg":
+        pi = pkg_info(path)
+        info.update(title=pi.get("name") or info["title"], title_id=(pi.get("title_id") or info["title_id"]).upper(),
+                    version=pi.get("version") or "")
+        try:
+            with open(path, "rb") as fh:
+                ent = pkg_icon_entry(pkg_entries(fh))
+                if ent and ent[1] < 8 << 20:
+                    fh.seek(ent[0])
+                    data = fh.read(ent[1])
+                    info["icon"] = data if data[:8] == b"\x89PNG\r\n\x1a\n" else None
+        except (OSError, ValueError):
+            pass
+        _img_meta[key] = info
+        return info
     if path.suffix.lower() in (".exfat", ".ffpfsc", ".ffpfs"):
         fh = None
         try:

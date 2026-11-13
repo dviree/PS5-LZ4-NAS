@@ -145,6 +145,31 @@ class ForgeIntegrationTests(unittest.TestCase):
             self.assertFalse(job.work.exists())
             self.assertEqual(image.read_bytes(), before)  # the original is never changed
 
+    def test_ps5_game_pkg_is_listed_and_packed_in_place(self):
+        # A PS5 game package (fake PKG) is a library game: Forge packs it directly.
+        pj = self.src/'sce_sys/param.json'
+        pj.write_text(json.dumps({'titleId': 'PPSA01234', 'contentId': 'UP0000-PPSA01234_00-TESTTESTTESTTEST',
+                                  'applicationCategoryType': 0, 'contentVersion': '01.000.000',
+                                  'localizedParameters': {'defaultLanguage': 'en-US', 'en-US': {'titleName': 'Example'}}}))
+        pkg = app.LIBRARY/'Example [PPSA01234].pkg'
+        out = subprocess.run([app.FORGE, 'convert', str(self.src), '--to', 'pkg', '-o', str(pkg)], capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stderr[-500:])
+        shutil.rmtree(self.src)
+        before = pkg.read_bytes()
+        entries = app.scan_library()
+        self.assertEqual([(e.kind, e.title_id) for e in entries], [('pkg', 'PPSA01234')])
+        for codec in ('zstd', 'lz4'):
+            entry = next(e for e in app.scan_library() if e.kind == 'pkg')
+            job = app.Job(entry, 5, True, False, codec, 'ng')
+            with patch.object(app, 'MKPFS', '/nonexistent/mkpfs'), contextlib.redirect_stdout(io.StringIO()):
+                report = job.run()
+            self.assertEqual(app.packed_codec(job.e.output), codec)
+            self.assertEqual(report['verification']['extraction'], 'none (PS5 Dump Forge reads the .pkg directly)')
+            self.assertEqual(report['title_id'], 'PPSA01234')
+        self.assertEqual(pkg.read_bytes(), before)  # the package is never changed
+        # updates and DLC are not library games
+        self.assertFalse(app.pkg_is_ps5_game({'platform': 'PS5', 'category': 'Update', 'title_id': 'PPSA01234'}))
+
     def test_zstd_is_made_from_the_original_even_with_an_lz4_copy(self):
         # Always folder/exFAT -> LZ4 or folder/exFAT -> Zstd, never LZ4 -> Zstd.
         lz4_out, _ = self.pack('lz4')

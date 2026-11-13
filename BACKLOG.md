@@ -78,6 +78,9 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- PS5 game packages (.pkg, fake PKG, base game only) in the library are games:
+  Forge packs them straight to LZ4 NG or Zstd (no unpacking); updates, DLC, apps
+  and PS4 packages stay on the PKG tabs. Encrypted store PKGs can't be read.
 - `lz4-ps5.sh update` now runs `apr --fix`: every LZ4 NG and Zstd copy with an
   older ampr-emu-ng build gets the image's build (cache key includes the image's
   runtime; any non-APR-EMU runtime counts as NG). PS5LZ4_SKIP_RUNTIME_UPGRADE=1 skips.
