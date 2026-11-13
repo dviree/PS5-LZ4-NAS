@@ -55,6 +55,14 @@ class ForgeOptionsTests(unittest.TestCase):
             with self.assertRaises(app.JobError):
                 app.forge_command(Path('/src'), Path('/out'), codec, level)
 
+    def test_packing_yields_cpu_and_disk_to_the_web_page(self):
+        with patch.object(app.shutil, 'which', return_value='/usr/bin/x'):
+            p = app.nice_prefix()
+            self.assertEqual(p[:3], ['nice', '-n', '19'])
+            self.assertEqual(p[3:], ['ionice', '-c3'])
+            with patch.dict(os.environ, {'PS5LZ4_IONICE': 'besteffort'}):
+                self.assertEqual(app.nice_prefix()[3:], ['ionice', '-c2', '-n7'])
+
     def test_request_queue_retains_options(self):
         req = app.queued_request({'action': 'start', 'game': 'test', 'codec': 'zstd', 'runtime': 'ng', 'level': 5, 'unexpected': 'x'})
         self.assertNotIn('unexpected', req)

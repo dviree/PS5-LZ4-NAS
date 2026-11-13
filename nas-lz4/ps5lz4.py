@@ -225,11 +225,15 @@ def safe_name(name: str) -> str:
 
 
 def nice_prefix() -> list[str]:
+    """Packing runs at the lowest CPU priority and, by default, in the idle disk
+    class, so the web page and the NAS's own work keep answering while a game
+    packs (PS5LZ4_IONICE=besteffort for the old best-effort class 7)."""
     prefix = []
     if shutil.which("nice"):
-        prefix += ["nice", "-n", "10"]
+        prefix += ["nice", "-n", "19"]
     if shutil.which("ionice"):
-        prefix += ["ionice", "-c2", "-n7"]
+        idle = os.environ.get("PS5LZ4_IONICE", "idle") != "besteffort"
+        prefix += ["ionice", "-c3"] if idle else ["ionice", "-c2", "-n7"]
     return prefix
 
 
@@ -1513,9 +1517,25 @@ def is_packed(game: Path) -> bool:
     return packed_index(game).is_file()
 
 
+_rt_sha: dict = {}
+
+
 def runtime_sha(game: Path) -> str:
+    """SHA-256 of a copy's runtime, cached by path, size and time: the page asks
+    for it every few seconds for every copy."""
     rt = find_runtime(game)
-    return hashlib.sha256(rt.read_bytes()).hexdigest() if rt else ""
+    if not rt:
+        return ""
+    try:
+        st = rt.stat()
+    except OSError:
+        return ""
+    key = (str(rt), st.st_size, st.st_mtime_ns)
+    if key not in _rt_sha:
+        if len(_rt_sha) > 2000:
+            _rt_sha.clear()
+        _rt_sha[key] = hashlib.sha256(rt.read_bytes()).hexdigest()
+    return _rt_sha[key]
 
 
 def runtime_name(sha: str) -> str:
@@ -6724,6 +6744,21 @@ def cmd_ui(args) -> int:
     cache = {"at": 0.0, "body": b""}
     lock = __import__("threading").Lock()
 
+    def refresh_dashboard() -> None:
+        """Rebuild the page's data; one rebuild at a time, the others return."""
+        if not lock.acquire(blocking=not cache["body"]):
+            return
+        try:
+            if cache["body"] and time.time() - cache["at"] <= 4:
+                return
+            try:
+                cache["body"] = json.dumps(dashboard_data(), ensure_ascii=False).encode()
+            except Exception as err:
+                cache["body"] = json.dumps({"error": str(err)}).encode()
+            cache["at"] = time.time()
+        finally:
+            lock.release()
+
     class H(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a):
             pass
@@ -6974,14 +7009,13 @@ def cmd_ui(args) -> int:
                                                   "games": saved.get("games") or {}, "refresh_error": err},
                                                  ensure_ascii=False).encode())
             if self.path == "/api/dashboard":
-                with lock:
-                    if time.time() - cache["at"] > 4:
-                        try:
-                            cache["body"] = json.dumps(dashboard_data(), ensure_ascii=False).encode()
-                        except Exception as err:
-                            cache["body"] = json.dumps({"error": str(err)}).encode()
-                        cache["at"] = time.time()
-                    return self.send(200, cache["body"])
+                # Served from the last result at once; a stale one is rebuilt in the
+                # background, so a slow disk (a game packing) never stalls the page.
+                if not cache["body"]:
+                    refresh_dashboard()
+                elif time.time() - cache["at"] > 4:
+                    __import__("threading").Thread(target=refresh_dashboard, daemon=True).start()
+                return self.send(200, cache["body"])
             self.send(404, b'{"error":"not found"}')
 
         def do_HEAD(self):

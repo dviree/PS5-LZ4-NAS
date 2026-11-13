@@ -71,6 +71,9 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- Page stays responsive while packing: /api/dashboard answers from the last
+  result and rebuilds in the background; runtime SHA-256 cached; packing runs
+  at nice 19 and ionice idle (PS5LZ4_IONICE=besteffort for the old class).
 - .exfat sources are packed in place: Forge reads the image (blake3 per file),
   no MkPFS extraction or work copy. The old "does not use AMPR" skip on .exfat
   is gone (it stopped PPSA21704); stale APR-era skip reports no longer hide a game.
