@@ -71,6 +71,7 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- Packing uses every CPU core (owner), still at nice 19 (PS5LZ4_WORKERS overrides).
 - Page stays responsive while packing: /api/dashboard answers from the last
   result and rebuilds in the background; runtime SHA-256 cached; packing runs
   at nice 19 and ionice idle (PS5LZ4_IONICE=besteffort for the old class).

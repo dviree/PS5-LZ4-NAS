@@ -42,6 +42,8 @@
   links). Game reports come from and go to quer3q/ampr-emu-ng (Zstd, LZ4 NG).
 - No TOML profiles (owner, 2026-11-10): no chooser, editor, upload or switch;
   Forge's own packing rules decide every pack.
+- Packing (LZ4 NG and Zstd) uses every CPU core, at nice 19; all game data
+  (library, work, copies) stays on volume1, the app and state on volume2.
 - Show mockups/screenshots before building larger UI changes when asked.
 
 ## Current upstream integration

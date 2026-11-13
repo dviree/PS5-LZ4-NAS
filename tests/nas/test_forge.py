@@ -55,6 +55,13 @@ class ForgeOptionsTests(unittest.TestCase):
             with self.assertRaises(app.JobError):
                 app.forge_command(Path('/src'), Path('/out'), codec, level)
 
+    def test_packing_uses_every_core(self):
+        with patch.object(app.os, 'cpu_count', return_value=4), patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('PS5LZ4_WORKERS', None)
+            self.assertEqual(app.workers(), 4)
+            cmd = app.forge_command(Path('/src'), Path('/out'), 'lz4', 9)
+            self.assertEqual(cmd[cmd.index('--threads') + 1], '4')
+
     def test_packing_yields_cpu_and_disk_to_the_web_page(self):
         with patch.object(app.shutil, 'which', return_value='/usr/bin/x'):
             p = app.nice_prefix()

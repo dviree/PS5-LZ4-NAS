@@ -241,9 +241,9 @@ def workers() -> int:
     env = os.environ.get("PS5LZ4_WORKERS")
     if env:
         return max(1, int(env))
-    n = os.cpu_count() or 4
-    # Same rule as the PS5 engine: leave one core, 2..8 workers.
-    return max(2, min(8, n - 1))
+    # Every core (owner's choice): packing runs at nice 19, so the web page and
+    # the NAS still get the CPU whenever they need it.
+    return max(1, os.cpu_count() or 4)
 
 
 # --------------------------------------------------------------------------
