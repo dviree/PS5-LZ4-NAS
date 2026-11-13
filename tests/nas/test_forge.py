@@ -3,6 +3,8 @@ import contextlib
 import io
 import json
 import os
+import subprocess
+import shutil
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -105,6 +107,28 @@ class ForgeIntegrationTests(unittest.TestCase):
         job = app.Job(app.Entry(self.src, 'folder'), 5, True, False, codec, 'ng')
         with contextlib.redirect_stdout(io.StringIO()): report = job.run()
         return job.e.output, report
+
+    @unittest.skipUnless(shutil.which('mkpfs'), 'needs MkPFS to build an .exfat fixture')
+    def test_exfat_is_packed_in_place_without_libsceampr(self):
+        # Forge reads the .exfat directly: nothing is unpacked, and a game that
+        # doesn't import libSceAmpr is packed too (ampr-emu-ng is injected).
+        (self.src/'eboot.bin').write_bytes(b'\x7fELF fixture without the import')
+        image = app.LIBRARY/'Game [PPSA01234].exfat'
+        subprocess.run(['mkpfs', 'pack', 'exfat', str(self.src), str(image)], check=True, capture_output=True)
+        shutil.rmtree(self.src)
+        before = image.read_bytes()
+        for codec in ('zstd', 'lz4'):
+            entry = app.Entry(image, 'exfat')
+            job = app.Job(entry, 5, True, False, codec, 'ng')
+            with patch.object(app, 'MKPFS', '/nonexistent/mkpfs'), contextlib.redirect_stdout(io.StringIO()):
+                report = job.run()   # MkPFS is never run: no extraction
+            out = job.e.output
+            self.assertTrue(app.is_packed(out))
+            self.assertEqual(app.packed_codec(out), codec)
+            self.assertEqual(report['verification']['extraction'], 'none (PS5 Dump Forge reads the .exfat directly)')
+            self.assertGreater(report['source_bytes'], 0)
+            self.assertFalse(job.work.exists())
+            self.assertEqual(image.read_bytes(), before)  # the original is never changed
 
     def test_zstd_is_made_from_the_original_even_with_an_lz4_copy(self):
         # Always folder/exFAT -> LZ4 or folder/exFAT -> Zstd, never LZ4 -> Zstd.

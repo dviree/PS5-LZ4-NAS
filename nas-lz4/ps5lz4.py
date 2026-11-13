@@ -849,11 +849,25 @@ class Job:
             return root
         if self.done("source"):
             root = Path(self.state["source_root"])
-            if root.is_dir():
-                self.log(f"resume: extracted game already verified at {root}")
+            if root.is_dir() or (root == e.path and root.is_file()):
+                self.log(f"resume: source already checked at {root}")
                 return root
         self.set_step("source")
         image = e.path
+        if e.kind == "exfat":
+            # PS5 Dump Forge reads an .exfat in place and checks every file it packs
+            # against it (blake3): nothing is unpacked or mounted on the NAS.
+            meta = exfat_inspect(image)
+            self.state["precheck"] = {k: meta[k] for k in ("title_id", "name", "status", "reason")}
+            if meta["status"] == "packed":
+                raise Skip(meta["reason"])
+            if not any(k.lower() == "eboot.bin" for k in meta["listing"]):
+                raise Skip("no eboot.bin in the image")
+            self.mark("source", source_root=str(image), image_bytes=image.stat().st_size,
+                      extraction="none (PS5 Dump Forge reads the .exfat directly)",
+                      source_files=meta["files"], source_bytes=meta["logical_bytes"])
+            self.log(f"source: {image.name}, {meta['files']} files, {human(meta['logical_bytes'])}, read in place by Forge")
+            return image
         extract = self.work / "extract"
         partial = self.work / "extract.partial"
         outer = self.work / "outer.partial"
@@ -959,6 +973,12 @@ class Job:
         return f"all {count} blocks match {sidecar.name}"
 
     def step_check(self, root: Path) -> None:
+        if root.is_file():  # an .exfat Forge reads directly; step_source checked it
+            pre = self.state.get("precheck") or {}
+            self.state.update(title_id=pre.get("title_id") or self.e.title_id, title_name=pre.get("name") or "")
+            if not self.done("check"):
+                self.mark("check", ampr=NG_NAME, profile_path=None, profile="Forge's own packing rules")
+            return
         status, reason = ampr_status_folder(root)
         tid, name = "", ""
         pj = root / "sce_sys" / "param.json"
@@ -987,7 +1007,7 @@ class Job:
             return pack
         self.set_step("pack")
         remove_work_path(pack)
-        _files, total = tree_bytes(root)
+        total = self.source_size(root)[1]
         self.need_space(total, f"{self.codec.upper()} packs")
         # Forge packs both formats: codec, runtime injection, indexes and full read-back
         # verification. Our own ampr-emu-ng build then replaces the one Forge ships.
@@ -1013,10 +1033,21 @@ class Job:
                   runtime_sha256=NG_SHA256)
         self.log("verified: Forge read every output file back against the source; runtime SHA-256 matches")
 
+    def source_size(self, root: Path) -> tuple[int, int]:
+        """(files, bytes) of the game: the folder, or the .exfat's listing."""
+        if root.is_file():
+            return int(self.state.get("source_files") or 0), int(self.state.get("source_bytes") or root.stat().st_size)
+        return tree_bytes(root)
+
     def step_restore(self, root: Path, pack: Path) -> None:
         if self.done("restore") or not self.restore_test:
             if not self.restore_test:
                 self.state["restore_test"] = "skipped (--no-restore-test)"
+            return
+        if root.is_file():
+            why = "not needed: Forge compared every packed file with the .exfat (blake3) while packing"
+            self.mark("restore", restore_test=why)
+            self.log(f"restore test {why}")
             return
         _files, total = tree_bytes(root)
         # Verify already decoded every packed file and compared it byte for byte
@@ -1096,7 +1127,7 @@ class Job:
         programs = ps5_permissions(pack)
         os.rename(pack, e.output)
         out_files, out_bytes = tree_bytes(e.output)
-        src_files, src_bytes = tree_bytes(root)
+        src_files, src_bytes = self.source_size(root)
         st = self.state
         report = {
             "id": e.id,
@@ -1658,6 +1689,12 @@ def file_sig(*paths: Path) -> str:
     return "|".join(parts)
 
 
+def stale_skip(reason: str) -> bool:
+    """A skip from the APR-EMU days (no libSceAmpr import, or a Glacier title):
+    Forge injects ampr-emu-ng into any game, so it no longer stops a pack."""
+    return "libSceAmpr" in (reason or "") or "APR-EMU would never load" in (reason or "") or "Glacier" in (reason or "")
+
+
 def classify(e: "Entry", res: dict, cache: dict | None = None) -> tuple[str, str, bool]:
     """(verdict, why, can_queue) for one library entry. verdict is one of
     LZ4 / can be LZ4 / not LZ4 / error. AMPR checks of unpacked games are
@@ -1667,7 +1704,7 @@ def classify(e: "Entry", res: dict, cache: dict | None = None) -> tuple[str, str
     if st == "done":
         problem = lz4_format_problem(e.output) if e.output.is_dir() else "output folder missing"
         return ("LZ4", res["detail"], False) if not problem else ("error", problem, False)
-    if st == "skipped":
+    if st == "skipped" and not stale_skip(res["detail"]):
         return "not LZ4", res["detail"], False
     if st == "exists":
         return "error", res["detail"], False

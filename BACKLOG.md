@@ -71,6 +71,9 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- .exfat sources are packed in place: Forge reads the image (blake3 per file),
+  no MkPFS extraction or work copy. The old "does not use AMPR" skip on .exfat
+  is gone (it stopped PPSA21704); stale APR-era skip reports no longer hide a game.
 - Stopped following James St-Pierre's branches: follower, workflow and docs
   cover quer3q only; `tools/james-branches.json` removed.
 - Updated ampr-emu-ng to upstream v0.3.5 (`a0dd88a`), including the smaller
