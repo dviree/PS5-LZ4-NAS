@@ -21,8 +21,8 @@ new wrapper installed once; existing output folders are left in place.
 Done 2026-11-10 (owner): everything from theghostonline removed; only quer3q's
 Forge and ampr-emu-ng remain. Open after it: rewrite the stale APR-EMU sections of nas-lz4/README.md; the
 verdict words "can be LZ4 / LZ4 / not LZ4" and `ampr_status_folder` are old
-names (kept: the page filters use them); rest mode after a send has no PS5
-payload behind it (pkg-receiver offers none): add it there or drop the setting.
+names (kept: the page filters use them). Rest mode after a send: owner said
+leave it (2026-11-13); the PS5's own power-saving setting does it.
 
 Also waiting on the owner: the PPSA26344 folder went missing. The code can't
 remove an original (only `delete-original` with `DELETE_ORIGINALS=yes`); the
