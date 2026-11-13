@@ -78,6 +78,9 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- `lz4-ps5.sh update` now runs `apr --fix`: every LZ4 NG and Zstd copy with an
+  older ampr-emu-ng build gets the image's build (cache key includes the image's
+  runtime; any non-APR-EMU runtime counts as NG). PS5LZ4_SKIP_RUNTIME_UPGRADE=1 skips.
 - ampr-emu-ng → `920e917` (v0.4.0: FPKG games, writable /app0, split reads for
   LZ4 and pkg packs; quer3q says LZ4 with split reads is not run on a console yet).
 - Game reports can be sent from the page as an issue on quer3q/ampr-emu-ng

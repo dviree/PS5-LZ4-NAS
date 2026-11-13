@@ -1549,7 +1549,12 @@ def requires_ng(game: Path) -> bool:
         mine = rep.get("output") in (None, host_output_path(game))
     except ValueError:  # a pack still in the work folder: no report describes it yet
         mine = False
-    return packed_codec(game) == "zstd" or (mine and rep.get("pack_runtime") == "ng") or runtime_sha(game) in (NG_SHA256, NG_UPSTREAM_SHA256)
+    if packed_codec(game) == "zstd" or (mine and rep.get("pack_runtime") == "ng"):
+        return True
+    # Any runtime but the pinned APR-EMU build is an ampr-emu-ng build, older ones
+    # included: those copies get the image's newer build on repair.
+    sha = runtime_sha(game)
+    return bool(sha) and sha != RUNTIME_SHA256
 
 
 def runtime_ok(game: Path, sha: str) -> bool:
@@ -2460,7 +2465,8 @@ def boot_files(root: Path, repair: bool) -> dict:
 def lz4_game_sig(g: Path) -> str:
     """Changes when the packs, the runtime or the top level of the folder change."""
     rt = find_runtime(g)
-    return file_sig(g, packed_index(g), g / "ampr_assets.index.crc", rt or g / RUNTIME_REL)
+    # The image's runtime is part of it: a new ampr-emu-ng build re-checks every copy.
+    return NG_SHA256[:12] + ":" + file_sig(g, packed_index(g), g / "ampr_assets.index.crc", rt or g / RUNTIME_REL)
 
 
 def cmd_apr(args) -> int:

@@ -34,6 +34,8 @@
 - After a feature, give the update command:
   `cd /volume2/docker/ps5-lz4 && ./lz4-ps5.sh update --force`
   (after the `Build NAS image` run on `nas-build` is green).
+- `update` also upgrades ampr-emu-ng in existing LZ4 NG/Zstd copies (`apr --fix`);
+  APR-EMU copies and originals are not touched.
 - Older NAS installs must first replace their local `lz4-ps5.sh` with this repo's
   wrapper; its update migrates the Zstd mount and exports `COMPOSE_FILE`.
 - A report for one codec must not make a fresh pack of the other codec count

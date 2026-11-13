@@ -181,6 +181,24 @@ class ForgeIntegrationTests(unittest.TestCase):
             lz4=app.Entry(app.LIBRARY/'other','folder')
             self.assertEqual(lz4.output.parent,app.OUTPUT)
 
+    def test_repair_upgrades_an_older_ng_build_in_every_copy(self):
+        # After an image update, copies made with an older ampr-emu-ng build get the
+        # new one (even without their report), and the cached check does not hide it.
+        outs = [self.pack('lz4')[0], self.pack('zstd')[0]]
+        ng = self.root/'ng.sprx'; ng.write_bytes((outs[0]/app.RUNTIME_REL).read_bytes())
+        for out in outs:
+            old = out/app.RUNTIME_REL
+            old.write_bytes(b'older ampr-emu-ng build ' + os.urandom(64))
+            app.update_runtime_index(out, old)
+        for r in app.REPORTS.glob('*.json'):
+            r.unlink()
+        with patch.object(app, 'NG_FILE', ng), patch.object(app, 'ensure_dirs'), contextlib.redirect_stdout(io.StringIO()):
+            app.cmd_apr(SimpleNamespace(fix=False, full=False))   # caches "wrong runtime"
+            app.cmd_apr(SimpleNamespace(fix=True, full=False))
+        for out in outs:
+            self.assertEqual(app.runtime_sha(out), app.NG_SHA256)
+            self.assertIsNone(app.lz4_format_problem(out))
+
     def test_lz4_ng_repair_never_downgrades(self):
         out, report = self.pack('lz4')
         self.assertEqual(report['pack_runtime'], 'ng')
