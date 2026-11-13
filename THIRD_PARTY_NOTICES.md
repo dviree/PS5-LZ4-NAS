@@ -33,7 +33,7 @@ which the NAS build replaces after packing with its pinned upstream build.
 The image includes Forge's license and dependency notices, NG's attribution, and
 NG's corresponding source archive under `/opt/ps5lz4/licenses/ps5-dump-forge`.
 
-### James St-Pierre runtime fixes
+### ampr-emu-ng runtime build
 
 NG packing and repair use ampr-emu-ng commit
 `0a5670a5d629c78572c61b66353a04e56f1b53d2` (main after v0.3.5, including

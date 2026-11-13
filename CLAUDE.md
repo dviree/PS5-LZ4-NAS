@@ -28,7 +28,9 @@
 - Nothing from theghostonline in the repo or image (owner, 2026-11-10): no
   engine, PS5 app, `ampr_pack`, APR-EMU file, profiles or loose-file rules, sync. Only
   quer3q's Forge and ampr-emu-ng. Don't bring any of it back.
-- Third-party code (quer3q, James St-Pierre) only after review and the owner's OK. Don't route around proxy 403s.
+- Follow only quer3q's repos (ampr-emu-ng main, ps5-dump-forge releases), not
+  James St-Pierre's or other forks (owner, 2026-11-13); fixes come in when quer3q
+  merges them. quer3q's code only after review and the owner's OK. Don't route around proxy 403s.
 - After a feature, give the update command:
   `cd /volume2/docker/ps5-lz4 && ./lz4-ps5.sh update --force`
   (after the `Build NAS image` run on `nas-build` is green).

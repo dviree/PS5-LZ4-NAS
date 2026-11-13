@@ -34,7 +34,7 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 ## Needs the owner
 
 - Enable *Allow GitHub Actions to create and approve pull requests* (Settings ›
-  Actions › General); until then the quer3q/James follower pushes a branch only.
+  Actions › General); until then the quer3q follower pushes a branch only.
 - Test on the NAS/PS5 (the session can't reach the NAS): Compress dialog and
   estimates, TOML chooser, sub-tabs, LZ4 NG with theghostonline's packer +
   ampr-emu-ng `cbdafd8`, Start check (ShadowMountPlus fields `runtime_path`,
@@ -71,6 +71,8 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- Stopped following James St-Pierre's branches: follower, workflow and docs
+  cover quer3q only; `tools/james-branches.json` removed.
 - Updated ampr-emu-ng to upstream v0.3.5 (`a0dd88a`), including the smaller
   PRX memory pool and load-based thread retirement. Forge remains v0.5.5.
   NAS/PS5 hardware validation remains open.

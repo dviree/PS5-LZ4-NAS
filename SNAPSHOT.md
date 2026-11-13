@@ -9,7 +9,7 @@ callers/skeleton`); line numbers below drift, names don't.
 |---|---|---|
 | `nas-lz4/` | **The NAS app** (Docker): packing agent + web page. | Python, HTML/JS |
 | `pkg-receiver/` | Glass theme + extras for pkg-receiver (PS5 package installer payload) | C, JS, Py |
-| `tools/` | `quer3q_update.py` (follow quer3q/James) | Python |
+| `tools/` | `quer3q_update.py` (follow quer3q only) | Python |
 | `tests/nas/` | `python3 -m unittest discover -s tests/nas`, `node tests/nas/*.cjs` | Py, JS |
 | `.github/workflows/` | `build-image.yml` (NAS image on `nas-build`), `quer3q-update.yml`, `pkg-receiver.yml` | YAML |
 
@@ -80,5 +80,4 @@ removed on 2026-11-10. Its PS5 engine/app code is pruned from `ps5lz4.py` and th
   including PR #51 fd read priority for issue #37, on-demand index reads and
   exact-size pack reads; kernel AIO built in).
 - quer3q/ps5-dump-forge releases (pin in `install-forge.py`).
-- `tools/quer3q_update.py` moves pins (checks SHA256SUMS), reports James's
-  branches (`tools/james-branches.json`).
+- `tools/quer3q_update.py` moves pins (checks SHA256SUMS); quer3q only.
