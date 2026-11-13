@@ -362,6 +362,17 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
       <a class="sm" id="rcv-open" target="_blank" rel="noopener" style="align-self:center">Open its page</a></div>
     <div class="why" id="rcv-msg"></div>
   </div>
+  <div class="card"><h2>PS5 Dump Forge on the PS5</h2>
+    <div class="mut">Pack a game directly on your jailbroken PS5 using
+      <a href="https://github.com/quer3q/ps5-dump-forge" target="_blank" rel="noopener">quer3q's PS5 Dump Forge</a>.
+      Start the PS5's ELF loader or Payload Manager first, then use the Pack tab in Forge's own page.
+      This downloads the verified v0.5.5 PS5 ELF to the NAS, copies it to Payload Manager when FTP is available,
+      and starts it. Relaunch the payload after a console restart. Forge v0.5.5 bundles its own ampr-emu-ng runtime;
+      packs made on the PS5 do not automatically use this NAS image's newer runtime.</div>
+    <div class="filters"><button class="pri" id="forge-ps5-button" onclick="forgePs5Install()">Install and start Forge on PS5</button>
+      <a class="sm" id="forge-ps5-open" target="_blank" rel="noopener" hidden>Open Forge on PS5</a></div>
+    <div class="why" id="forge-ps5-msg"></div>
+  </div>
   <div class="card"><h2>Notifications</h2>
     <div class="mut">A push notification when packing, a check, a transfer to the PS5 or a download by the PS5 finishes or fails.
     Use an <a href="https://ntfy.sh" target="_blank" rel="noopener">ntfy</a> topic (<code>https://ntfy.sh/your-secret-topic</code>, then
@@ -2325,6 +2336,26 @@ async function rcvInstall(fromHeader) {
   msg.className = 'why ' + (r.ok ? 'good' : 'bad'); msg.textContent = text;
   if (fromHeader) alert(text);
   setTimeout(rcvCheck, 4000);
+}
+async function forgePs5Install() {
+  const button = document.getElementById('forge-ps5-button');
+  const msg = document.getElementById('forge-ps5-msg');
+  const link = document.getElementById('forge-ps5-open');
+  button.disabled = true;
+  msg.className = 'why'; msg.textContent = 'Downloading and starting PS5 Dump Forge…';
+  try {
+    const response = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'forge_ps5_install'})});
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.started) throw new Error(result.error || 'The PS5 did not start Forge');
+    link.href = result.url;
+    link.hidden = false;
+    msg.className = 'why good';
+    msg.textContent = `Forge v${result.version} started via ${result.started}.${result.installed ? ' Saved in Payload Manager.' : ''} Open its page to pack on the PS5.`;
+  } catch (error) {
+    msg.className = 'why bad'; msg.textContent = `Forge could not start: ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
 }
 // Wake and watch: the PS5 answers the same discovery port in rest mode
 // ("standby"), so the result says whether the wake-up got there.

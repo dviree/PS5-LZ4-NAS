@@ -64,6 +64,8 @@ removed on 2026-11-10. Its PS5 engine/app code is pruned from `ps5lz4.py` and th
 - Page data: `dashboard_data` (`/api/dashboard`: `games` rows for originals,
   `copies` one per packed folder, `pkgs`, …), `game_detail`.
 - PS5 side: FTP (`ps5_ftp_*`), pkg-receiver (`receiver_*`, port 12800),
+  Forge console ELF (`forge_ps5_elf`/`forge_ps5_install`: verified v0.5.5,
+  Payload Manager or elfldr, console UI on port 8095),
   ShadowMountPlus via receiver (`smp`, `launch_check`), packages
   (`scan_pkgs`, `pkg_install*`, `ps5_installed`, `pkg_on_ps5`).
 - Community reports (`compat_*`, `report_url`): off unless `PS5LZ4_COMMUNITY=yes`.

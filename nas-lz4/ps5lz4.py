@@ -5024,6 +5024,77 @@ def receiver_start() -> dict:
     return receiver_launch(ENGINE_DIR / "pkg-receiver.elf")
 
 
+# Match the reviewed Forge release used by the NAS packer. A console payload
+# has its own bundled runtime; it is not the newer NAS runtime in this image.
+FORGE_PS5_VERSION = "0.5.5"
+FORGE_PS5_SHA256 = "858b8ae2954341a3389e4a9f998c6a57d01bc4e4fb8f01a71c41719001c30be7"
+FORGE_PS5_PATH = "/data/pldmgr/payloads/ps5-dump-forge/ps5-dump-forge.elf"
+
+
+def forge_ps5_elf() -> Path:
+    """Cache the official, checksum-verified PS5 release in NAS state."""
+    import hashlib
+    import urllib.request
+    elf = ENGINE_DIR / f"ps5-dump-forge-{FORGE_PS5_VERSION}-ps5.elf"
+    if elf.is_file():
+        with elf.open("rb") as cached:
+            if hashlib.file_digest(cached, "sha256").hexdigest() == FORGE_PS5_SHA256:
+                return elf
+    url = ("https://github.com/quer3q/ps5-dump-forge/releases/download/"
+           f"v{FORGE_PS5_VERSION}/{elf.name}")
+    req = urllib.request.Request(url, headers={"User-Agent": "ps5-lz4"})
+    with urllib.request.urlopen(req, timeout=120) as response:
+        data = response.read(64 * 1024 * 1024 + 1)
+    if len(data) > 64 * 1024 * 1024 or data[:4] != b"\x7fELF":
+        raise ValueError("the downloaded PS5 Dump Forge payload is not a valid ELF")
+    if hashlib.sha256(data).hexdigest() != FORGE_PS5_SHA256:
+        raise ValueError("the PS5 Dump Forge payload failed its SHA-256 check")
+    ENGINE_DIR.mkdir(parents=True, exist_ok=True)
+    temporary = elf.with_suffix(".tmp")
+    temporary.write_bytes(data)
+    temporary.replace(elf)
+    return elf
+
+
+def forge_ps5_install() -> dict:
+    """Copy Forge into Payload Manager when FTP works; start via PM or elfldr."""
+    import io
+    import ftplib
+    import socket
+    host = (get_settings().get("ps5_ftp") or "").partition(":")[0]
+    if not host:
+        raise ValueError("set the PS5 address under Remote first")
+    elf = forge_ps5_elf()
+    installed = None
+    try:
+        f = ps5_ftp_connect()
+        try:
+            installed = pm_path(FORGE_PS5_PATH, f)
+            ps5_ftp_mkdirs(f, installed.rsplit("/", 1)[0])
+            f.storbinary(f"STOR {installed}", io.BytesIO(elf.read_bytes()), blocksize=1 << 20)
+        finally:
+            try:
+                f.quit()
+            except Exception:
+                pass
+        answer = pm_load(host, installed)
+        if "Invalid payload name" not in answer:
+            return {"installed": installed, "started": f"Payload Manager ({PLDMGR_PORT})",
+                    "url": f"http://{host}:8095/", "version": FORGE_PS5_VERSION}
+    except (OSError, ValueError, *ftplib.all_errors):
+        pass  # A PS5 with an ELF loader does not need FTP or Payload Manager.
+    for port in ELFLDR_PORTS:
+        try:
+            with socket.create_connection((host, port), timeout=10) as sk, elf.open("rb") as source:
+                while chunk := source.read(1 << 20):
+                    sk.sendall(chunk)
+            return {"installed": installed, "started": f"ELF loader ({port})",
+                    "url": f"http://{host}:8095/", "version": FORGE_PS5_VERSION}
+        except OSError:
+            continue
+    raise ValueError("could not start Forge: run Payload Manager or an ELF loader on the PS5 (port 9021)")
+
+
 RECV_AUTO = ENGINE_DIR / "receiver-auto.json"  # {"on": bool}: start pkg-receiver when the PS5 is on
 
 
@@ -7084,6 +7155,11 @@ def cmd_ui(args) -> int:
             if req.get("action") == "receiver_install":
                 try:
                     return self.send(200, json.dumps(receiver_install()).encode())
+                except Exception as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+            if req.get("action") == "forge_ps5_install":
+                try:
+                    return self.send(200, json.dumps(forge_ps5_install()).encode())
                 except Exception as err:
                     return self.send(400, json.dumps({"error": str(err)}).encode())
             if req.get("action") == "pkg_install":

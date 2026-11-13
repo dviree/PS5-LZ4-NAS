@@ -5,6 +5,11 @@ ends (see `CLAUDE.md`). No real game names (Title IDs only), no personal data.
 
 ## >RESUME HERE
 
+Done 2026-11-13: Remote page can copy the checksum-verified quer3q Forge
+v0.5.5 PS5 ELF to Payload Manager and start it there (ELF loader fallback),
+then link to the console's port 8095 Pack page. Console runs Forge's bundled
+runtime, not the newer NAS runtime. Needs a hardware test on the PS5.
+
 Done 2026-11-12: ampr-emu-ng pinned to upstream `0a5670a` (after v0.3.5),
 including PR #51 for PPSA21704 / issue #37. One console tested the PR's debug
 build; the newer pinned build still needs a PS5 play test. Forge stays v0.5.5.
