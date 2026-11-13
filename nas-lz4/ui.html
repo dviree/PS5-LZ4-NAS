@@ -1240,7 +1240,7 @@ function renderLibTabs(d) {
   if (!el) return;
   const copies = d.copies || [], n = {orig: originalGames(d).length + (d.archives || []).length,
     lz4: copies.filter(c => c.codec !== 'zstd').length, zstd: copies.filter(c => c.codec === 'zstd').length};
-  const tabs = [['orig', '📁 Folder / exFAT'], ['lz4', '⚡ LZ4'], ['zstd', '🗜 Zstd']];
+  const tabs = [['orig', '📁 Folder / exFAT / PKG'], ['lz4', '⚡ LZ4'], ['zstd', '🗜 Zstd']];
   el.innerHTML = tabs.map(([k, label]) => `<button role="tab" aria-selected="${libTab === k}" class="${libTab === k ? 'on' : ''}" onclick="setLibTab('${k}')">${label} <span class="n">${n[k]}</span></button>`).join('');
   const orig = libTab === 'orig';
   document.getElementById('fmtbar').hidden = !orig;
@@ -1251,7 +1251,7 @@ function renderLibTabs(d) {
 }
 function copiesHtml(d, kind) {
   const list = (d.copies || []).filter(c => (c.codec === 'zstd') === (kind === 'zstd'));
-  const head = `<div class="mut" style="margin-bottom:6px">${kind === 'zstd' ? 'Zstd' : 'LZ4'} copies. Pack originals in Folder / exFAT.</div>`;
+  const head = `<div class="mut" style="margin-bottom:6px">${kind === 'zstd' ? 'Zstd' : 'LZ4'} copies. Pack originals in Folder / exFAT / PKG.</div>`;
   if (!list.length) return head + `<div class="mut">No ${kind === 'zstd' ? 'Zstd' : 'LZ4'} copies yet.</div>`;
   return head + list.map(c => {
     const v = (d.verifies || {})[c.id] || {}, tx = (d.transfers || {})[c.transfer_name || c.id];

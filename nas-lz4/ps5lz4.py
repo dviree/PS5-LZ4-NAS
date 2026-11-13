@@ -615,10 +615,12 @@ def estimate_game(game_id: str) -> dict:
 # library
 
 class Entry:
-    def __init__(self, path: Path, kind: str):
+    def __init__(self, path: Path, kind: str, root: Path | None = None, host_root: str | None = None):
         self.path = path
         self.kind = kind  # folder | exfat | ffpfs | ffpfsc | pkg | lz4copy (an LZ4 copy, original gone)
-        self.rel = str(path.relative_to(LIBRARY))
+        # rel: relative to the library, or "pkgs/..." for a game package in the package folder
+        self.rel = str(path.relative_to(LIBRARY)) if root is None else "pkgs/" + str(path.relative_to(root))
+        self.host = None if root is None else str(Path(host_root or root) / path.relative_to(root))
         stem = path.name if kind == "folder" else path.name[: -len(path.suffix)]
         self.id = safe_name(stem)
         self.title_id = ""
@@ -627,6 +629,11 @@ class Entry:
         m = TITLE_RE.search(path.name)
         if m:
             self.title_id = m.group(0).upper()
+
+    @property
+    def host_path(self) -> str:
+        """Where this source is on the NAS, as shown on the page and in reports."""
+        return getattr(self, "host", None) or str(Path(HOST_LIBRARY) / self.rel)
 
     @property
     def output(self) -> Path:
@@ -666,6 +673,7 @@ def lz4_copy_entries(library: list[Entry] | None = None) -> list[Entry]:
             continue
         e = Entry.__new__(Entry)
         e.path, e.kind, e.rel, e.id = p, "lz4copy", p.name, safe_name(p.name[:-len("-lz4")])
+        e.host = host_output_path(p)
         e.title_id, e.name, e.duplicate_of = "", "", None
         pj = p / "sce_sys" / "param.json"
         if pj.is_file():
@@ -732,6 +740,30 @@ def scan_library() -> list[Entry]:
                       file=sys.stderr)
 
     walk(LIBRARY, 0)
+    # PS5 game packages in the package folder (updates, DLC and backports live there
+    # too, and stay on the PKG installer tab): packable like the library's own.
+    if PKG_LIBRARY.is_dir():
+        def walk_pkgs(d: Path, depth: int):
+            try:
+                kids = sorted(d.iterdir(), key=lambda p: p.name.lower())
+            except OSError:
+                return
+            for p in kids:
+                if p.name.startswith("."):
+                    continue
+                try:
+                    if p.is_dir() and depth < 3:
+                        walk_pkgs(p, depth + 1)
+                    elif p.is_file() and p.suffix.lower() == ".pkg":
+                        info = pkg_info(p)
+                        if pkg_is_ps5_game(info):
+                            e = Entry(p, "pkg", PKG_LIBRARY, pkg_host("pkgs"))
+                            e.title_id = info["title_id"].upper()
+                            e.name = info.get("name") or ""
+                            entries.append(e)
+                except OSError:
+                    continue
+        walk_pkgs(PKG_LIBRARY, 0)
     # An unpacked folder wins over an image of the same game.
     folders = {e.title_id: e for e in entries if e.kind == "folder" and e.title_id and not is_packed(e.path)}
     for e in entries:
@@ -1202,7 +1234,7 @@ class Job:
         st = self.state
         report = {
             "id": e.id,
-            "source": host_output_path(e.path) if e.kind == "lz4copy" else str(Path(HOST_LIBRARY) / e.rel),
+            "source": e.host_path,
             "source_kind": e.kind,
             "title_id": st.get("title_id"),
             "title_name": st.get("title_name"),
@@ -4513,7 +4545,7 @@ def library_duplicates() -> list[dict]:
                 size = e.path.stat().st_size
             items.append({"id": e.id, "rel": e.rel, "kind": e.kind, "version": ver, "size": size,
                           "used": not e.duplicate_of,
-                          "path": str(Path(HOST_LIBRARY) / e.rel),
+                          "path": e.host_path,
                           "lz4": e.output.is_dir() and is_packed(e.output)})
         newest = max(items, key=lambda i: (_ver_key(i["version"]), i["kind"] == "folder"))
         for i in items:
@@ -6520,7 +6552,7 @@ def dashboard_data() -> dict:
             src_size = None
         rep = read_json(REPORTS / f"{e.id}.json") or {}
         g = games.get((e.title_id or "").upper()) or {}
-        row = {"id": e.id, "rel": e.rel, "source_path": str(Path(HOST_LIBRARY) / e.rel), "kind": e.kind,
+        row = {"id": e.id, "rel": e.rel, "source_path": e.host_path, "kind": e.kind,
                "source_codec": source_codec,
                "not_in_use": bool(e.duplicate_of),
                "source_size": src_size, "title_id": e.title_id,

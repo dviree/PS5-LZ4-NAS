@@ -185,6 +185,26 @@ class ForgeIntegrationTests(unittest.TestCase):
         # updates and DLC are not library games
         self.assertFalse(app.pkg_is_ps5_game({'platform': 'PS5', 'category': 'Update', 'title_id': 'PPSA01234'}))
 
+    def test_ps5_game_pkg_in_the_package_folder_is_found_too(self):
+        pj = self.src/'sce_sys/param.json'
+        pj.write_text(json.dumps({'titleId': 'PPSA01234', 'contentId': 'UP0000-PPSA01234_00-TESTTESTTESTTEST',
+                                  'applicationCategoryType': 0, 'contentVersion': '01.000.000',
+                                  'localizedParameters': {'defaultLanguage': 'en-US', 'en-US': {'titleName': 'Example'}}}))
+        pkgs = self.root/'pkgs'; (pkgs/'games').mkdir(parents=True)
+        pkg = pkgs/'games'/'Example [PPSA01234].pkg'
+        subprocess.run([app.FORGE, 'convert', str(self.src), '--to', 'pkg', '-o', str(pkg)], check=True, capture_output=True)
+        shutil.rmtree(self.src)
+        with patch.object(app, 'PKG_LIBRARY', pkgs), patch.object(app, 'HOST_PKG_LIBRARY', '/volume1/games/pkgs'):
+            entries = app.scan_library()
+            self.assertEqual([(e.kind, e.rel, e.host_path) for e in entries],
+                             [('pkg', 'pkgs/games/Example [PPSA01234].pkg', '/volume1/games/pkgs/games/Example [PPSA01234].pkg')])
+            job = app.Job(entries[0], 5, True, False, 'zstd', 'ng')
+            with patch.object(app, 'MKPFS', '/nonexistent/mkpfs'), contextlib.redirect_stdout(io.StringIO()):
+                report = job.run()
+            self.assertEqual(app.packed_codec(job.e.output), 'zstd')
+            self.assertEqual(report['source'], '/volume1/games/pkgs/games/Example [PPSA01234].pkg')
+            self.assertEqual([e.id for e in app.pack_sources() if e.kind == 'pkg'], ['Example _PPSA01234_'])
+
     def test_an_lz4_copy_without_its_original_becomes_zstd(self):
         lz4 = self.lz4_copy()
         self.assertEqual(app.lz4_copy_entries(), [])   # the original is there: it is packed instead
