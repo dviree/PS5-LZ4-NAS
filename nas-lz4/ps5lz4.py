@@ -1982,13 +1982,125 @@ def ng_report_url(tid: str, name: str, result: str, packs: str, game_ver: str = 
     answer = NG_FORM_RESULT[result]
     setup = (f"Firmware: {firmware}\nLoader (e.g. ShadowMountPlus x.y), fakelib updates off: yes/no\n"
              f"Packer (e.g. ps5-dump-forge x.y): "
-             + (f"ps5-dump-forge {forge_pin_version()}" if packs == "zstd" else "theghostonline ampr_pack (LZ4)")
+             + f"ps5-dump-forge {forge_pin_version()}"
              + f" via ps5lz4zstd NAS {VERSION}\nInstall: folder / ffpkg / pkg\n"
                "Storage: internal SSD / extended M.2 / USB exFAT")
     q = {"template": "game-report.yml", "title": f"[{tid}] {name}: {answer.split(' (')[0]}",
          "game": ", ".join(x for x in (name, tid, game_ver) if x), "version": f"v{ver}" if ver else "",
          "build": "release (libSceAmpr.sprx)", "packs": packs, "result": answer, "setup": setup}
     return f"{NG_REPORT_WEB}/issues/new?" + urlencode(q)
+
+
+# Submitting a game report from the page: a GitHub token the owner adds on the
+# Remote tab (a classic token with the public_repo scope), kept in state with
+# mode 0600 and never sent back to the page. Only the web page container posts.
+GITHUB_TOKEN_PATH = STATE / "github-token"
+NG_SUBMITTED = STATE / "ng-submitted.json"  # game id -> issues opened from here
+NG_INSTALLS = ("folder", "ffpkg", "pkg")
+NG_STORAGE = ("internal SSD", "extended M.2", "USB exFAT")
+
+
+def github_token() -> str:
+    env = os.environ.get("PS5LZ4_GITHUB_TOKEN", "").strip()
+    if env:
+        return env
+    try:
+        return GITHUB_TOKEN_PATH.read_text().strip()
+    except OSError:
+        return ""
+
+
+def set_github_token(token: str) -> dict:
+    token = (token or "").strip()
+    if not token:
+        GITHUB_TOKEN_PATH.unlink(missing_ok=True)
+        return {"github_token": ""}
+    if not re.fullmatch(r"(ghp_|github_pat_)[A-Za-z0-9_]{20,250}", token):
+        raise ValueError("that does not look like a GitHub token (ghp_… or github_pat_…)")
+    STATE.mkdir(parents=True, exist_ok=True)
+    tmp = GITHUB_TOKEN_PATH.with_suffix(".tmp")
+    tmp.write_text(token + "\n")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, GITHUB_TOKEN_PATH)
+    return {"github_token": "set"}
+
+
+def ng_report_issue(game_id: str, fields: dict) -> dict:
+    """Title and body of a game report in quer3q's game-report.yml layout
+    ("### Label" sections, the same the page reads back), for one packed copy."""
+    rep = read_json(REPORTS / f"{safe_name(game_id)}.json") or {}
+    if not rep:
+        raise ValueError("this game has no packed copy made here")
+    packs = str(fields.get("packs") or ("zstd" if rep.get("pack_codec") == "zstd" else "lz4"))
+    if packs not in ("zstd", "lz4"):
+        raise ValueError("packs must be zstd or lz4")
+    result = str(fields.get("result") or "")
+    if result not in NG_FORM_RESULT and result not in [full for _s, _k, full in NG_RESULTS] + ["Other"]:
+        raise ValueError("choose a result")
+    answer = NG_FORM_RESULT.get(result, result)
+    what = str(fields.get("what") or "").strip()
+    if len(what) < 10:
+        raise ValueError("say in a sentence or two what happened")
+    tid = (rep.get("title_id") or "").upper() or "PPSA?????"
+    name = re.sub(r"\s+", " ", str(rep.get("title_name") or game_id))[:60]
+    clean = lambda v, n=200: re.sub(r"[\r\n]+", " ", str(v or "")).strip()[:n]
+    install = clean(fields.get("install")) if fields.get("install") in NG_INSTALLS else "folder"
+    storage = clean(fields.get("storage")) if fields.get("storage") in NG_STORAGE else ""
+    game_ver = clean(fields.get("game_version"), 20) or str((rep.get("version") or ""))
+    ver = (re.search(r"\(v([\d.]+)\)", NG_NAME) or [None, ""])[1]
+    setup = "\n".join([f"Firmware: {clean(fields.get('firmware'), 20)}",
+                       f"Loader: {clean(fields.get('loader')) or '-'}",
+                       f"Packer: ps5-dump-forge {forge_pin_version()} via ps5lz4zstd NAS {VERSION}"
+                       + (f" ({rep['codec']})" if rep.get("codec") else ""),
+                       f"Install: {install}", f"Storage: {storage or '-'}"])
+    sections = [("Game, title ID and game version", ", ".join(x for x in (name, tid, game_ver) if x)),
+                ("ampr-emu-ng version", f"v{ver}" if ver else NG_NAME),
+                ("Build", "release (libSceAmpr.sprx)"), ("Packs", packs), ("Result", answer),
+                ("Setup", setup), ("What happened", what[:6000]),
+                ("Logs", "_No response_")]
+    body = "\n\n".join(f"### {k}\n\n{v or '_No response_'}" for k, v in sections)
+    body += "\n\n<sub>Sent from ps5lz4zstd on the owner's NAS.</sub>"
+    return {"title": f"[{tid}] {name}: {answer.split(' (')[0]}", "body": body, "packs": packs, "result": answer}
+
+
+def ng_report_submit(game_id: str, fields: dict, dry: bool = False) -> dict:
+    """Open the game report as an issue on quer3q/ampr-emu-ng with the owner's token.
+    The same result for the same game is not sent twice within a day."""
+    import urllib.error
+    import urllib.request
+    issue = ng_report_issue(game_id, fields)
+    if dry:
+        return {**issue, "dry": True}
+    token = github_token()
+    if not token:
+        raise ValueError("add a GitHub token on the Remote tab first (or use Open on GitHub)")
+    sent = read_json(NG_SUBMITTED, {}) or {}
+    for old in sent.get(game_id, []):
+        if old.get("result") == issue["result"] and old.get("packs") == issue["packs"] \
+                and time.time() - old.get("ts", 0) < 86400 and not fields.get("again"):
+            raise ValueError(f"already sent today: {old.get('url')}")
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{NG_REPORT_REPO}/issues", method="POST",
+        data=json.dumps({"title": issue["title"], "body": issue["body"], "labels": ["test report"]}).encode(),
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+                 "X-GitHub-Api-Version": "2022-11-28", "User-Agent": f"ps5-lz4/{VERSION}",
+                 "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            j = json.load(r)
+    except urllib.error.HTTPError as err:
+        why = {401: "the GitHub token is wrong or expired", 403: "the token may not open issues (it needs the public_repo scope)",
+               404: "the token may not open issues (it needs the public_repo scope)", 410: "issues are turned off on that repository",
+               422: "GitHub refused the report"}.get(err.code, f"GitHub answered HTTP {err.code}")
+        raise ValueError(why)
+    except OSError as err:
+        raise ValueError(f"GitHub could not be reached: {err}")
+    entry = {"number": j.get("number"), "url": j.get("html_url"), "result": issue["result"],
+             "packs": issue["packs"], "at": now(), "ts": time.time()}
+    sent.setdefault(game_id, []).append(entry)
+    write_json(NG_SUBMITTED, sent)
+    print(f"[{now()}] game report #{entry['number']} opened for {game_id}", flush=True)
+    return entry
 
 
 def forge_pin_version() -> str:
@@ -6439,7 +6551,8 @@ def dashboard_data() -> dict:
             "requests": {"pending": pending, "pending_list": pending_list, "recent": done_req[::-1],
                          "agent_age": agent_age}, "version": VERSION,
             "settings": {**get_settings(), "ps5_wake_key": "set" if get_settings()["ps5_wake_key"] else "",
-                         "paired": {k: (read_json(SETTINGS_PATH, {}) or {}).get(k) for k in ("ps5_nickname", "ps5_paired")}},
+                         "paired": {k: (read_json(SETTINGS_PATH, {}) or {}).get(k) for k in ("ps5_nickname", "ps5_paired")},
+            "github_token": "set" if github_token() else ""},
             "transfer": transfer_running(),
             "transfers": {f.stem: read_json(f, {}) for f in transfer_files()},
             "transfer_queue": transfer_queue()}
@@ -6551,7 +6664,8 @@ def game_detail(game_id: str) -> dict:
     version = game_version(*(x for x in (out, src.path if src and src.kind == "folder" else None) if x),
                            name=(src.rel if src else "") or (out.name if out else game_id))
     return {"id": game_id, "report": rep or None, "folder": folder, "work": work, "skipped": skipped,
-            "title_id": tid, "ng_reports": ng_reports().get(tid), "ng_reports_web": NG_REPORT_WEB,
+            "title_id": tid, "ng_submitted": (read_json(NG_SUBMITTED, {}) or {}).get(game_id) or [],
+            "ng_reports": ng_reports().get(tid), "ng_reports_web": NG_REPORT_WEB,
             "ng_reports_at": (read_json(NG_REPORTS, {}) or {}).get("updated") if NG_REPORTS_ON else None,
             "apr": apr,
             "unity": UNITY_WHY if (out and out.is_dir() and unity_folder(out)) or
@@ -7282,6 +7396,19 @@ def cmd_ui(args) -> int:
                 before = ps5_status(host)
                 ps5_wake(host, cfg["ps5_wake_key"])
                 return self.send(200, json.dumps({"sent": True, "before": before}).encode())
+            if req.get("action") == "github_token":
+                try:
+                    res = set_github_token(str(req.get("token") or ""))
+                except (ValueError, OSError) as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+                cache["at"] = 0
+                return self.send(200, json.dumps(res).encode())
+            if req.get("action") == "ng_report":
+                try:
+                    res = ng_report_submit(str(req.get("game") or ""), req.get("fields") or {}, bool(req.get("dry")))
+                except (ValueError, OSError) as err:
+                    return self.send(400, json.dumps({"error": str(err)}).encode())
+                return self.send(200, json.dumps(res).encode())
             if req.get("action") == "settings":
                 if req.get("ps5_wake_key") == "set":
                     req.pop("ps5_wake_key")  # unchanged (the page only sees that one is stored)

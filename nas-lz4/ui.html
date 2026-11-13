@@ -435,6 +435,20 @@ button.two small{font-size:11px;font-weight:500;opacity:.88;line-height:1.25;whi
       <button onclick="saveSettings()">Save</button>
     </div>
   </div>
+  <div class="card"><h2>GitHub game reports</h2>
+    <div class="mut">To send a game report from this page as an issue on
+    <a href="https://github.com/quer3q/ampr-emu-ng/issues" target="_blank" rel="noopener">quer3q/ampr-emu-ng</a>,
+    save a GitHub token here: a <b>classic</b> personal access token with the <code>public_repo</code> scope
+    (GitHub › Settings › Developer settings › Personal access tokens). It is kept on the NAS (state, mode 600) and never shown
+    again; reports are opened under your GitHub account. Without one, the game sheet's <b>Open on GitHub</b> opens the same
+    report filled in, to submit yourself.</div>
+    <div class="filters">
+      <input id="s-gh" type="password" placeholder="GitHub token (ghp_…)" autocomplete="off" spellcheck="false">
+      <button onclick="saveGithubToken()">Save</button>
+      <button class="ghost" onclick="saveGithubToken(true)">Remove</button>
+    </div>
+    <div class="why" id="gh-msg"></div>
+  </div>
 </main>
 <main id="p-ftp" hidden>
   <div class="card"><h2>PS5 files (FTP)</h2>
@@ -792,6 +806,17 @@ async function act(action, confirmText, extra = {}) {
   setTimeout(load, 800);
 }
 
+async function saveGithubToken(remove) {
+  const el = document.getElementById('s-gh'), msg = document.getElementById('gh-msg');
+  if (remove && !confirm('Remove the GitHub token from the NAS?')) return;
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'github_token', token: remove ? '' : el.value})});
+  const j = await r.json().catch(() => ({}));
+  el.value = '';
+  msg.className = 'why ' + (r.ok ? 'good' : 'bad');
+  msg.textContent = !r.ok ? 'Not saved: ' + (j.error || r.status) : j.github_token ? 'Saved: reports can be sent from the game sheet.' : 'Removed.';
+  settingsFilled = false; load();
+}
 async function saveNotify() {
   const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({action: 'settings', notify_url: document.getElementById('s-notify').value.trim()})});
@@ -941,6 +966,7 @@ function render() {
     const kf = document.getElementById('s-key');
     kf.value = '';
     kf.placeholder = d.settings.ps5_wake_key ? 'Remote Play key saved (leave empty to keep it)' : 'Remote Play key (rp_regist_key)';
+    document.getElementById('s-gh').placeholder = d.settings.github_token ? 'GitHub token saved (enter a new one to replace it)' : 'GitHub token (ghp_…)';
     const pd = d.settings.paired || {};
     document.getElementById('paired').innerHTML = pd.ps5_paired
       ? `<span class="good">Paired with ${esc(pd.ps5_nickname || 'PS5')} (${esc(pd.ps5_paired)}).</span>` :
@@ -1416,7 +1442,68 @@ function ngReportsHtml(g, det) {
     <div class="acts">${all}</div></div>`;
 }
 function communityHtml(g, det) {
-  return ngReportsHtml(g, det);
+  return ngReportsHtml(g, det) + ngReportFormHtml(g, det);
+}
+// Send a game report to quer3q/ampr-emu-ng: as an issue with the saved token, or
+// opened on GitHub filled in.
+const NG_FORM = {works: 'Works (played past the first level load)', nostart: 'Fails at launch ("Something went wrong" or similar)',
+  crash: 'Crashes later', hang: 'Hangs (loading screen or black screen)', issues: 'Runs, but slow or stutters', other: 'Other'};
+function ngReportFormHtml(g, det) {
+  if (!det || !det.report) return '';
+  const rep = det.report, packs = rep.pack_codec === 'zstd' ? 'zstd' : 'lz4';
+  if (rep.pack_codec !== 'zstd' && rep.pack_runtime !== 'ng') return '';
+  let fw = ''; try { fw = (localStorage.getItem('fw') || '').trim(); } catch (e) {}
+  const sent = (det.ng_submitted || []).map(x => `<a href="${esc(x.url)}" target="_blank" rel="noopener">#${esc(x.number)}</a> ${esc(x.result.split(' (')[0])} (${esc(x.packs)}, ${esc(x.at)})`).join(' · ');
+  const tok = !!((data && data.settings) || {}).github_token;
+  const opt = (o, v) => Object.entries(o).map(([k, t]) => `<option value="${esc(k)}" ${k === v ? 'selected' : ''}>${esc(t)}</option>`).join('');
+  return `<div class="csec" id="ngr"><h4>Report this copy to quer3q</h4>
+    ${sent ? `<div class="why">Sent from here: ${sent}</div>` : ''}
+    <style>#ngr label{display:grid;gap:4px}#ngr select,#ngr input,#ngr textarea{width:100%;max-width:100%;min-width:0;box-sizing:border-box}</style>
+    <div style="display:grid;gap:8px;margin-top:6px">
+      <label class="mut">Result <select id="ngr-result">${opt(NG_FORM, '')}</select></label>
+      <label class="mut">Packs <select id="ngr-packs">${opt({zstd: 'zstd', lz4: 'lz4'}, packs)}</select></label>
+      <label class="mut">Firmware <input id="ngr-fw" value="${esc(fw)}" placeholder="e.g. 13.40"></label>
+      <label class="mut">Loader <input id="ngr-loader" placeholder="e.g. ShadowMountPlus 1.7, fakelib updates off"></label>
+      <label class="mut">Install <select id="ngr-install">${opt({folder: 'folder', ffpkg: 'ffpkg', pkg: 'pkg'}, 'folder')}</select></label>
+      <label class="mut">Storage <select id="ngr-storage">${opt({'internal SSD': 'internal SSD', 'extended M.2': 'extended M.2', 'USB exFAT': 'USB exFAT'}, 'USB exFAT')}</select></label>
+      <label class="mut">What happened <textarea id="ngr-what" rows="4" style="width:100%;box-sizing:border-box" placeholder="What you did and saw; where it fails, any error code"></textarea></label>
+    </div>
+    <div class="acts" style="margin-top:8px">
+      <button class="pri" data-g="${esc(g.id)}" onclick="ngReportSend(this.dataset.g)" ${tok ? '' : 'disabled title="Save a GitHub token on the Remote tab first"'}>Send to GitHub</button>
+      <button class="ghost" data-g="${esc(g.id)}" onclick="ngReportOpen(this.dataset.g)">Open on GitHub</button>
+    </div>
+    <div class="why" id="ngr-msg">${tok ? '' : 'Sending needs a GitHub token (Remote tab). Open on GitHub works without one.'}</div></div>`;
+}
+function ngReportFields() {
+  const v = id => (document.getElementById(id) || {}).value || '';
+  const fw = v('ngr-fw').trim(); try { if (fw) localStorage.setItem('fw', fw); } catch (e) {}
+  return {result: NG_FORM[v('ngr-result')] || v('ngr-result'), packs: v('ngr-packs'), firmware: fw, loader: v('ngr-loader'),
+    install: v('ngr-install'), storage: v('ngr-storage'), what: v('ngr-what')};
+}
+async function ngReportCall(game, dry) {
+  const r = await fetch('/api/action', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'ng_report', game, dry, fields: ngReportFields()})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+async function ngReportOpen(game) {
+  const msg = document.getElementById('ngr-msg');
+  try {
+    const j = await ngReportCall(game, true);
+    window.open('https://github.com/quer3q/ampr-emu-ng/issues/new?' + new URLSearchParams({title: j.title, body: j.body}), '_blank', 'noopener');
+  } catch (e) { msg.className = 'why bad'; msg.textContent = String(e.message || e); }
+}
+async function ngReportSend(game) {
+  const msg = document.getElementById('ngr-msg');
+  try {
+    const p = await ngReportCall(game, true);
+    if (!confirm(`Open this issue on quer3q/ampr-emu-ng under your GitHub account?\n\n${p.title}\n\n${p.body.slice(0, 900)}`)) return;
+    msg.className = 'why'; msg.textContent = 'Sending…';
+    const j = await ngReportCall(game, false);
+    msg.className = 'why good';
+    msg.innerHTML = `Sent: <a href="${esc(j.url)}" target="_blank" rel="noopener">#${esc(j.number)}</a>`;
+  } catch (e) { msg.className = 'why bad'; msg.textContent = 'Not sent: ' + (e.message || e); }
 }
 let openId = null;
 function closeGame() { openId = null; document.getElementById('modal').hidden = true; document.body.classList.remove('locked'); }

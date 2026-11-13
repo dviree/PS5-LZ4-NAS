@@ -70,7 +70,9 @@ removed on 2026-11-10. Its PS5 engine/app code is pruned from `ps5lz4.py` and th
   (`scan_pkgs`, `pkg_install*`, `ps5_installed`, `pkg_on_ps5`).
 - Community reports (`compat_*`, `report_url`): off unless `PS5LZ4_COMMUNITY=yes`.
 - quer3q's reports: `ng_reports_refresh/aggregate` (state `ng-reports.json`, every
-  3 h), `ng_report_url` (form link), shown by `ngReportsHtml` in ui.html.
+  3 h), `ng_report_url` (form link), shown by `ngReportsHtml` in ui.html;
+  sending: `ng_report_issue/ng_report_submit` (token `github_token`, state
+  `github-token`, `ng-submitted.json`), form `ngReportFormHtml`.
 
 ### State on the NAS (`/volume2/docker/ps5-lz4/state`)
 

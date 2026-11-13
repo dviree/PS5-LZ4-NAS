@@ -52,6 +52,8 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 - Without the old loose rules Forge packs `cache_ps5/pgc_*_dummy_file`,
   `playgo.pgm` and the PPSA26344 boot files (seen in a local Zstd pack). quer3q
   says ampr-emu-ng serves such reads; check PPSA26344 and PPSA34547 on the PS5.
+- Check on the NAS that Send to GitHub opens the issue (labels from a
+  non-collaborator are dropped by GitHub; the body still parses back).
 - Old git tags still point to history before the personal-data rewrite (owner
   has the retag commands).
 - PR #2 (Trail-Code + Claude Code in Codespaces) is open, not merged.
@@ -76,6 +78,9 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- Game reports can be sent from the page as an issue on quer3q/ampr-emu-ng
+  (classic token with public_repo saved on the Remote tab, state/github-token
+  0600) or opened on GitHub filled in; same result per game not sent twice a day.
 - Packing uses every CPU core (owner), still at nice 19 (PS5LZ4_WORKERS overrides).
 - Page stays responsive while packing: /api/dashboard answers from the last
   result and rebuilds in the background; runtime SHA-256 cached; packing runs
