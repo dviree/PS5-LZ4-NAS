@@ -78,6 +78,8 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- Game sheet shows the version, master version and required firmware of a .pkg
+  (and an .exfat) from its own param.json; status reads "can be Zstd".
 - PS5 game .pkg files are found in the PS5 library and in the package folder
   (`/library-pkgs`, now also mounted read-only in the packing container by
   `update`/`install.sh`); the originals tab is "Folder / exFAT / PKG".

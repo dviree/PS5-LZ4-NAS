@@ -1532,15 +1532,15 @@ async function openGame(id) {
 }
 function gameHtml(g, det) {
   const r = det && det.report, f = det && det.folder, w = det && det.work;
-  const v = g.running ? 'packing now' : g.queued ? 'queued' : g.verdict;
+  const v = g.running ? 'packing now' : g.queued ? 'queued' : ({'can be LZ4': 'can be Zstd', 'not LZ4': 'not packable'}[g.verdict] || g.verdict);
   const rows = [
     ['Status', esc(v) + (g.why && g.verdict !== 'LZ4' ? `<div class="why">${esc(g.why)}</div>` : '')],
     ['Title ID', esc(g.title_id || '–')],
     ['Version', det && det.version && det.version.version ? esc(det.version.version) + (det.version.master ? `<div class="why">master ${esc(det.version.master)}</div>` : '') + (det.version.firmware ? `<div class="why">needs firmware ${esc(det.version.firmware)} or newer</div>` : '') : (det ? '–' : '…')],
     ['Source', g.output_only ? 'not in the library' : `${esc(KIND_EN[g.kind] || g.kind)}${g.source_size ? ' · ' + gb(g.source_size) : ''}<div class="why">On the NAS: ${esc(g.source_path || g.rel || '')}</div>` +
       (g.verdict === 'can be LZ4' && g.kind !== 'folder' ? '<div class="why">Packed from the image by PS5 Dump Forge; the original is not changed.</div>' : '')],
-    ['Original', gb(g.source_bytes)],
-    ['LZ4', gb(g.output_bytes)],
+    ['Original', gb(g.source_bytes || g.source_size)],
+    ['Packed', g.output_bytes ? gb(g.output_bytes) + (g.pack_codec ? ` <span class="mut">(${esc(g.pack_codec === 'zstd' ? 'Zstd' : 'LZ4')})</span>` : '') : '–'],
     ['Saved', g.saved_percent != null ? `${gb(g.source_bytes - g.output_bytes)} (${Math.round(g.saved_percent)} %)` : '–'],
   ];
   const grp = (data.duplicates || []).find(x => x.title_id === (g.title_id || '').toUpperCase());

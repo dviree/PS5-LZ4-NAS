@@ -5042,7 +5042,11 @@ def pkg_info(path: Path) -> dict:
                     j = json.loads(raw.decode("utf-8-sig", "replace"))
                 except ValueError:
                     j = {}
-                info.update(name=name, title_id=tid, version=str(j.get("contentVersion") or ""), platform="PS5")
+                info.update(name=name, title_id=tid, version=str(j.get("contentVersion") or ""), platform="PS5",
+                            master=str(j.get("masterVersion") or ""))
+                fw = j.get("requiredSystemSoftwareVersion")
+                if isinstance(fw, str) and fw.startswith("0x") and len(fw) >= 6:
+                    info["firmware"] = f"{int(fw[2:4], 16):x}.{fw[4:6]}"
                 low = "\n".join((name, info["content_id"], path.name)).lower()
                 if any(e in ents for e in (0x0407, 0x0408, 0x1008)) or j.get("targetContentVersion"):
                     info["category"] = "Update"
@@ -6797,6 +6801,12 @@ def game_detail(game_id: str) -> dict:
         tid = src.title_id.upper()  # an original with no pack yet: its own param.json
     version = game_version(*(x for x in (out, src.path if src and src.kind == "folder" else None) if x),
                            name=(src.rel if src else "") or (out.name if out else game_id))
+    if not version.get("version") and src and src.kind == "pkg":
+        pi = pkg_info(src.path)  # the package's own param.json
+        version = {k: pi[k] for k in ("version", "master", "firmware") if pi.get(k)}
+    elif not version.get("version") and src and src.kind in ("exfat", "ffpfs", "ffpfsc"):
+        v = _safe(lambda: image_meta(src.path).get("version"), "")
+        version = {"version": v} if v else version
     return {"id": game_id, "report": rep or None, "folder": folder, "work": work, "skipped": skipped,
             "title_id": tid, "ng_submitted": (read_json(NG_SUBMITTED, {}) or {}).get(game_id) or [],
             "ng_reports": ng_reports().get(tid), "ng_reports_web": NG_REPORT_WEB,

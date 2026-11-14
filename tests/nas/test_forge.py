@@ -184,6 +184,8 @@ class ForgeIntegrationTests(unittest.TestCase):
         self.assertEqual(pkg.read_bytes(), before)  # the package is never changed
         # updates and DLC are not library games
         self.assertFalse(app.pkg_is_ps5_game({'platform': 'PS5', 'category': 'Update', 'title_id': 'PPSA01234'}))
+        info = app.pkg_info(pkg)
+        self.assertEqual(info['version'], '01.000.000')   # read from the package's own param.json
 
     def test_ps5_game_pkg_in_the_package_folder_is_found_too(self):
         pj = self.src/'sce_sys/param.json'
