@@ -78,6 +78,8 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- ampr-emu-ng → `12e2f8e` (main after v0.4.0): save BUSY to the game, equeue
+  node per registration, directory fds under 1024 (issue 58), paged ampr_emu.index.
 - Game sheet shows the version, master version and required firmware of a .pkg
   (and an .exfat) from its own param.json; status reads "can be Zstd".
 - PS5 game .pkg files are found in the PS5 library and in the package folder
