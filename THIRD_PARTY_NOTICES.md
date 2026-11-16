@@ -21,8 +21,8 @@ v3 or later (`LICENSE`).
 
 ## PS5 Dump Forge and ampr-emu-ng (NAS packing)
 
-The NAS image includes the unmodified PS5 Dump Forge 0.5.5 CLI (GPL-3.0-or-later):
-https://github.com/quer3q/ps5-dump-forge/tree/v0.5.5
+The NAS image includes the unmodified PS5 Dump Forge 0.5.6 CLI (GPL-3.0-or-later):
+https://github.com/quer3q/ps5-dump-forge/tree/v0.5.6
 
 Zstd and LZ4 NG use the ampr-emu-ng build described below. Forge also ships
 an unmodified ampr-emu-ng 0.3.4 runtime, SHA-256

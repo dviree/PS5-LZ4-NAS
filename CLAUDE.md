@@ -53,7 +53,7 @@
 ## Current upstream integration
 
 - ampr-emu-ng is pinned to upstream main `675b0c6` (after v0.4.1: compiled index
-  view, v0.4.0 save-thread stack overflow fixed, save/equeue fixes, fds under 1024), including the fd read priority fix from PR #51 (issue #37). Forge is v0.5.5.
+  view, v0.4.0 save-thread stack overflow fixed, save/equeue fixes, fds under 1024), including the fd read priority fix from PR #51 (issue #37). Forge is v0.5.6.
 - The Remote tab can install/start the checksum-verified Forge PS5 ELF; its
   bundled runtime is separate from the newer runtime installed by NAS packing.
 

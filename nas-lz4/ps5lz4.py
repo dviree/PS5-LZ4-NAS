@@ -5255,8 +5255,8 @@ def receiver_start() -> dict:
 
 # Match the reviewed Forge release used by the NAS packer. A console payload
 # has its own bundled runtime; it is not the newer NAS runtime in this image.
-FORGE_PS5_VERSION = "0.5.5"
-FORGE_PS5_SHA256 = "858b8ae2954341a3389e4a9f998c6a57d01bc4e4fb8f01a71c41719001c30be7"
+FORGE_PS5_VERSION = "0.5.6"
+FORGE_PS5_SHA256 = "f0415aab6ded1cdf875418b6683ab56aeae3721492af99fba71b08c2c351f82f"
 FORGE_PS5_PATH = "/data/pldmgr/payloads/ps5-dump-forge/ps5-dump-forge.elf"
 
 

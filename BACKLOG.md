@@ -78,6 +78,9 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- Forge → v0.5.6 (`2dc0a29`): bundles ampr-emu-ng v0.4.1, decrypts protected
+  .pkg entries (nptitle.dat, npbind.dat) instead of dropping them; PS5 ELF on
+  the Remote tab → v0.5.6 (SHA-256 from upstream's SHA256SUMS).
 - ampr-emu-ng → `675b0c6` (main after v0.4.1): compiled index view; fixes the
   v0.4.0 save-thread stack overflow that `12e2f8e` still had.
 - ampr-emu-ng → `12e2f8e` (main after v0.4.0): save BUSY to the game, equeue

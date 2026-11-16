@@ -40,7 +40,7 @@ Originals are kept; a finished copy is never overwritten. One finished output
 per library entry is tracked: to change modes, remove that generated copy using
 the app first, while retaining the original.
 
-The NG modes use the pinned **PS5 Dump Forge 0.5.5 CLI**, install the pinned
+The NG modes use the pinned **PS5 Dump Forge 0.5.6 CLI**, install the pinned
 **ampr-emu-ng main (`f9aa923`)** release runtime, and pack all assets except system files.
 Zstd outputs use `-zstd`; LZ4 outputs use `-lz4`. They can be sent to the PS5 or
 wrapped in an exFAT image using the existing actions. Queue resume preserves the

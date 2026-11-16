@@ -13,14 +13,14 @@ import tarfile
 import tempfile
 import urllib.request
 
-VERSION = '0.5.5'
-REF = '8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd'
+VERSION = '0.5.6'
+REF = '2dc0a29071fd909e30b00bce34e2cfe28ac05767'
 ASSETS = {
-    'x86_64': ('x86-64', '8b5c5243e09bc448b2ba6fd21d8c52921c1358201e4747fb5308a23e06dfc42f'),
-    'aarch64': ('arm64', '42f5309a4892a51129a8c0f75c3aced47f51a4f5c4902942b932f7ead60cef40'),
+    'x86_64': ('x86-64', '7bc7d1bc323f6b803f923a563696be0e64a733ceac551fadbff3f18495dcb3ae'),
+    'aarch64': ('arm64', 'c7ddfe308d23051ec15de465a34ce6c8f7def152d801b0f310ec6e68454f8d6d'),
 }
-NG_SHA = '7d1bb260f954b755ed687733e52ccfa38c31440a9b88a6fbba5b3b75e08bfa26'
-SOURCE_SHA = 'b9ecf547b3daaff5de905d0d98514730b8d78483875faec1de26d70b9c7466fa'
+NG_SHA = '9c7c41b3216bc4f877d67e3c2e5c9c8f9ffabdd5065f4f3fe0dd98fa7228386f'
+SOURCE_SHA = '322f4c923439bf963ea02774d70a70e2e5cf276489253f8fbd9842e5f87058f3'
 
 
 def download(url, target, digest=None):
@@ -50,7 +50,7 @@ def install(bin_dir=Path('/usr/local/bin'), data_dir=Path('/opt/ps5lz4')):
             target.chmod(0o755)
     raw = f'https://raw.githubusercontent.com/quer3q/ps5-dump-forge/{REF}'
     download(raw + '/vendor/ampr-emu-ng/libSceAmpr.sprx', data_dir / 'libSceAmpr-ng.sprx', NG_SHA)
-    download(raw + '/vendor/ampr-emu-ng/ampr-emu-ng-0.3.4-src.tar.gz', licenses / 'ampr-emu-ng-0.3.4-src.tar.gz', SOURCE_SHA)
+    download(raw + '/vendor/ampr-emu-ng/ampr-emu-ng-0.4.1-src.tar.gz', licenses / 'ampr-emu-ng-0.4.1-src.tar.gz', SOURCE_SHA)
     for source, name in [('LICENSE', 'LICENSE'), ('THIRD-PARTY-NOTICES.md', 'THIRD-PARTY-NOTICES.md'),
                          ('vendor/ampr-emu-ng/README.md', 'ampr-emu-ng.md')]:
         download(raw + '/' + source, licenses / name)
