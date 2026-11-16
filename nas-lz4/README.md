@@ -867,8 +867,9 @@ Mark the result on the web page and share it with the community.
 ## Runtime fixes and Docker update
 
 NG outputs now use ampr-emu-ng `main` at
-`12e2f8e86be26bfb064979eb372b9d59d304992e` from https://github.com/quer3q/ampr-emu-ng
-(main after v0.4.0: save BUSY passed back to the game, one equeue node per
+`675b0c67182f0acee21ea8ee2c0cb1d029a4f05a` from https://github.com/quer3q/ampr-emu-ng
+(main after v0.4.1: one compiled index view built at start, the v0.4.0 save-thread
+stack overflow fixed, stack budgets checked in the build; earlier: save BUSY passed back to the game, one equeue node per
 registration (a save-load hang), directory fds under 1024, a large ampr_emu.index
 paged; v0.4.0: FPKG (pkg) games, writable /app0 and split reads for LZ4 and pkg packs,
 on top of v0.3.5's save fixes, the fd read thread priority from PR #51 for

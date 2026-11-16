@@ -78,6 +78,8 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- ampr-emu-ng → `675b0c6` (main after v0.4.1): compiled index view; fixes the
+  v0.4.0 save-thread stack overflow that `12e2f8e` still had.
 - ampr-emu-ng → `12e2f8e` (main after v0.4.0): save BUSY to the game, equeue
   node per registration, directory fds under 1024 (issue 58), paged ampr_emu.index.
 - Game sheet shows the version, master version and required firmware of a .pkg

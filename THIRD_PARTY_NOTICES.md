@@ -36,12 +36,12 @@ NG's corresponding source archive under `/opt/ps5lz4/licenses/ps5-dump-forge`.
 ### ampr-emu-ng runtime build
 
 NG packing and repair use ampr-emu-ng commit
-`12e2f8e86be26bfb064979eb372b9d59d304992e` (main after v0.4.0, including FPKG
+`675b0c67182f0acee21ea8ee2c0cb1d029a4f05a` (main after v0.4.1, including FPKG
 games, writable /app0, split reads, save fixes, fd read thread priority, exact-size pack reads, and James St-Pierre's
 low-descriptor, packed-fd slot, synthetic fd range and event ring fixes merged) from https://github.com/quer3q/ampr-emu-ng
 (GPL-3.0-or-later). The build checks out exactly that commit; a source archive made
 from it and the upstream LICENSE are included in the image under
-`/opt/ps5lz4/licenses/ampr-emu-ng-12e2f8e/`.
+`/opt/ps5lz4/licenses/ampr-emu-ng-675b0c6/`.
 The binary is built from this source, not downloaded as an unpinned branch asset.
 
 Kernel AIO on packed files is part of that upstream commit; no patch is applied.
