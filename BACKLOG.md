@@ -78,6 +78,8 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- ampr-emu-ng → `238a72b` (main after v0.4.1, 18 Nov): ScratchBuffer drop recursion
+  (stack overflow at load, titles without ampr_emu.index), directory listing fix.
 - ampr-emu-ng → `3ced5c0` (main after v0.4.1): 256 MiB PRX (was 184), bigger
   cache, shorter read path, save-mount fixes. Check memory-tight games on the PS5.
 - Forge → v0.5.6 (`2dc0a29`): bundles ampr-emu-ng v0.4.1, decrypts protected

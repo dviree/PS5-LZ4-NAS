@@ -867,8 +867,10 @@ Mark the result on the web page and share it with the community.
 ## Runtime fixes and Docker update
 
 NG outputs now use ampr-emu-ng `main` at
-`3ced5c021cd8ab1c5f43e44074a8000b6608fe94` from https://github.com/quer3q/ampr-emu-ng
-(main after v0.4.1, 17 Nov: a 256 MiB PRX with a larger cache, a shorter read path,
+`238a72b6617243df07b9b482bf448cdc4238ff6d` from https://github.com/quer3q/ampr-emu-ng
+(main after v0.4.1, 18 Nov: a ScratchBuffer drop recursion that overflowed the main
+thread's stack at load fixed, packed entries listed for a plain open of a directory,
+event queues tracked from their first AMPR add; 17 Nov: a 256 MiB PRX with a larger cache, a shorter read path,
 save mounts fixed (a BUSY mount of a held slot hung loads), unused features removed;
 before that: one compiled index view built at start, the v0.4.0 save-thread
 stack overflow fixed, stack budgets checked in the build; earlier: save BUSY passed back to the game, one equeue node per
