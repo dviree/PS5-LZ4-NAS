@@ -78,6 +78,8 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- ampr-emu-ng → `abaebff` (19 Nov): index hash collisions, saves in 4.xx backports,
+  save-mount mode, unmapped read destinations; PRX back to 150.89 MiB.
 - ampr-emu-ng → `238a72b` (main after v0.4.1, 18 Nov): ScratchBuffer drop recursion
   (stack overflow at load, titles without ampr_emu.index), directory listing fix.
 - ampr-emu-ng → `3ced5c0` (main after v0.4.1): 256 MiB PRX (was 184), bigger
