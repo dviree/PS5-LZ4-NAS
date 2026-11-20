@@ -5,15 +5,15 @@
 
 # ampr-emu-ng main after v0.4.1 (quer3q): 150.89 MiB PRX, index hash collisions fixed,
 # saves of 4.xx backports, save-mount mode check, unmapped read destinations waited out. Built from upstream without local patches.
-FROM rust:1.99.0-slim-trixie@sha256:24e632c09342c20abf8312cf4f61430a911c01ed3a5e4c02b87292b1c39c5273 AS ng-runtime
+FROM rust:1.100.0-slim-trixie@sha256:6f14b2b4b278ec0d50aa1d69541c304ce0f95e0f6268487aa9924af1c2e9aebe AS ng-runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates clang-19 lld-19 llvm-19 make curl unzip python3 git \
     && rm -rf /var/lib/apt/lists/*
 ENV PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk LLVM_CONFIG=/usr/bin/llvm-config-19
 ENV PATH=/usr/lib/llvm-19/bin:$PATH
-ENV RUSTUP_TOOLCHAIN=1.99.0 RUSTUP_AUTO_INSTALL=0
-RUN curl -fsSL --retry 3 https://github.com/ps5-payload-dev/sdk/releases/download/v0.43/ps5-payload-sdk.zip -o /tmp/sdk.zip \
-    && echo 'a9cc9929f21b2b2c5d5b309f3bab4997067c45281c0622cf4838b1aecba66fcb  /tmp/sdk.zip' | sha256sum -c - \
+ENV RUSTUP_TOOLCHAIN=1.100.0 RUSTUP_AUTO_INSTALL=0
+RUN curl -fsSL --retry 3 https://github.com/ps5-payload-dev/sdk/releases/download/v0.45/ps5-payload-sdk.zip -o /tmp/sdk.zip \
+    && echo '5fac64093d0e3e69f2584ce7935f24f703f622d9681f1495c85b9f00d1291a2c  /tmp/sdk.zip' | sha256sum -c - \
     && unzip -q /tmp/sdk.zip -d /opt && rm /tmp/sdk.zip
 RUN rustup component add rust-src
 WORKDIR /runtime

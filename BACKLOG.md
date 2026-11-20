@@ -54,6 +54,9 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
   says ampr-emu-ng serves such reads; check PPSA26344 and PPSA34547 on the PS5.
 - Check on the NAS that Send to GitHub opens the issue (labels from a
   non-collaborator are dropped by GitHub; the body still parses back).
+- The follower moves only the ampr-emu-ng commit: when quer3q bumps the Rust
+  toolchain or the PS5 payload SDK (as in `abaebff`), copy his ps5/Dockerfile
+  pins into nas-lz4/Dockerfile by hand (or teach the follower to).
 - Old git tags still point to history before the personal-data rewrite (owner
   has the retag commands).
 - PR #2 (Trail-Code + Claude Code in Codespaces) is open, not merged.
