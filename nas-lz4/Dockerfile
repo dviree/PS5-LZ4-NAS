@@ -3,8 +3,8 @@
 # Build from the repository root:
 #   docker build -t ps5-lz4:local -f nas-lz4/Dockerfile .
 
-# ampr-emu-ng main after v0.4.1 (quer3q): 150.89 MiB PRX, index hash collisions fixed,
-# saves of 4.xx backports, save-mount mode check, unmapped read destinations waited out. Built from upstream without local patches.
+# ampr-emu-ng v0.5.0 (quer3q): 150.89 MiB PRX, index hash fix, saves of 4.xx backports,
+# loose files the disk lacks resolve to ENOENT, full getdents batches.
 FROM rust:1.100.0-slim-trixie@sha256:6f14b2b4b278ec0d50aa1d69541c304ce0f95e0f6268487aa9924af1c2e9aebe AS ng-runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates clang-19 lld-19 llvm-19 make curl unzip python3 git \
@@ -19,16 +19,16 @@ RUN rustup component add rust-src
 WORKDIR /runtime
 # Pinned by commit: the checkout must be exactly this commit (its hash covers every
 # file); source.tar.gz is made from it for the corresponding-source requirement.
-ARG NG_COMMIT=abaebff99961d4398885ce16d7eed481bf75827f
+ARG NG_COMMIT=d20210e224871864bee0888193c7c1062890639c
 RUN git init -q source && git -C source fetch -q --depth 1 https://github.com/quer3q/ampr-emu-ng "$NG_COMMIT" \
     && git -C source checkout -q FETCH_HEAD && test "$(git -C source rev-parse HEAD)" = "$NG_COMMIT" \
     && git -C source archive --format=tar.gz --prefix="ampr-emu-ng-$NG_COMMIT/" HEAD > source.tar.gz \
     && rm -rf source/.git
 WORKDIR /runtime/source
 RUN cargo test --workspace --locked \
-    && make verify AMPR_GIT_REV=abaebff \
+    && make verify AMPR_GIT_REV=d20210e \
     && cp out/release/libSceAmpr.sprx /runtime/libSceAmpr-ng.sprx \
-    && python3 -c 'import hashlib,json;from pathlib import Path;p=Path("/runtime/libSceAmpr-ng.sprx");Path("/runtime/ng-runtime.json").write_text(json.dumps({"name":"ampr-emu-ng abaebff (main after v0.4.1)","commit":"abaebff99961d4398885ce16d7eed481bf75827f","sha256":hashlib.sha256(p.read_bytes()).hexdigest()}))'
+    && python3 -c 'import hashlib,json;from pathlib import Path;p=Path("/runtime/libSceAmpr-ng.sprx");Path("/runtime/ng-runtime.json").write_text(json.dumps({"name":"ampr-emu-ng d20210e (v0.5.0)","commit":"d20210e224871864bee0888193c7c1062890639c","sha256":hashlib.sha256(p.read_bytes()).hexdigest()}))'
 
 FROM python:3.12-slim-bookworm AS forge
 COPY nas-lz4/install-forge.py /tmp/install-forge.py
@@ -51,8 +51,8 @@ COPY --from=forge /usr/local/bin/ps5-dump-forge /usr/local/bin/ps5-dump-forge
 COPY --from=forge /opt/ps5lz4/ /opt/ps5lz4/
 COPY --from=ng-runtime /runtime/libSceAmpr-ng.sprx /opt/ps5lz4/libSceAmpr-ng.sprx
 COPY --from=ng-runtime /runtime/ng-runtime.json /opt/ps5lz4/ng-runtime.json
-COPY --from=ng-runtime /runtime/source.tar.gz /opt/ps5lz4/licenses/ampr-emu-ng-abaebff/source.tar.gz
-COPY --from=ng-runtime /runtime/source/LICENSE /opt/ps5lz4/licenses/ampr-emu-ng-abaebff/LICENSE
+COPY --from=ng-runtime /runtime/source.tar.gz /opt/ps5lz4/licenses/ampr-emu-ng-d20210e/source.tar.gz
+COPY --from=ng-runtime /runtime/source/LICENSE /opt/ps5lz4/licenses/ampr-emu-ng-d20210e/LICENSE
 COPY nas-lz4/ps5lz4.py /opt/ps5lz4/ps5lz4.py
 COPY nas-lz4/ui.html /opt/ps5lz4/ui.html
 COPY nas-lz4/store.html /opt/ps5lz4/store.html

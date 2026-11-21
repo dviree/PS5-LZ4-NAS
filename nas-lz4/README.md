@@ -867,8 +867,9 @@ Mark the result on the web page and share it with the community.
 ## Runtime fixes and Docker update
 
 NG outputs now use ampr-emu-ng `main` at
-`abaebff99961d4398885ce16d7eed481bf75827f` from https://github.com/quer3q/ampr-emu-ng
-(main after v0.4.1, 19 Nov: index hash collisions that refused real indexes fixed,
+`d20210e224871864bee0888193c7c1062890639c` from https://github.com/quer3q/ampr-emu-ng
+(v0.5.0, 20 Nov: a loose file the index lists but the disk lacks resolves to ENOENT,
+a getdents batch on a virtual directory is filled past its physical entries; 19 Nov: index hash collisions that refused real indexes fixed,
 a refused creating save mount retried with systemBlocks 0 (games backported to
 4.xx can save), a read-only save mount never shared with a writing one, unmapped
 read destinations waited out instead of faulting, a 150.89 MiB PRX; 18 Nov: a ScratchBuffer drop recursion that overflowed the main

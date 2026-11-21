@@ -81,6 +81,8 @@ actions; PS5: ShadowMount *Hide* renames to `.name`). Last finished
 
 ## Done recently (newest first)
 
+- ampr-emu-ng → `d20210e` (v0.5.0): missing loose files resolve to ENOENT, full
+  getdents batches on virtual directories (a title that lists once saw no packed files).
 - ampr-emu-ng → `abaebff` (19 Nov): index hash collisions, saves in 4.xx backports,
   save-mount mode, unmapped read destinations; PRX back to 150.89 MiB.
 - ampr-emu-ng → `238a72b` (main after v0.4.1, 18 Nov): ScratchBuffer drop recursion
